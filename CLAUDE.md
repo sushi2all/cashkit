@@ -21,6 +21,8 @@ Deterministic cash-flow modelling engine, SDK-only surface, built for LLM agents
 
 ## Working conventions
 
+- Remote: `https://github.com/sushi2all/cashkit.git`, branch `main`. Never force-push. Commits never carry `Co-Authored-By` trailers (Claude, Anthropic, or otherwise).
+
 - Rounding order is canonical (PRD §5.3): escalation → probability → settlement split → withholding → VAT. The reference engine and vectorized engine must share it byte-for-byte.
 - All authored amounts are VAT-exclusive (net). No VAT-inclusive mode exists.
 - Formula front-end is built in Phase 2 with the reference engine; Phase 4 hardens it (ADR-0001).

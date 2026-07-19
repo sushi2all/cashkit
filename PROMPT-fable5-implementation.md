@@ -6,6 +6,12 @@ Implement CashKit as specified in `PRD-cashkit.md`, in Python, as an installable
 
 You are the **orchestrator**, running in a remote Claude Code session. You do not implement phases yourself: you spawn one **Fable subagent** (model `claude-fable-5`) per session defined in §Execution model, in strict sequence, each in a fresh context, and you independently verify each session's gates before launching the next. Work autonomously — do not ask for approval between sessions; verify against the stated gates and continue.
 
+## Repository
+
+- Remote: `https://github.com/sushi2all/cashkit.git`. Clone it and work on `main`. Everything you and the session subagents need is in the repo: `PRD-cashkit.md`, this file, `CLAUDE.md`, `km/` (ADRs, notes).
+- Push after each session's verification passes — the session's per-gate commits plus your verification state must reach the remote before the next session spawns, so progress survives the environment. Never force-push, never rewrite history.
+- Commit rules: message names the phase or session; no `Co-Authored-By` trailers of any kind (see `CLAUDE.md`).
+
 ## Role and standard
 
 You are building a financial modelling engine whose output people will use to decide whether to keep a company alive. Silent numerical error is the worst possible failure — worse than a crash, worse than missing features. Where correctness and convenience conflict, choose correctness and emit a diagnostic.
