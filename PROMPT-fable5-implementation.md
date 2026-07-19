@@ -14,9 +14,9 @@ Write production Python: full type annotations, Pydantic v2 models, no `Any` out
 
 Violating any of these invalidates work downstream. If you find yourself wanting to break one, stop and write the reason into `DECISIONS.md` instead, then proceed within the constraint.
 
-1. **No float for money.** int64 minor units at 4 decimal places in the engine core; `Decimal` at parse/serialize/display boundaries. The single permitted float64 use is the `(1+r)^n` escalation intermediate, which must be followed by an explicit rounding step and covered by a property test against a Decimal reference.
+1. **No float for money.** int64 minor units at 4 decimal places in the engine core; `Decimal` at parse/serialize/display boundaries. Escalation factors `(1+r)^n` are computed in Decimal per distinct `(rate, n)` pair and applied as scaled-int64 multipliers (PRD §5.3) — no float in the money path at all. A float64 fast path is admissible only behind a property test proving byte-identity with the Decimal factor table, tie cases included.
 2. **Formula semantics are `where`, not `if`.** Both branches always evaluate; selection is elementwise. Do not implement short-circuit conditionals. Every builtin must be expressible as a masked column operation.
-3. **Nothing reads the wall clock during evaluation.** `cutover` is a stored field. `date.today()` must not appear anywhere in `engine/` or `model/`. Add a lint check enforcing this.
+3. **Nothing reads the wall clock during evaluation.** `cutover` is a stored field. None of `date.today()`, `datetime.now()`, `datetime.utcnow()`, `datetime.today()`, or `time.time()` may appear anywhere in `engine/` or `model/`. Add a lint check enforcing this.
 4. **The union of Item-expansion and Event facts happens before derived evaluation.** If `agg()` cannot see actuals, every derived item is wrong.
 5. **Actuals are immutable.** No code path allows a scenario overlay to modify an event with `status="actual"`.
 6. **Errors are `Diagnostic` objects, not exceptions.** Exceptions are reserved for programmer error (wrong type, missing store, corrupt file). Anything a user or agent could plausibly do wrong returns a structured diagnostic with a `suggested_fix`.
@@ -25,7 +25,7 @@ Violating any of these invalidates work downstream. If you find yourself wanting
 
 ## Anti-patterns to avoid explicitly
 
-- Writing the naive per-period × per-item Python loop and planning to optimize later. The vectorized design constrains the formula language; retrofitting is impossible. Build the SCC-condensation evaluator from the start. (Keep the naive loop **only** as a test oracle in `tests/reference/`.)
+- Writing the naive per-period × per-item Python loop and planning to optimize later. The vectorized design constrains the formula language; retrofitting is impossible. Build the SCC-condensation evaluator from the start. (Keep the naive loop **only** as a test oracle: it ships as `cashkit/reference/` and is exercised from `tests/property/`.)
 - `yaml.dump()` on a Pydantic model. Write the canonical emitter first.
 - Denormalizing tags into the fact table.
 - Making `Recurrence` optional on `Segment` to handle one-offs. One-offs are Events.
@@ -49,6 +49,8 @@ Implement every model in PRD §4. Implement the canonical YAML emitter: fixed fi
 
 Implement the naive per-period, per-item, `Decimal` evaluator described in PRD §5.2 as `cashkit.reference`. Correctness only; performance irrelevant. This is the oracle every later optimization is tested against, and it is the artifact that makes the rest of the project safe.
 
+This phase includes the **minimal formula front-end** the oracle needs: the restricted-AST parser, symbol table and builtin semantics from PRD §5.4 (including `prev()` init values and masked-safe division), evaluated naively. Phase 4 does not introduce the language — it hardens this front-end.
+
 **Gate:** Runs a 20-item fixture book with multi-segment items, escalation, settlement splits and a `prev()` feedback loop, producing hand-verified numbers. Hand-verify at least three periods against a spreadsheet you construct and commit as `tests/fixtures/hand_verified.csv`.
 
 ### Phase 3 — Graph, condensation, vectorized engine
@@ -57,13 +59,13 @@ Build the dependency graph including `prev()` edges. Compute strongly connected 
 
 Implement vectorized segment expansion: date-index masking, escalation over a year-index vector, settlement as array shifts, `agg()` as row-sums over resolved slices.
 
-**Gate:** Dual-engine equality. The vectorized engine and the reference engine produce **byte-identical** results on a corpus of ≥50 generated books covering: multi-segment items, all `Recurrence` anchors, business-day adjustment, all `DueTerm` shapes including `remainder` clamping, `prev(n>1)`, feedback loops, `agg()` selectors, and empty-`due` accrual-only items. Zero tolerance — exact integer equality.
+**Gate:** Dual-engine equality. The vectorized engine and the reference engine produce **byte-identical** results on a corpus of ≥50 generated books covering: multi-segment items, all `Recurrence` anchors, business-day adjustment, all `DueTerm` shapes including `remainder` clamping, `prev(n>1)`, feedback loops, `agg()` selectors, empty-`due` accrual-only items, `probability < 1` weighting, withholding, and mixed-sign (credit-note) amounts. Zero tolerance — exact integer equality.
 
 Performance gate: 50 items × 1826 periods cold run < 50 ms; delta recompute < 5 ms.
 
 ### Phase 4 — Formula language
 
-Restricted AST walk. Whitelist node types; reject attribute access, comprehensions, lambdas, imports, and any call outside the builtin table. Implement the symbol table from PRD §5.4.
+Harden the formula front-end built in Phase 2. Whitelist node types; reject attribute access, comprehensions, lambdas, imports, and any call outside the builtin table. Complete the symbol table from PRD §5.4, including the selector grammar.
 
 Resolve `agg()` selectors to concrete item IDs at graph-build time. Reject self-dependency with a diagnostic naming the cycle.
 
@@ -71,7 +73,7 @@ Resolve `agg()` selectors to concrete item IDs at graph-build time. Reject self-
 
 ### Phase 5 — Ledger and events
 
-SQLite store. `UNIQUE(source, ext_id)`. `import_events` is all-or-nothing per batch and idempotent on re-import. Implement the fact union with generative expansion, and the cutover suppression rule (before cutover, suppress generation for items that have actual events; after, resume).
+SQLite store. `UNIQUE(source, ext_id)`. `import_events` is idempotent on re-import; a conflicting payload aborts the batch (PRD §6.2). Implement `void_event` tombstoning. Implement the fact union with generative expansion, and the cutover rule per PRD §3.2: before cutover, generation is suppressed for **all** items and the ledger is authoritative; from cutover forward, generation resumes and committed/forecast events apply; actuals dated on/after cutover raise `CK-W003`, never a dedup guess.
 
 **Gate:** Re-importing the same 5,000-row CSV three times yields identical ledger state and an `ImportReport` reporting the skips. A book with cutover mid-horizon shows actuals before and forecast after with no double-count and no gap at the boundary — verified by a total-sum invariant test.
 
@@ -97,11 +99,11 @@ Tidy/long canonical format. DuckDB materialization with `DECIMAL(18,4)`. Tag dim
 
 pygit2 against the object database. `commit()`, `status()`, `discard()`, `history()`, `at()`, `diff_revisions()`, `blame()`. Ledger watermark on the book so historical runs see a truncated ledger. `.cashkit/version` and a forward-only migration path.
 
-**Gate:** `at("HEAD~5").run(s).summary()` reproduces the summary committed at that revision, exactly. A reformat-only change produces an empty `diff_revisions()`. A fixture repo spanning three schema generations migrates and reproduces all historical runs. Two concurrent writers: the second fails loudly, never merges silently.
+**Gate:** `at("HEAD~5").run(s).summary()` reproduces the summary committed at that revision, exactly, when the current engine version matches the snapshot's recorded `engine_version`; on mismatch the comparison surfaces the engine delta, never a silent failure. A reformat-only change produces an empty `diff_revisions()`. A fixture repo spanning three schema generations migrates and reproduces all historical runs. Two concurrent writers: the second fails loudly, never merges silently.
 
 ### Phase 10 — Introspection and CLI
 
-`trace()`, `why_zero()`, `depends_on()`, `describe_book()`, `validate()` with the full diagnostic catalogue. CLI: `init`, `doctor --json`, `validate`, `run`, `serve --quack`.
+`trace()`, `why_zero()`, `depends_on()`, `describe_book()`, `validate()` with the full diagnostic catalogue (PRD §10.1). CLI: `init`, `doctor --json`, `validate`, `run`, `status`, `commit`, `history`, `serve --quack` (feature-flagged per PRD §3.4).
 
 **Gate:** `trace()` on any cell of a 50-item fixture returns formula, resolved bindings and arithmetic to depth 3 with no `None` fields. `why_zero()` distinguishes all five zero causes. `describe_book()` output is complete enough that a fresh agent, given only that output, writes a working `pivot()` call with no invalid field names.
 
@@ -109,7 +111,7 @@ pygit2 against the object database. `commit()`, `status()`, `discard()`, `histor
 
 Build `cashkit-skill/` per PRD §9, including all ten recipes and the tax-handling section verbatim from §9.5.
 
-**Gate:** A fresh agent session given only `SKILL.md` and a bare workspace: installs CashKit, initializes a book, adds 20 items including VAT, imports a CSV of actuals, builds a downside scenario, answers "when do we run out of cash", and produces the tax coverage statement — with no direct file access and no git commands. Run this end-to-end and record the transcript in `tests/agent/`.
+**Gate:** A fresh agent session given only `SKILL.md` and a bare workspace: installs CashKit from a local wheel (path supplied by the harness — the package is not on PyPI), initializes a book, adds 20 items including VAT, imports a CSV of actuals, builds a downside scenario, answers "when do we run out of cash", and produces the tax coverage statement — with no direct file access and no git commands. Run this end-to-end and record the transcript in `tests/agent/`.
 
 ---
 

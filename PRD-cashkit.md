@@ -1,6 +1,6 @@
 # CashKit — Product Requirements Document
 
-**Version** 0.1 (design freeze candidate)
+**Version** 0.2 (design freeze candidate — pre-implementation review applied; see `km/notes/2026-07-19-prd-review.md` and `km/adr/`)
 **Status** Ready for implementation
 **Owner** Luca — Progress Lab S.r.l.
 
@@ -40,7 +40,7 @@ These are settled. Deviating from any of them invalidates parts of the architect
 | D2 | **Two input kinds**: generative `Item` (segments) and literal `Event` (ledger rows), unioned into fact rows before derived evaluation | A contract is a pattern; an order line is a fact. Forcing either shape onto the other loses intent or exactness. |
 | D3 | **Accrual and cash are separate measures**, not one value with an offset | Cash balance folds over cash; P&L views aggregate accrual; VAT tax point may key off either. |
 | D4 | Scenarios are **authored by value**, stored as sparse overlays; diffs are computed, never input | `set_item(item_as_you_want_it)` is legible to humans and agents. Field-path patches are not. |
-| D5 | **The Item is the atom of override.** `segments` is an atomic field. | List-merge semantics on nested config is where these systems die. |
+| D5 | **Overrides are authored by whole Item, stored field-sparse.** `segments` is an atomic field. | List-merge semantics on nested config is where these systems die. Resolution algorithm in §4.6. |
 | D6 | `cutover` is a **committed value**, never `date.today()` | Reading the clock during evaluation destroys reproducibility, cache validity, and backtesting. |
 | D7 | **int64 minor units** in the engine core; `Decimal` only at the boundaries | Decimal is exact but ~100× slower and does not vectorize. int64 at 4dp is exact for add/sub. |
 | D8 | Formula semantics are **`where`, not `if`** — both branches always evaluate, selection is elementwise | Short-circuit semantics cannot be vectorized. This cannot be retrofitted without breaking every formula. |
@@ -84,6 +84,8 @@ Events ─────filter──────┘     (union MUST precede derive
 
 **Ordering constraint:** the union of generative and literal facts happens *before* derived evaluation. If it does not, `agg(tag="cat:revenue")` silently ignores actuals and every derived item is wrong.
 
+**Cutover semantics:** `cutover` is a boundary date. Periods `< cutover` are the reconciled past; periods `>= cutover` are forecast (the cutover date itself is the first forecast period). Before cutover, generative expansion is suppressed for **all** items — reconciled means the ledger is the complete record of what happened; events in that window are taken as-is, whatever their status. From cutover forward, generation resumes and `committed`/`forecast` events apply. An `actual` event dated on or after cutover is included and does **not** suppress generation; `validate()` emits `CK-W003` ("actuals after cutover — reconcile and advance cutover") rather than guessing a dedup.
+
 ### 3.3 Storage layout
 
 ```
@@ -111,7 +113,9 @@ Events ─────filter──────┘     (union MUST precede derive
 Git tracks: `book.yaml`, `params.yaml`, `items/`, `scenarios/`, `snapshots/`, `.cashkit/version`.
 Git ignores: everything derived or high-volume.
 
-Because actuals are immutable and append-only, a historical `at(ref)` needs to know whether the ledger has moved. Store a **ledger watermark** (max `rowid` + row count hash) on `book.yaml`; a run at an old revision uses the ledger truncated to that watermark.
+Because actuals are immutable and append-only, a historical `at(ref)` needs to know whether the ledger has moved. Store a **ledger watermark** (max `rowid` + row count hash) on `book.yaml`, stamped by `commit()` — never by `import_events`, so imports do not dirty tracked config. A live run always uses the full ledger; only a run through `at(ref)` truncates the ledger to that revision's watermark. Snapshots record `engine_version` and the watermark; exact historical reproduction is guaranteed at matching engine version (see §6.6).
+
+**Base is a scenario with `parent=None`, but its content lives in the top-level `book.yaml` / `params.yaml` / `items/` for diff legibility; `scenarios/base.yaml` is the (normally empty) overlay shell.** This is a storage-layout special case only — resolution, execution and the SDK treat base exactly like any other scenario; no code path may branch on "is this base".
 
 ### 3.4 Remote access
 
@@ -125,6 +129,55 @@ DuckDB's Quack protocol (core_nightly in v1.5.2; stable with DuckDB v2.0, Septem
 
 All models are Pydantic v2. `Money` is `Decimal` at the boundary, int64 minor units internally.
 
+### 4.0 Primitives
+
+```python
+class Grain(str, Enum):
+    DAY = "day"; WEEK = "week"; MONTH = "month"; QUARTER = "quarter"; YEAR = "year"
+
+Money = Decimal        # boundary type; int64 minor units at 4 dp inside the engine
+Duration = str         # "<n>d" | "<n>w" | "<n>m" | "<n>y" — calendar semantics
+                       # ("2m" = two calendar months, day clamped to month end)
+PeriodRef = date       # segment boundaries are concrete ISO dates in v1
+
+class PeriodRange(BaseModel):
+    start: date
+    end: date                           # exclusive: [start, end)
+
+class CalendarSpec(BaseModel):
+    fiscal_year_start_month: int = 1
+    country: str | None = None          # seed for the holiday set, e.g. "IT"
+    holidays: list[date] = []           # RESOLVED for the whole horizon at book
+                                        # creation and committed. The `holidays`
+                                        # package is only a seed; runtime never
+                                        # consults it (reproducibility).
+    weekend: set[int] = {5, 6}          # ISO weekday indices, Sat/Sun
+
+class Watermark(BaseModel):
+    max_rowid: int
+    row_count: int
+    content_hash: str                   # over (source, ext_id, date, amount) rows
+
+class Amount(BaseModel):                # exactly one of the two set
+    constant: Money | None = None
+    schedule: list[tuple[date, Money]] | None = None
+    # An `expression` variant is deliberately absent in v1: formulas belong to
+    # derived items. Computed schedules are authored via the SDK.
+
+class Escalation(BaseModel):
+    rate: str | Decimal                 # param key or literal annual rate
+    every_years: int = 1
+    anchor: Literal["segment_start", "calendar_year"] = "segment_start"
+
+class Diagnostic(BaseModel):
+    severity: Literal["error", "warning", "info"]
+    code: str                           # from the catalogue in §10.1
+    item_id: ItemId | None = None
+    field: str | None = None
+    message: str
+    suggested_fix: str
+```
+
 ### 4.1 Book
 
 ```python
@@ -136,12 +189,14 @@ class Book(BaseModel):
     opening_balance: Money
     cutover: date                   # last reconciled period boundary — NEVER today()
     ledger_watermark: Watermark | None
-    params: dict[str, Decimal]      # named scalars: vat.standard, inflation, fx.eur_usd
+    params: dict[str, Decimal]      # named scalars: vat_standard, inflation, fx_eur_usd.
+                                    # Keys match [a-z][a-z0-9_]* so formula access
+                                    # p.<key> is 1:1; dotted keys are rejected (CK-E007)
     items: dict[ItemId, Item]
     tax_regimes: list[TaxRegime]
 ```
 
-**`params` is the lever surface.** Anything an agent might sweep must be a param, not a literal inside a formula. VAT rates, escalation rates, FX, churn, headcount cost — all params.
+**`params` is the lever surface.** Anything an agent might sweep must be a param, not a literal inside a formula. VAT rates, escalation rates, FX, churn, headcount cost — all params. `opening_balance` is also a reserved param key: setting it in a scenario overrides the Book field, so capital-injection cases are sweepable.
 
 ### 4.2 Item — the generative input
 
@@ -149,8 +204,14 @@ class Book(BaseModel):
 class Item(BaseModel):
     id: ItemId
     name: str
-    kind: Literal["flow", "derived", "stock"]
-    direction: Literal["in", "out"] | None    # display only; storage is signed
+    kind: Literal["flow", "derived", "stock"]  # "stock" is valid on derived items only
+                                               # in v1; a generative stock is rejected
+                                               # with a diagnostic (CK-E012)
+    direction: Literal["in", "out"] | None    # display only; storage is signed.
+                                              # add_item() rejects amounts whose sign
+                                              # contradicts direction (CK-E011) — an
+                                              # agent authoring rent as positive/"out"
+                                              # must not silently create an inflow
     tags: dict[str, str]                      # dimensional: {customer: "acme", cat: "revenue"}
     flags: set[str]                           # boolean: {"committed", "pipeline"}
     currency: str = "EUR"
@@ -166,7 +227,8 @@ class Segment(BaseModel):
     start: PeriodRef
     end: PeriodRef | None                     # None = open-ended
     recurrence: Recurrence                    # REQUIRED — one-offs are Events, not segments
-    amount: Amount                            # constant | expression | explicit schedule
+    amount: Amount                            # constant | explicit schedule (§4.0 —
+                                              # no expression variant in v1)
     escalation: Escalation | None
     probability: Decimal = 1                  # pipeline weighting
 
@@ -174,7 +236,9 @@ class Recurrence(BaseModel):
     every: int
     unit: Grain
     anchor: Literal["period_start", "period_end", "day_of_month", "eom"] = "period_start"
-    day: int | None = None
+    day: int | None = None                    # day_of_month anchor; values past the
+                                              # month's end clamp to the last day
+                                              # (31 → Feb 28/29)
     business_day_adjust: Literal["none", "prev", "next"] = "none"
 ```
 
@@ -223,13 +287,15 @@ Constructors for ergonomics: `Settlement.net(60)`, `Settlement.immediate()`, `Se
 **Validation at `add_item()` time, not run time:**
 - Either all entries use `share` and they sum to exactly `1` (Decimal, no float tolerance),
 - or a mix of `amount` entries with exactly one `remainder: true`.
-- Fixed `amount` entries consume first; `remainder` takes what is left. If the accrued amount is smaller than the fixed entries, **clamp to zero and emit a warning diagnostic** (partial delivery produces this legitimately).
+- Fixed `amount` entries consume first and **pay in full even when they exceed the accrued amount** — a deposit larger than delivered work is real cash. `remainder` takes what is left, **clamped to zero with a warning diagnostic** (`CK-W001`; partial delivery produces this legitimately).
+- Negative accrued amounts (credit notes): `share` splits apply sign-symmetrically. A negative accrual meeting fixed-`amount` terms routes entirely through `remainder` and emits `CK-W002` — fixed legs never flip sign.
+- **Withholding is one leg only:** it reduces the cash moved at settlement. The counter-leg — remittance to the state via F24 when you are the payer, or the tax credit when your client withholds — is **not generated by the engine** and must be modelled per §7.2. `validate()` emits `CK-W004` when withholding is in use and no `cat:tax` item covers the remittance.
 
 ### 4.5 VAT and tax
 
 ```python
 class VatSpec(BaseModel):
-    rate: str | Decimal = "vat.standard"    # param key by default, literal allowed
+    rate: str | Decimal = "vat_standard"    # param key by default, literal allowed
     treatment: str = "standard"             # standard | exempt | reverse_charge |
                                             # out_of_scope | export | split_payment
     recoverable: Decimal = 1                # input VAT only; <1 for partial deductibility
@@ -244,6 +310,10 @@ class TaxRegime(BaseModel):
     credit_handling: Literal["carry", "refund_annual"] = "carry"
     annual_adjustment_month: int | None = None
 ```
+
+**All authored amounts are VAT-exclusive (net).** `Segment.amount` and `Event.amount` never include VAT. The engine computes VAT per line from `VatSpec`, grosses up the settlement cash leg (a 1,000 invoice at 22% collects 1,220), and routes the VAT component through the `TaxRegime` schedule. There is no VAT-inclusive authoring mode.
+
+**Engine integration:** each regime materializes as synthetic derived items (`_tax:<regime_id>:liability` flow and `_tax:<regime_id>:credit` stock) injected into the dependency graph **before condensation** — so credit carry-forward participates in `prev()` feedback and the cash fold sees tax payments like any other flow. For a VAT regime, `accumulates` defaults to every item carrying a `VatSpec`; for other regimes it is an explicit tag selector (grammar in §5.4).
 
 `TaxRegime` is deliberately generic. VAT is one instance. The decomposition — **a rate at the line, a schedule at the entity** — holds for VAT, IRAP, IRES and social contributions; only the accumulation base and schedule differ.
 
@@ -267,9 +337,9 @@ class Scenario(BaseModel):
 
 **Resolution rules — three, and they stay boring:**
 
-1. Item-level last-write-wins along the parent chain.
+1. Resolution is **field-sparse along the parent chain**: for each field of each item, the nearest ancestor overlay that *recorded* that field wins; unrecorded fields fall through to the parent. (`set_item` is authored by whole value, but only fields differing from the resolved parent are recorded — the by-value/computed-diff pipeline of D4.)
 2. `segments` is atomic. Touch one, replace the list. No positional patching, no ID matching, no partial merge.
-3. Scalar fields merge sparsely — so a later correction to `tags` or `settlement` in base propagates into scenarios that did not override them.
+3. Consequence of rule 1: a later correction to `tags` or `settlement` in base propagates into scenarios that did not override those fields, and does not propagate into ones that did.
 
 **Actuals are immutable across all scenarios.** A downside case cannot rewrite March's bank statement; it can only change what is forecast from `cutover` forward.
 
@@ -336,9 +406,12 @@ Because evaluation is this cheap, **the run cache is not load-bearing**. Recompu
 - Engine core: **int64 minor units at 4 decimal places**. Max ≈ 9×10¹⁴ currency units.
 - Add/subtract: exact.
 - Multiply by rate: scale → multiply → divide with one declared rounding policy (half-up by default, configurable to banker's). Rounding happens at declared boundaries only, never implicitly.
-- Escalation `(1+r)^n` uses a float64 intermediate, exact at these magnitudes — **but must be property-tested against a Decimal reference implementation in CI**.
+- Escalation factors `(1+r)^n` are computed **in Decimal**, once per distinct `(rate, n)` pair, converted to scaled int64 multipliers, and applied as a vectorized integer multiply. The distinct-factor count is tiny (rates × years), so this costs nothing and removes float from the money path entirely. A float64 fast path is admissible later only behind a property test proving byte-identity with the Decimal factor table, half-up tie cases included.
+- Rate multiplications (scale → multiply → divide) run their intermediates through arbitrary-precision ints (or a checked int128 path). Silent int64 wraparound is forbidden; an overflow pre-check failure raises — it never truncates.
+- **Rounding order is canonical and fixed:** base amount → escalation → probability weighting → settlement share split → withholding → VAT per line. Each step rounds to 4 dp under the declared policy before the next step. In a `share` split the last term absorbs the rounding residual so legs sum exactly to the accrued amount. The reference engine implements the identical order — dual-engine byte-equality depends on it.
+- Cross-currency aggregation is an **error diagnostic** (`CK-E020`), never a silent sum: `agg()` spanning mixed currencies, or a cash fold over mixed-currency items, refuses. Conversion arrives with multi-currency support (§7.3).
 - `Decimal` at parse, serialize, and display. The engine core never sees it.
-- **Never float for money.** The float64 use above is confined to a rate exponentiation with a rounding step.
+- **Never float for money.** With the Decimal factor table above, there is no float exception at all.
 
 ### 5.4 Formula language
 
@@ -347,7 +420,7 @@ Restricted Python AST walk. Whitelisted node types. No `eval`, no attribute acce
 | Symbol | Meaning |
 |---|---|
 | `it("acme_impl")` | value of another item, this period |
-| `prev("cash", n=1)` | value n periods back — the only cycle-breaker; `n` must be a literal |
+| `prev("cash", n=1, init=0)` | value n periods back — the only cycle-breaker; `n` must be a literal. For `t < n` it yields `init` (literal or param ref: `prev("cash", init=p.opening_balance)` seeds the cash fold) |
 | `p.vat_standard` | named param |
 | `agg(tag="cat:revenue")` | sum over items matching a selector, this period |
 | `cum("revenue")` | running total since horizon start |
@@ -356,6 +429,10 @@ Restricted Python AST walk. Whitelisted node types. No `eval`, no attribute acce
 | `min`, `max`, `clip`, `round_`, `abs_` | safe builtins |
 
 **`if_` does not exist.** Only `where`. Any function added later must be expressible as a masked column operation.
+
+**Division is masked-safe.** Because both `where` branches always evaluate, `a / x` executes at `x == 0` by design. Elementwise division by zero yields `0`; a warning diagnostic (`CK-W005`) attaches only when the zero-division cell is *selected* by the enclosing `where` (or there is no `where`). Division rounds to 4 dp under the book's declared policy, like every other rounding boundary.
+
+**Selector grammar** (shared by `agg()`, `retag()`, `TaxRegime.accumulates`, `frame(where=...)`): space-separated terms, ANDed. A term is `key:value` (tag equality) or `flag:name` (flag membership). No OR, no negation, no wildcards in v1 — model finer slices as tags.
 
 `agg()` selectors resolve to concrete item IDs at graph-build time so the DAG stays static. A selector that would make an item depend on itself is rejected with a diagnostic.
 
@@ -399,9 +476,15 @@ def validate(book) -> list[Diagnostic]
 ```python
 def add_event(book, event: Event) -> EventRef
 def import_events(book, rows: Iterable[Event], source: str) -> ImportReport
-    """Idempotent on (source, ext_id). Returns inserted / skipped / conflicted counts
-       plus per-row diagnostics. NEVER partially applies: all-or-nothing per batch."""
+    """Idempotent on (source, ext_id). A row whose (source, ext_id) exists with an
+       identical payload is skipped; one that exists with a DIFFERENT payload is a
+       conflict, and any conflict aborts the whole batch (all-or-nothing, CK-E010)
+       with per-row diagnostics. Returns inserted / skipped / conflicted counts."""
 def query_events(book, where=None, since=None, until=None) -> Table
+def void_event(book, event_id, note) -> ChangeReport
+    """Tombstone a committed/forecast event (append-only: the row is marked void,
+       never deleted, so watermarks stay valid). Refuses status='actual' with a
+       diagnostic."""
 def reconcile(book, until: date) -> ReconciliationReport
     """Compare actuals to what was forecast for the same window. Feeds set_cutover."""
 ```
@@ -445,7 +528,10 @@ def trace(run, item, period, depth=3) -> Trace
     """Formula, resolved bindings, arithmetic, recursively. NON-NEGOTIABLE:
        an agent asked 'why is March negative' must walk the computation, not guess."""
 def why_zero(run, item, period) -> Explanation
-    """Out of segment? probability 0? upstream null? suppressed by cutover?"""
+    """Distinguishes the five zero causes: (1) period outside every segment,
+       (2) probability 0, (3) upstream zero propagated through the formula,
+       (4) generation suppressed by cutover, (5) settlement produced no cash
+       leg this period (empty `due`, or remainder clamped to zero)."""
 def depends_on(book, item) -> Graph
 def dependents_of(book, item) -> Graph
 def describe_book(book) -> BookDescription
@@ -473,6 +559,8 @@ def blame(item, field) -> list[Revision]
 
 Cache key: `(revision_sha, scenario_id, engine_version, ledger_watermark)`.
 
+**Single writer:** write operations take an exclusive lockfile at `.cashkit/lock` (O_EXCL, pid + timestamp). A second concurrent writer receives `CK-E013` naming the lock holder; stale locks (dead pid) are reclaimed with `CK-W010`. This is the "fails loudly, never merges silently" mechanism, and it covers all three stores.
+
 ### 6.7 Two-tier commit model
 
 Not every change deserves a commit. Exploratory sweeping stays in memory; `commit()` marks meaningful boundaries ("revised Acme terms", "Q3 plan as presented"). Otherwise history becomes noise and the review gate loses its value.
@@ -493,7 +581,7 @@ Not every change deserves a commit. Exploratory sweeping stays in memory; `commi
 | Multi-tenant SaaS, auth, RBAC | Single-entity tool | Deploy per entity |
 | Consolidation across legal entities | Requires intercompany elimination logic | Separate books; aggregate externally if needed |
 | Real-time streaming updates | Batch recompute is 1–26 ms | Recompute on demand |
-| Automatic currency hedging logic | Modelling, not execution | FX rates as param time series; conversion as a derived measure |
+| Automatic currency hedging logic | Modelling, not execution | FX rates as scalar params per scenario; per-period rate series and revaluation are deferred (§7.3) |
 | Optimization / solver ("find the price that hits breakeven") | Different problem class | Parameter sweep + external solver on the SDK |
 
 ### 7.2 Tax mechanics deliberately not native
@@ -562,6 +650,9 @@ Creates the layout in §3.3, an initial commit, and a `base` scenario.
 cashkit doctor            # store connectivity, schema version, engine version, git state
 cashkit validate          # semantic diagnostics on the current book
 cashkit run base --summary
+cashkit status            # structured working-state diff (wraps SDK status())
+cashkit commit -m "..."   # human commit path from the shell (wraps SDK commit())
+cashkit history [item]    # revision list (wraps SDK history())
 ```
 
 `cashkit doctor` must be runnable by an agent as a first action and must return structured JSON with `--json`.
@@ -695,7 +786,7 @@ The skill must instruct the agent to:
 The system is done when all of the following hold.
 
 **Correctness**
-- Round-trip property test: `serialize(parse(x)) == x` byte-for-byte, over generated books. Phantom diffs are a build failure.
+- Round-trip property test: `parse(serialize(book)) == book` for generated books, and `serialize(parse(s)) == s` byte-for-byte for canonical documents. Phantom diffs are a build failure.
 - Dual-engine test: naive Decimal reference implementation and vectorized int64 engine agree exactly on a fixture corpus of ≥50 books, including escalation, settlement splits, VAT netting and feedback loops.
 - Settlement shares summing to 1 is enforced in Decimal with zero tolerance.
 - `run()` at a given `(sha, scenario, engine_version, watermark)` is byte-identical across processes and machines.
@@ -713,6 +804,35 @@ The system is done when all of the following hold.
 - An agent given only SKILL.md builds a 20-item book with VAT and a downside scenario, unaided, and produces the §9.5 coverage statement.
 
 **Version control**
-- `at("HEAD~N")` reproduces historical numbers exactly, across a schema migration boundary.
+- `at("HEAD~N")` at matching engine version reproduces historical numbers exactly, across a schema migration boundary. On an engine-version mismatch the snapshot comparison reports the delta — it never fails silently.
 - `diff_revisions()` shows nothing for a pure reformat.
 - Config diff and outcome diff appear in the same commit.
+
+### 10.1 Initial diagnostic catalogue
+
+Codes are stable identifiers: the set grows, codes never change meaning. E = error, W = warning, I = info.
+
+| Code | Trigger |
+|---|---|
+| CK-E001 | Unknown item id in `it()`, or `agg()` selector resolving to nothing at graph build |
+| CK-E002 | Circular dependency without `prev()` — cycle members named |
+| CK-E003 | Formula rejected: disallowed AST node, unknown identifier, or non-literal `n` in `prev()` |
+| CK-E004 | Settlement shares do not sum to exactly 1 |
+| CK-E005 | Settlement mixes `share` and `amount`, or has more than one `remainder` |
+| CK-E006 | Scenario overlay touches an event with `status="actual"` |
+| CK-E007 | Dotted or otherwise invalid param key |
+| CK-E008 | Unknown param referenced by a formula or `VatSpec.rate` |
+| CK-E009 | Invalid `Recurrence` (unit, day out of range) |
+| CK-E010 | Import conflict: `(source, ext_id)` exists with different payload — batch aborted |
+| CK-E011 | Amount sign contradicts `direction` |
+| CK-E012 | Generative item with `kind="stock"` |
+| CK-E013 | Concurrent writer: lock held |
+| CK-E020 | Cross-currency aggregation or fold |
+| CK-W001 | Settlement remainder clamped to zero (fixed terms exceed accrual) |
+| CK-W002 | Negative accrual routed through remainder on a fixed-amount settlement |
+| CK-W003 | `actual` event dated on/after cutover |
+| CK-W004 | Withholding in use with no `cat:tax` remittance item |
+| CK-W005 | Division by zero in a selected branch |
+| CK-W010 | Stale writer lock reclaimed |
+| CK-I001 | `TaxRegime` present but no non-VAT `cat:tax` items (§9.5) |
+| CK-I002 | `ChangeReport` empty — the write recorded nothing |
