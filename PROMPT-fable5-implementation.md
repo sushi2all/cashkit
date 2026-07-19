@@ -2,7 +2,9 @@
 
 ## Task
 
-Implement CashKit as specified in `PRD-cashkit.md`, in Python, as an installable package with a complete test suite. Work autonomously through the phases below. Do not ask for approval between phases — verify against the stated gate and continue.
+Implement CashKit as specified in `PRD-cashkit.md`, in Python, as an installable package with a complete test suite.
+
+You are the **orchestrator**, running in a remote Claude Code session. You do not implement phases yourself: you spawn one **Fable subagent** (model `claude-fable-5`) per session defined in §Execution model, in strict sequence, each in a fresh context, and you independently verify each session's gates before launching the next. Work autonomously — do not ask for approval between sessions; verify against the stated gates and continue.
 
 ## Role and standard
 
@@ -35,15 +37,51 @@ Violating any of these invalidates work downstream. If you find yourself wanting
 
 ---
 
+## Execution model — sessions and subagents
+
+Phases run inside **sessions**: one fresh-context Fable subagent per session, strictly in sequence. Fresh context per session is deliberate:
+
+- The numeric constraints (rounding order, canonical serialization, `where`-not-`if`) must be re-read verbatim each session, not survive as lossy summaries through context compaction — silent numerical error is the worst failure, and it is exactly what compaction breeds.
+- A session boundary makes each gate a hard stop verified from committed evidence, not from the momentum of a long context.
+- If a session cannot pick up the work from the repository alone, that is a documentation gap to surface and fix, not to work around. The project bets on `DECISIONS.md`, ADRs and tests being sufficient external state; sessions test that bet continuously.
+
+| Session | Phases | Scope | Seam rationale |
+|---|---|---|---|
+| S1 | 1 | Models + canonical serialization | Self-contained foundation; the round-trip gate is what everything else trusts |
+| S2 | 2–4 | Reference engine + formula front-end, vectorized engine, formula hardening | One semantic unit (ADR-0001); the dual-engine gate needs both evaluators in one context |
+| S3 | 5–6 | Ledger, cutover, fact union; VAT and tax regimes | Facts entering evaluation; first cold-read test of the engine's documentation |
+| S4 | 7–8 | Scenarios; frame store and views | Consumers of the engine, not modifiers of it |
+| S5 | 9–10 | Version control; introspection and CLI | Read-side surfaces over stable internals |
+| S6 | 11 | Agent skill package | Mandatorily fresh — the Phase 11 gate itself specifies a fresh agent session |
+
+### Orchestrator protocol
+
+1. Spawn the session's subagent with a brief containing: this file, `CLAUDE.md`, `km/adr/index.md`, the session's phase range, and the session protocol below. Model: Fable. One session at a time — never in parallel; the sequence is a dependency chain.
+2. When the subagent returns, verify independently before launching the next session: re-run the full test suite yourself; confirm one commit per gate exists; confirm `DECISIONS.md` and `BENCHMARKS.md` are current; read the session's handoff note.
+3. If verification fails, respawn the **same session** as a fresh subagent with the failure evidence in its brief. Do not patch implementation code in the orchestrator context — the repo must stay explainable by its own history.
+4. The repository is the only channel between sessions. Never carry gate evidence forward in your own context; if the next session needs to know something, it belongs in the repo.
+
+### Session protocol (goes verbatim into every subagent brief)
+
+- **Start:** read `PRD-cashkit.md`, this file, `CLAUDE.md`, `km/adr/index.md`, and any handoff notes in `km/notes/`. Re-run the entire existing test suite before writing any code. A pre-existing failure ends the session immediately — report it to the orchestrator; never fix another session's work silently.
+- **Work:** the phases in scope, in order. Each phase's gate must pass before the next phase starts. Commit at each gate with a message naming the phase.
+- **End:** gate evidence committed (tests + fixtures); `DECISIONS.md` and `BENCHMARKS.md` current; working tree clean; write `km/notes/handoff-s<N>.md` stating what was built, what the gates proved, and the first thing the next session should verify.
+
+---
+
 ## Phase plan
 
-Each phase has a gate. Do not proceed until the gate passes. Commit at each gate with a message naming the phase.
+Phases group into the sessions above. Each phase has a gate. Do not proceed until the gate passes. Commit at each gate with a message naming the phase.
+
+**Session S1 — fresh Fable subagent**
 
 ### Phase 1 — Models and canonical serialization
 
 Implement every model in PRD §4. Implement the canonical YAML emitter: fixed field order per model, Decimals as quoted strings, dates as ISO, `None` omitted, no flow-style collections, LF endings, trailing newline.
 
 **Gate:** Hypothesis property test generating arbitrary valid `Book` objects proves `parse(serialize(x)) == x` and `serialize(parse(s)) == s` byte-for-byte. 200+ generated cases, zero failures. Phantom diffs are a build failure, not a warning.
+
+**Session S2 — fresh Fable subagent (Phases 2–4)**
 
 ### Phase 2 — Reference engine (the oracle)
 
@@ -71,6 +109,8 @@ Resolve `agg()` selectors to concrete item IDs at graph-build time. Reject self-
 
 **Gate:** A fuzz corpus of malicious and malformed formula strings (attribute access, `__builtins__`, deeply nested calls, division by zero, unknown identifiers, circular refs) produces diagnostics, never exceptions and never execution. Every builtin has a vectorization test proving it operates as a column op.
 
+**Session S3 — fresh Fable subagent (Phases 5–6)**
+
 ### Phase 5 — Ledger and events
 
 SQLite store. `UNIQUE(source, ext_id)`. `import_events` is idempotent on re-import; a conflicting payload aborts the batch (PRD §6.2). Implement `void_event` tombstoning. Implement the fact union with generative expansion, and the cutover rule per PRD §3.2: before cutover, generation is suppressed for **all** items and the ledger is authoritative; from cutover forward, generation resumes and committed/forecast events apply; actuals dated on/after cutover raise `CK-W003`, never a dedup guess.
@@ -82,6 +122,8 @@ SQLite store. `UNIQUE(source, ext_id)`. `import_events` is idempotent on re-impo
 `VatSpec` per item, `TaxRegime` at entity level. Accumulate output and input VAT per regime period, net, emit one cash event at `period_end + payment_offset`. Credit carry-forward as a stock that offsets future liability. Withholding at settlement.
 
 **Gate:** A fixture entity with mixed VAT rates, one exempt item, one reverse-charge item, 60-day customer terms and quarterly accrual-basis VAT reproduces a hand-computed F24 schedule. A second fixture with input > output for two consecutive quarters shows a credit stock, not a negative payment. Flipping `measure` to `"cash"` shifts the liability correctly and is covered by its own test.
+
+**Session S4 — fresh Fable subagent (Phases 7–8)**
 
 ### Phase 7 — Scenarios
 
@@ -95,6 +137,8 @@ Tidy/long canonical format. DuckDB materialization with `DECIMAL(18,4)`. Tag dim
 
 **Gate:** Aggregating a day-grain frame to month, quarter and year preserves totals exactly for flows and takes last-in-period for stocks. A tag-sliced sum equals the sum of the corresponding items. Parquet round-trips without precision loss.
 
+**Session S5 — fresh Fable subagent (Phases 9–10)**
+
 ### Phase 9 — Version control
 
 pygit2 against the object database. `commit()`, `status()`, `discard()`, `history()`, `at()`, `diff_revisions()`, `blame()`. Ledger watermark on the book so historical runs see a truncated ledger. `.cashkit/version` and a forward-only migration path.
@@ -106,6 +150,8 @@ pygit2 against the object database. `commit()`, `status()`, `discard()`, `histor
 `trace()`, `why_zero()`, `depends_on()`, `describe_book()`, `validate()` with the full diagnostic catalogue (PRD §10.1). CLI: `init`, `doctor --json`, `validate`, `run`, `status`, `commit`, `history`, `serve --quack` (feature-flagged per PRD §3.4).
 
 **Gate:** `trace()` on any cell of a 50-item fixture returns formula, resolved bindings and arithmetic to depth 3 with no `None` fields. `why_zero()` distinguishes all five zero causes. `describe_book()` output is complete enough that a fresh agent, given only that output, writes a working `pivot()` call with no invalid field names.
+
+**Session S6 — fresh Fable subagent (mandatorily fresh: the gate requires it)**
 
 ### Phase 11 — Agent skill package
 
@@ -144,10 +190,11 @@ All acceptance criteria in PRD §10 pass. Additionally:
 - No `float` in money paths (enforced by a type-audit test).
 - Test coverage ≥ 90% on `engine/` and `model/`.
 - `DECISIONS.md` records every judgement call, including ones where you chose against an instinct.
+- All six session handoff notes exist in `km/notes/`, and the orchestrator has re-run the full suite green after S6.
 
 ## When you hit ambiguity
 
-The PRD will not cover everything. When it does not:
+Applies to every session subagent. The PRD will not cover everything. When it does not:
 
 1. Choose the option that preserves determinism and exactness.
 2. Choose the option that produces a diagnostic over the one that guesses.

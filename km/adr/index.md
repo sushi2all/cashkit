@@ -14,3 +14,4 @@ Numbered, append-only. Status: accepted unless noted.
 | [0008](0008-import-conflicts-abort-batch.md) | Import conflicts abort the batch; identical rows skip; void_event tombstones | 2026-07-19 |
 | [0009](0009-field-sparse-overrides.md) | Overrides resolve field-sparse along the chain; segments atomic | 2026-07-19 |
 | [0010](0010-determinism-guards.md) | Determinism guards: holiday snapshot, wall-clock lint, writer lock, currency error | 2026-07-19 |
+| [0011](0011-session-based-orchestration.md) | Phase execution via sequenced fresh-context subagent sessions | 2026-07-19 |
