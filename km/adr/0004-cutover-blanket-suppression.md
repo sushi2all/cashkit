@@ -16,5 +16,5 @@ The PRD never defined the cutover suppression rule; only the implementation prom
 ## Consequences
 
 - No double-count and no gap at the boundary, by construction rather than by per-item heuristics.
-- Partial reconciliation (some items reconciled, some not) is not representable — deliberate. The remedy is to reconcile and advance cutover, which is the workflow the tool exists to enforce.
+- Partial reconciliation (some items reconciled, some not) is not representable — deliberate. The remedy is to reconcile (in the accounting system) and advance cutover. CashKit is a forecasting engine, not a reconciliation tool: it *consumes* reconciled facts (§1.2, §7.1); `cutover` just marks how far those facts are trustworthy, so the forecast starts from a true baseline. A clean cutover is input hygiene for the forecast, not a goal in itself.
 - The post-cutover-actual case is surfaced loudly rather than silently deduplicated; dedup guesses are exactly the "silent numerical error" class the project forbids.
