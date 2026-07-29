@@ -1,0 +1,127 @@
+id: "acme-cashflow"
+base_grain: "day"
+calendar:
+  fiscal_year_start_month: 1
+  country: "IT"
+  holidays:
+    - "2026-01-01"
+    - "2026-01-06"
+    - "2026-12-25"
+  weekend:
+    - 5
+    - 6
+horizon:
+  start: "2026-01-01"
+  end: "2031-01-01"
+opening_balance: "250000.00"
+cutover: "2026-07-01"
+ledger_watermark:
+  max_rowid: 1042
+  row_count: 1042
+  content_hash: "9f2c4d6e8a0b1c3d"
+params:
+  "acme_escalation": "0.05"
+  "inflation": "0.031"
+  "vat_standard": "0.22"
+items:
+  "acme_impl":
+    id: "acme_impl"
+    name: "Acme \"Phase 1\" implementation — fixed fee"
+    kind: "flow"
+    direction: "in"
+    tags:
+      "cat": "revenue"
+      "customer": "acme"
+    flags:
+      - "committed"
+    currency: "EUR"
+    segments:
+      - start: "2026-03-01"
+        end: "2027-03-01"
+        recurrence:
+          every: 1
+          unit: "month"
+          anchor: "eom"
+          business_day_adjust: "prev"
+        amount:
+          constant: "12000"
+        escalation:
+          rate: "acme_escalation"
+          every_years: 1
+          anchor: "segment_start"
+        probability: "1"
+      - start: "2027-03-01"
+        recurrence:
+          every: 1
+          unit: "month"
+          anchor: "day_of_month"
+          day: 31
+          business_day_adjust: "none"
+        amount:
+          schedule:
+            - date: "2027-03-31"
+              amount: "8000.0000"
+            - date: "2027-04-30"
+              amount: "6500.50"
+        probability: "0.8"
+    settlement:
+      due:
+        - share: "0.3"
+          remainder: false
+          offset: "0d"
+          basis: "accrual"
+          adjust: "none"
+          withholding: "0"
+        - share: "0.7"
+          remainder: false
+          offset: "90d"
+          basis: "month_end"
+          adjust: "next"
+          withholding: "0.2"
+    vat:
+      rate: "vat_standard"
+      treatment: "standard"
+      recoverable: "1"
+    agg_rule: "sum"
+  "cash":
+    id: "cash"
+    name: "Cash balance"
+    kind: "stock"
+    tags: {}
+    flags: []
+    currency: "EUR"
+    segments: []
+    formula: "prev(\"cash\", init=p.opening_balance) + agg(tag=\"cat:revenue\")"
+    agg_rule: "last"
+  "rent":
+    id: "rent"
+    name: "Office rent\nviale Città 42"
+    kind: "flow"
+    direction: "out"
+    tags:
+      "cat": "opex"
+      "vendor": "immobiliare_rossi"
+    flags: []
+    currency: "EUR"
+    segments:
+      - start: "2026-01-01"
+        recurrence:
+          every: 1
+          unit: "month"
+          anchor: "period_start"
+          business_day_adjust: "none"
+        amount:
+          constant: "-1200.50"
+        probability: "1"
+    settlement:
+      due: []
+    agg_rule: "sum"
+tax_regimes:
+  - id: "iva"
+    accumulates: ""
+    measure: "accrual"
+    periodicity: "quarterly"
+    payment_offset: "16d"
+    surcharge: "0.01"
+    credit_handling: "carry"
+    annual_adjustment_month: 3
