@@ -5,7 +5,7 @@ Deterministic cash-flow modelling engine, SDK-only surface, built for LLM agents
 ## Documents
 
 - `PRD-cashkit.md` — the spec. §2 core decisions are settled; deviations invalidate downstream work.
-- `PROMPT-fable5-implementation.md` — phase plan with gates, grouped into six orchestrated sessions (one fresh Fable subagent each, strict sequence; see its §Execution model). Do not pass a gate without its test evidence.
+- `PROMPT-fable5-implementation.md` — phase plan with gates, grouped into six orchestrated sessions (one fresh Opus 5 subagent each, Fable orchestrating, strict sequence; see its §Execution model). Do not pass a gate without its test evidence.
 - `ERP-pilot-guide.md` — pilot context, not a spec.
 - `km/adr/` — architecture decision records; `km/adr/index.md` is the index. Every judgement call made under ambiguity gets an ADR (or a `DECISIONS.md` entry once implementation starts).
 - `km/notes/` — working notes, reviews, meeting output.

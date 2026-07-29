@@ -8,7 +8,7 @@ The implementation prompt assumed one continuous autonomous run through all 11 p
 
 ## Decision
 
-Execution is restructured as an **orchestrator** (remote Claude Code session) spawning one **Fable subagent per session**, in strict sequence, each in a fresh context:
+Execution is restructured as an **orchestrator** (remote Claude Code session) spawning one **implementation subagent per session**, in strict sequence, each in a fresh context. Model assignment (amended 2026-07-29): the orchestrator runs on Fable; session subagents run on Opus 5 (`claude-opus-5`) — originally both were Fable.
 
 - S1: Phase 1 · S2: Phases 2–4 · S3: Phases 5–6 · S4: Phases 7–8 · S5: Phases 9–10 · S6: Phase 11 (mandatorily fresh — its gate specifies a fresh agent session).
 - The orchestrator never implements; it verifies each session independently (re-runs the suite, checks per-gate commits, `DECISIONS.md`/`BENCHMARKS.md`, handoff note) and respawns a failed session fresh with the failure evidence.

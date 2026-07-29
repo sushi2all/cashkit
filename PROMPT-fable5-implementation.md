@@ -4,7 +4,7 @@
 
 Implement CashKit as specified in `PRD-cashkit.md`, in Python, as an installable package with a complete test suite.
 
-You are the **orchestrator**, running in a remote Claude Code session. You do not implement phases yourself: you spawn one **Fable subagent** (model `claude-fable-5`) per session defined in §Execution model, in strict sequence, each in a fresh context, and you independently verify each session's gates before launching the next. Work autonomously — do not ask for approval between sessions; verify against the stated gates and continue.
+You are the **orchestrator**, running in a remote Claude Code session. You do not implement phases yourself: you spawn one **Opus 5 subagent** (model `claude-opus-5`) per session defined in §Execution model, in strict sequence, each in a fresh context, and you independently verify each session's gates before launching the next. Work autonomously — do not ask for approval between sessions; verify against the stated gates and continue.
 
 ## Repository
 
@@ -45,7 +45,7 @@ Violating any of these invalidates work downstream. If you find yourself wanting
 
 ## Execution model — sessions and subagents
 
-Phases run inside **sessions**: one fresh-context Fable subagent per session, strictly in sequence. Fresh context per session is deliberate:
+Phases run inside **sessions**: one fresh-context Opus 5 subagent per session, strictly in sequence. Fresh context per session is deliberate:
 
 - The numeric constraints (rounding order, canonical serialization, `where`-not-`if`) must be re-read verbatim each session, not survive as lossy summaries through context compaction — silent numerical error is the worst failure, and it is exactly what compaction breeds.
 - A session boundary makes each gate a hard stop verified from committed evidence, not from the momentum of a long context.
@@ -62,7 +62,7 @@ Phases run inside **sessions**: one fresh-context Fable subagent per session, st
 
 ### Orchestrator protocol
 
-1. Spawn the session's subagent with a brief containing: this file, `CLAUDE.md`, `km/adr/index.md`, the session's phase range, and the session protocol below. Model: Fable. One session at a time — never in parallel; the sequence is a dependency chain.
+1. Spawn the session's subagent with a brief containing: this file, `CLAUDE.md`, `km/adr/index.md`, the session's phase range, and the session protocol below. Model: Opus 5 (`claude-opus-5`); the orchestrator itself runs on Fable. One session at a time — never in parallel; the sequence is a dependency chain.
 2. When the subagent returns, verify independently before launching the next session: re-run the full test suite yourself; confirm one commit per gate exists; confirm `DECISIONS.md` and `BENCHMARKS.md` are current; read the session's handoff note.
 3. If verification fails, respawn the **same session** as a fresh subagent with the failure evidence in its brief. Do not patch implementation code in the orchestrator context — the repo must stay explainable by its own history.
 4. The repository is the only channel between sessions. Never carry gate evidence forward in your own context; if the next session needs to know something, it belongs in the repo.
@@ -79,7 +79,7 @@ Phases run inside **sessions**: one fresh-context Fable subagent per session, st
 
 Phases group into the sessions above. Each phase has a gate. Do not proceed until the gate passes. Commit at each gate with a message naming the phase.
 
-**Session S1 — fresh Fable subagent**
+**Session S1 — fresh implementation subagent**
 
 ### Phase 1 — Models and canonical serialization
 
@@ -87,7 +87,7 @@ Implement every model in PRD §4. Implement the canonical YAML emitter: fixed fi
 
 **Gate:** Hypothesis property test generating arbitrary valid `Book` objects proves `parse(serialize(x)) == x` and `serialize(parse(s)) == s` byte-for-byte. 200+ generated cases, zero failures. Phantom diffs are a build failure, not a warning.
 
-**Session S2 — fresh Fable subagent (Phases 2–4)**
+**Session S2 — fresh implementation subagent (Phases 2–4)**
 
 ### Phase 2 — Reference engine (the oracle)
 
@@ -115,7 +115,7 @@ Resolve `agg()` selectors to concrete item IDs at graph-build time. Reject self-
 
 **Gate:** A fuzz corpus of malicious and malformed formula strings (attribute access, `__builtins__`, deeply nested calls, division by zero, unknown identifiers, circular refs) produces diagnostics, never exceptions and never execution. Every builtin has a vectorization test proving it operates as a column op.
 
-**Session S3 — fresh Fable subagent (Phases 5–6)**
+**Session S3 — fresh implementation subagent (Phases 5–6)**
 
 ### Phase 5 — Ledger and events
 
@@ -129,7 +129,7 @@ SQLite store. `UNIQUE(source, ext_id)`. `import_events` is idempotent on re-impo
 
 **Gate:** A fixture entity with mixed VAT rates, one exempt item, one reverse-charge item, 60-day customer terms and quarterly accrual-basis VAT reproduces a hand-computed F24 schedule. A second fixture with input > output for two consecutive quarters shows a credit stock, not a negative payment. Flipping `measure` to `"cash"` shifts the liability correctly and is covered by its own test.
 
-**Session S4 — fresh Fable subagent (Phases 7–8)**
+**Session S4 — fresh implementation subagent (Phases 7–8)**
 
 ### Phase 7 — Scenarios
 
@@ -143,7 +143,7 @@ Tidy/long canonical format. DuckDB materialization with `DECIMAL(18,4)`. Tag dim
 
 **Gate:** Aggregating a day-grain frame to month, quarter and year preserves totals exactly for flows and takes last-in-period for stocks. A tag-sliced sum equals the sum of the corresponding items. Parquet round-trips without precision loss.
 
-**Session S5 — fresh Fable subagent (Phases 9–10)**
+**Session S5 — fresh implementation subagent (Phases 9–10)**
 
 ### Phase 9 — Version control
 
@@ -157,7 +157,7 @@ pygit2 against the object database. `commit()`, `status()`, `discard()`, `histor
 
 **Gate:** `trace()` on any cell of a 50-item fixture returns formula, resolved bindings and arithmetic to depth 3 with no `None` fields. `why_zero()` distinguishes all five zero causes. `describe_book()` output is complete enough that a fresh agent, given only that output, writes a working `pivot()` call with no invalid field names.
 
-**Session S6 — fresh Fable subagent (mandatorily fresh: the gate requires it)**
+**Session S6 — fresh implementation subagent (mandatorily fresh: the gate requires it)**
 
 ### Phase 11 — Agent skill package
 
