@@ -73,9 +73,19 @@ canonicalize-in-model; quote-everything emitter; conservative lint; Scenario/
 Event structural extras; empty `accumulates`) and one PRD conflict
 (C-P1-01: weekend index convention).
 
+## Addendum (post-verification, ADR-0012)
+
+After orchestrator verification, ADR-0012 landed and its Phase 1 slice was
+implemented in a follow-up commit: `Event.corrects: EventId | None = None`
+with structural rules `corrects != id` and non-empty `note` required on
+correcting events (DECISIONS D-P1-15). Referential rules and ledger mechanics
+are Phase 5; `EventOverlay` deliberately has no `corrects`. Suite is now
+**64 tests**; golden fixture regenerated from the builder (byte-identical —
+the fixture Book contains no events).
+
 ## First thing S2 should verify
 
-Re-run `uv run pytest` — all 62 tests must pass before writing any code.
+Re-run `uv run pytest` — all 64 tests must pass before writing any code.
 Then, before building the reference engine, read DECISIONS D-P1-06 and
 D-P1-07: the models guarantee amounts are ≤4 dp and ≤9e14, so the engine's
 Decimal→int64 minor-unit conversion is exact by construction — the reference

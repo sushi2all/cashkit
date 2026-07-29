@@ -5,6 +5,10 @@ on re-import; the constraint itself lives in the ledger store (Phase 5), but
 ``ext_id`` requires ``source`` structurally so half a key can never exist.
 
 Events are frozen models: an actual, once constructed, cannot be mutated.
+Correcting a mis-recorded actual is append-only (ADR-0012): a new event
+carrying ``corrects=<original id>`` plus a mandatory ``note``; referential
+rules (target exists, not already corrected, not a tombstone) are
+ledger-level diagnostics assigned in Phase 5.
 """
 
 from __future__ import annotations
@@ -49,11 +53,20 @@ class Event(CashKitModel):
     source: str | None = Field(default=None, min_length=1, max_length=256)
     ext_id: str | None = Field(default=None, min_length=1, max_length=256)
     note: str | None = None
+    corrects: EventId | None = None
 
     @model_validator(mode="after")
-    def _ext_id_requires_source(self) -> "Event":
+    def _structural_consistency(self) -> "Event":
         if self.ext_id is not None and self.source is None:
             raise ValueError(
                 "ext_id requires source: idempotency is keyed on (source, ext_id)"
             )
+        if self.corrects is not None:
+            if self.corrects == self.id:
+                raise ValueError("an event cannot correct itself (corrects == id)")
+            if self.note is None or not self.note.strip():
+                raise ValueError(
+                    "a correcting event requires a non-empty note: a correction "
+                    "without a stated reason is not auditable (ADR-0012)"
+                )
         return self

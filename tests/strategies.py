@@ -252,8 +252,19 @@ event_ids = st.text(
 @st.composite
 def events(draw: st.DrawFn) -> Event:
     source = draw(st.one_of(st.none(), nonempty_text))
+    event_id = draw(event_ids)
+    # A correcting event (ADR-0012) targets a different event id and must
+    # carry a note.
+    corrects = draw(
+        st.one_of(st.none(), event_ids.filter(lambda other: other != event_id))
+    )
+    note = (
+        draw(nonempty_text.filter(lambda s: bool(s.strip())))
+        if corrects is not None
+        else draw(st.one_of(st.none(), tricky_text))
+    )
     return Event(
-        id=draw(event_ids),
+        id=event_id,
         date=draw(dates),
         amount=draw(money),
         status=draw(st.sampled_from(["actual", "committed", "forecast"])),
@@ -264,7 +275,8 @@ def events(draw: st.DrawFn) -> Event:
         currency=draw(currencies),
         source=source,
         ext_id=draw(st.one_of(st.none(), nonempty_text)) if source else None,
-        note=draw(st.one_of(st.none(), tricky_text)),
+        note=note,
+        corrects=corrects,
     )
 
 

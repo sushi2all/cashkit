@@ -196,6 +196,39 @@ class TestStructural:
                 ext_id="INV-1",
             )
 
+    def test_correction_cannot_target_itself(self) -> None:
+        """ADR-0012: corrects != id — no self-correction."""
+        with pytest.raises(ValidationError, match="correct itself"):
+            Event(
+                id="e1",
+                date=date(2026, 1, 1),
+                amount=Decimal("1"),
+                status="actual",
+                corrects="e1",
+                note="typo",
+            )
+
+    def test_correction_requires_nonempty_note(self) -> None:
+        """ADR-0012: a correction without a stated reason is not auditable."""
+        for bad_note in (None, "", "   "):
+            with pytest.raises(ValidationError, match="non-empty note"):
+                Event(
+                    id="e2",
+                    date=date(2026, 1, 1),
+                    amount=Decimal("1"),
+                    status="actual",
+                    corrects="e1",
+                    note=bad_note,
+                )
+        Event(
+            id="e2",
+            date=date(2026, 1, 1),
+            amount=Decimal("-100.00"),
+            status="actual",
+            corrects="e1",
+            note="bank feed recorded the wrong sign",
+        )
+
     def test_events_are_immutable(self) -> None:
         event = Event(id="e", date=date(2026, 1, 1), amount=Decimal("1"), status="actual")
         with pytest.raises(ValidationError):

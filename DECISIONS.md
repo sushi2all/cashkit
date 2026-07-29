@@ -134,6 +134,20 @@ For a VAT regime the base defaults to "every item carrying a VatSpec"
 (ADR-0005); the empty string is that default's representation until Phase 6
 gives the selector grammar a concrete resolver.
 
+### D-P1-15 · `Event.corrects` — structural rules at the model, referential rules in the ledger (ADR-0012)
+ADR-0012 makes mis-recorded actuals correctable append-only: a correcting
+event carries `corrects=<original EventId>`; no in-place update exists.
+Following the D-P1-07 split, the model enforces only what is checkable on the
+event alone: `corrects != id` (no self-correction) and a **non-empty** `note`
+(an empty or whitespace note is no more auditable than a missing one — the
+ADR's "note is mandatory" is read as "a stated reason is mandatory").
+Referential rules — target exists, target not already corrected, target not a
+tombstone — need the ledger and are Phase 5 diagnostics with codes assigned
+there. `EventOverlay` deliberately does NOT get a `corrects` field: corrections
+live in the ledger, never in a scenario (ADR-0012 decision 1), so a scenario
+that "corrects" an actual stays unrepresentable at the type level. No
+void/tombstone state on the model either — that is ledger row state.
+
 ## PRD conflicts
 
 ### C-P1-01 · `CalendarSpec.weekend` "ISO weekday indices" vs default `{5, 6}` = Sat/Sun
