@@ -148,6 +148,208 @@ live in the ledger, never in a scenario (ADR-0012 decision 1), so a scenario
 that "corrects" an actual stays unrepresentable at the type level. No
 void/tombstone state on the model either — that is ledger row state.
 
+## Phase 2 — Reference engine and formula front-end (Session S2)
+
+### D-P2-01 · Rounding policy is a run-level engine parameter, not a Book field
+PRD §5.3 declares "one declared rounding policy (half-up by default,
+configurable to banker's)" and §5.4 refers to "the book's declared policy", but
+no model field holds it and adding one would change the canonical serialization
+S1's gate pins. It is therefore `RoundingPolicy` in
+`cashkit/engine/numeric.py`, threaded through `run(book, policy=...)`, default
+`HALF_UP` (halves away from zero, matching `decimal.ROUND_HALF_UP` — so a
+credit note rounds as the exact mirror of the invoice it reverses). Determinism
+is preserved because the default is fixed and the policy is constant for a whole
+run. Where the value is *stored* is deferred to the session that introduces
+`.cashkit/config.toml`; if it must survive across machines it belongs on the
+Book (git-tracked), not in the untracked config file — flagged for that session.
+
+### D-P2-02 · `Amount.schedule` dates *are* the occurrence dates
+The PRD gives `Amount` a `constant` xor a `schedule` of `(date, Money)` pairs and
+notes "computed schedules are authored via the SDK", but never says how a
+schedule interacts with the mandatory `Recurrence`. Two readings existed: the
+recurrence generates the dates and the schedule is a lookup keyed by those dates,
+or the schedule's own dates are the occurrences. The first can silently drop
+authored money (a schedule entry not landing on a generated date) and silently
+zero occurrences (a generated date with no entry); the second uses every authored
+pair exactly once. Chosen: the schedule's dates are the occurrences, filtered
+only by the horizon. `Recurrence` still supplies `business_day_adjust`, and
+escalation/probability still apply. Consequence: `Segment.end` does not filter an
+explicit schedule — the author dated each amount deliberately, so the only
+boundary applied is the model's own horizon.
+
+### D-P2-03 · Recurrence phase follows the segment; accruals outside the horizon are not generated
+Buckets step from `Segment.start` always, even when the segment opens years
+before the horizon — a rent contract running since 2025 still falls due on the
+1st, not on whatever day the horizon happens to open. (Anchoring buckets to the
+horizon instead was the first implementation and was wrong; the fast-forward that
+skips unreachable buckets arithmetically keeps it cheap.) Accruals whose
+*unadjusted* anchor falls outside the horizon are not generated at all, so an
+obligation accrued before the horizon does not settle inside it: the horizon is
+the model's declared window, and the pre-horizon world is represented by
+`opening_balance` and the ledger. Segment-window membership is tested on the
+unadjusted anchor so adjacent segments partition their occurrences cleanly
+whatever business-day rolls do; escalation is likewise keyed to the unadjusted
+anchor, so a New Year roll cannot change an amount.
+
+### D-P2-04 · `settlement=None` settles immediately; `Settlement(due=[])` never settles
+D-P1-02 established that an explicit empty `due` list means "accrues, never
+settles" and must stay distinguishable from absence. Absence therefore needs its
+own meaning, and the only useful one for a cash-flow engine is the obvious
+default: cash moves when the amount accrues, in the same period, with no
+withholding — equivalent to `Settlement.immediate()`.
+
+### D-P2-05 · Settlement on derived items applies uniformly; stocks produce no cash leg
+The open item S1 flagged. A derived item's formula result is its **accrual**; if
+it carries a settlement, that settlement applies exactly as it does to a
+generative accrual, with the period's start date as the accrual date. No special
+case, no second code path. For `kind="stock"` the value is a *level*, not a
+movement, so settling it is meaningless: a stock produces no cash leg and any
+`settlement` on it is ignored. This keeps a frame filtered to `measure="cash"`
+free of balances, which is what makes summing it meaningful.
+
+### D-P2-06 · Formula item references default to the cash measure; stocks answer both with their level
+PRD §5.4 gives `it()`, `agg()` and `cum()` no measure argument and does not say
+which measure they read. The default is `cash`, because the engine forecasts cash
+and the PRD's own canonical example — a cash balance folding over
+`agg(tag="cat:revenue")` — is only correct against settled cash. `measure=
+"accrual"` is one keyword away for P&L-style derivations. Exception, and the
+reason it is stated here: a stock has no cash column, so `it`/`prev`/`agg`/`cum`
+on a stock return its level for *either* measure. Without that, the canonical
+`prev("cash")` would read zero.
+
+### D-P2-07 · Two value kinds in the expression evaluator: exact rates and 4 dp money columns
+Formula values are either a **rate** — a dimensionless scalar held as an exact
+rational, from a literal or a param — or **money**, a 4 dp fixed-point column.
+Rates stay exact until they meet money, which is what keeps a 22% VAT rate or a
+3.1% escalation from drifting. Promotion rules, identical in both engines:
+`+`/`-`/comparisons/`min`/`max`/`clip` convert a rate to money (rounding at 4 dp)
+when the other side is money; `*` and `/` keep a rate operand exact and round
+once at the end; rate-only arithmetic stays exact. `t.index` and `t.month` are
+integer-valued *money* columns (so all numeric columns share one representation),
+while `t.is_business_day` and `t.is_quarter_end` are masks. `t.is_business_day`
+is evaluated on the period's start date, `t.is_quarter_end` on its inclusive end
+date, and quarters follow `CalendarSpec.fiscal_year_start_month` rather than the
+calendar — the field exists for a reason.
+
+### D-P2-08 · A malformed book degrades one line, never the run
+`compile_book` never raises on book content. An item with a rejected formula, an
+unresolvable reference, an unknown param, a cross-currency aggregate or a
+membership in an illegal cycle is marked *broken*: it evaluates to zero columns
+and its diagnostic explains why. The alternative — aborting the run — would deny
+an agent the diagnostics it needs to fix the book. Callers must check
+`RunResult.diagnostics` for error severity before trusting numbers; the zero is
+never presented as a computed value.
+
+### D-P2-09 · A structurally invalid settlement produces no cash, plus an error
+Per D-P1-07 the share-sum (CK-E004) and share/amount-mix (CK-E005) rules are the
+SDK's to enforce, but the engine can be handed a book that never went through
+`add_item()`. Rather than normalize the shares or invent a split, the engine
+emits the error and produces **no** cash legs for that item; it still accrues.
+Inventing a split the author did not write is exactly the silent numerical error
+the project forbids. Also treated as CK-E005: fixed-amount terms with no
+`remainder`, or with more than one.
+
+### D-P2-10 · Kind/formula/segments consistency is reported as CK-E003
+`kind="derived"`/`"stock"` requires a formula and forbids segments; `kind="flow"`
+forbids a formula. The catalogue has no dedicated code, and CK-E003 ("Formula
+rejected: {reason}") carries the reason precisely enough. Adding catalogue codes
+was avoided throughout Phase 2–4: every condition the engine detects maps onto an
+existing §10.1 code.
+
+### D-P2-11 · Per-occurrence diagnostics are deduplicated per (code, item)
+A monthly settlement clamp over a five-year horizon is one modelling fact, not
+sixty. Both engines deduplicate identically — `RunResult.diagnostic_keys()` is
+part of what the dual-engine gate compares, so a divergence in *which* problems
+are reported fails the gate just like a divergent number.
+
+### D-P2-12 · Escalation factors are applied as exact integer ratios
+ADR-0002 says the Decimal factor is "converted to scaled int64 multipliers". A
+scaled int64 multiplier rounds the factor itself, and a 4 dp rate raised to the
+30th power has 120 exact decimal places — truncating it would reintroduce, in a
+different disguise, exactly the drift the ADR removed. Implemented instead as the
+factor's exact integer ratio (`Decimal.as_integer_ratio`), applied as
+`round(value * numerator / denominator)` with arbitrary-precision intermediates.
+This satisfies the ADR's intent (no float, one factor per distinct `(rate, n)`
+pair, memoized) and strictly dominates its letter on exactness. The working
+Decimal precision is sized to the exact digit count, so the factor is the true
+value and not a rounded one.
+
+### D-P2-13 · Cutover suppression lands in Phase 2; a suppressed occurrence loses its cash legs too
+ADR-0004's blanket pre-cutover suppression is a property of generative expansion
+and needs no ledger, so it is implemented here rather than deferred to Phase 5
+(which owns only the *event* side of the union). An occurrence whose accrual date
+falls before `cutover` is suppressed entirely, including cash legs that would
+have landed after cutover: before cutover the ledger is the complete record, and
+the ledger event carries its own settlement. Phase 5 adds the event union on top;
+nothing else here anticipates it.
+
+### D-P2-14 · VAT is not applied in Phases 2–3
+The canonical rounding order (ADR-0003) ends with "VAT per line", and Phase 6
+owns VAT and tax regimes. Phases 2–3 implement the chain through withholding and
+leave the VAT step as a declared, documented gap: `Item.vat` is read by nobody,
+and `VatSpec.rate` params are deliberately *not* resolved (only escalation rate
+params are checked, as CK-E008), so the engine never implies VAT support it does
+not have. The Phase 3 dual-engine corpus excludes VAT for the same reason. Phase
+6 slots in at the declared position.
+
+### D-P2-15 · Overflow raises; it is not a diagnostic
+`MoneyOverflowError` is an exception, not a `Diagnostic`, because D-P1-06 already
+bounds every authored amount at 9×10¹⁴ — reaching the int64 ceiling means a
+pathological book or a programmer error, not something a user did wrong at the
+boundary. Silent int64 wraparound is forbidden (PRD §5.3), so products widen to
+Python ints whenever an int64 multiply could overflow, and additions are
+magnitude-checked *before* the add, since numpy wraps silently and an
+after-the-fact check would be worthless.
+
+### D-P2-16 · `DueTerm.basis="period_end"` means the base-grain period's inclusive last day
+`month_end` is already its own basis, so `period_end` must mean something else;
+the only other period in scope is the book's base-grain period. At day grain that
+coincides with the accrual date, which is why the distinction only becomes
+visible on a coarser base grain. Withholding is computed as
+`leg - round(leg * withholding)`, so the withheld amount is itself a clean
+rounded number.
+
+### D-P2-17 · `cum()` is a same-period dependency; the engine supports every base grain
+`cum(x)` at period `t` reads `x[0..t]` inclusive, so it is a same-period edge in
+the graph, not a lagged one. Separately, the engine partitions the horizon into
+base-grain buckets stepping from `horizon.start`, which makes every `Grain` usable
+as a base grain rather than rejecting all but DAY: occurrence and settlement dates
+are computed as dates and then bucketed, so coarser grains need no separate
+arithmetic. DAY remains the intended and tested default (D1).
+
+### D-P2-18 · What the oracle shares, and what it must not
+The reference engine shares the model, the formula front-end (ADR-0001), the
+escalation factor table (ADR-0002 — byte-equality is unattainable if the two
+engines consume different factors), the dependency graph and condensation
+(structure, not arithmetic), and the recurrence-date generator. It **duplicates**
+every arithmetic and rounding operation, segment amount computation, settlement
+splitting, and formula-node evaluation, because that is where silent numerical
+error lives. The reference rounds with `Decimal.quantize`; the vectorized engine
+rounds with integer division. Double rounding in the reference is ruled out
+rather than hoped away: multiplications run at a precision sized to the operands
+(so the product is exact and only the 4 dp quantization rounds), and division runs
+at 80 digits — a quotient of two 4 dp money values that lands exactly on a 4 dp
+half-way boundary terminates within ~25 digits, and one that does not sits at
+least 5×10⁻²³ away from a boundary, far beyond that precision's error.
+`tests/test_numeric.py` pins the integer path against `Decimal.quantize`
+directly, which is the contract the dual-engine gate rests on.
+
+### D-P2-19 · Phase 1 defect fixed in place: U+FFFE/U+FFFF broke the round trip
+Not a judgement call but a recorded cross-session repair, per the S2 brief's
+"minimal change with its own commit message noting the reason". Mid-session,
+Hypothesis found a `Scenario` whose `note` contained U+FFFE: the canonical
+emitter passed it through raw and `yaml.safe_load` then refused the document, so
+`parse(serialize(x)) == x` — the Phase 1 gate property — failed. The emitter's
+escape table covered C0 controls, DEL, C1, the line/paragraph separators, the BOM
+and the surrogates, but not the two BMP non-characters, which are the remaining
+inputs a YAML reader rejects outright. Fixed by extending the `\uXXXX` branch in
+`cashkit/model/canonical.py` to `0xFFFE..0xFFFF`, with
+`tests/test_canonical_emitter.py::TestYamlForbiddenCharacters` now asserting the
+round trip over *every* character PyYAML rejects, so the class cannot regress
+character by character. Nothing else in `model/` was touched, and the committed
+golden fixture is byte-unchanged. Flagged in the S2 handoff note because it is
+S1's code, not S2's.
+
 ## PRD conflicts
 
 ### C-P1-01 · `CalendarSpec.weekend` "ISO weekday indices" vs default `{5, 6}` = Sat/Sun

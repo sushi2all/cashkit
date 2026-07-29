@@ -1,0 +1,244 @@
+# Hand-verified expectations for tests/gate_book.py — the Phase 2 gate.
+#
+# Every value below was computed by hand from the book definition, not read off
+# the engine. Lines beginning with '#' are notes; the data rows are
+#   period_start,item_id,measure,value
+# with value a Decimal at 4 dp.
+#
+# Calendar facts used (2026-01-01 is a Thursday; weekend = Sat/Sun; holidays
+# 2026-01-01, 2026-01-06, 2026-04-06):
+#   weekday(Jan d) = (d+2) mod 7, (Feb d) = (Mar d) = (d+5) mod 7,
+#   weekday(Apr d) = (d+1) mod 7, (May d) = (d+3) mod 7, (Jun d) = (d+6) mod 7
+#   with Mon=0 ... Sun=6.
+#
+# Occurrence dates (unadjusted -> adjusted):
+#   acme_impl  seg1 eom          Jan 31, Feb 28, Mar 31            (no adjust)
+#              seg2 day 15       Apr 15, May 15, Jun 15; escalation anniversary
+#                                2026-04-01 so factor is 1.05^0 = 1 all horizon
+#   acme_maint monthly 1st       Jan 1 .. Jun 1
+#   beta       day 10, next      Feb 10 (Tue), Mar 10 (Tue), Apr 10 (Fri)
+#   gamma      monthly 1st       Mar 1, Apr 1, May 1
+#   partial    monthly 1st       Feb 1
+#   credit     monthly 1st       May 1
+#   rent       day 1, next       Jan 1(hol,Thu)->Jan 2, Feb 1(Sun)->Feb 2,
+#                                Mar 1(Sun)->Mar 2, Apr 1, May 1, Jun 1
+#              escalation from 2025-01-01: one whole year elapsed in 2026,
+#              so -3500 * 1.03 = -3605.0000
+#   insurance  day 15, none      Jan 15 .. Jun 15; escalation from 2024-03-15:
+#              Jan/Feb 15 are before the anniversary -> 1 step -> -1236.0000;
+#              Mar 15 onward -> 2 steps -> -1200 * 1.0609 = -1273.0800
+#   salaries   eom, prev         Jan 31(Sat)->Jan 30, Feb 28(Sat)->Feb 27,
+#                                Mar 31, Apr 30, May 31(Sun)->May 29, Jun 30
+#   consultant monthly 1st       Jan 1 .. Jun 1; leg +30d with 20% withholding:
+#              -5000 - (-1000) = -4000 on Jan 31, Mar 3, Mar 31, May 1, May 31
+#              (Jun 1 + 30d = Jul 1, outside the horizon)
+#   hosting    weekly            Jan 1,8,15,22,29; Feb 5,12,19,26; Mar 5,12,19,26;
+#                                Apr 2,9,16,23,30; May 7,14,21,28; Jun 4,11,18,25
+#   equipment  explicit schedule Feb 15 (-8000), May 20 (-12000)
+#   grant      monthly 1st       Apr 1, probability 0.5 -> 25000, never settles
+#
+# Settlement legs:
+#   acme_impl  30% at accrual, 70% at +60d (last leg absorbs the residual):
+#              Jan 31 -> 3600 / 8400 on Apr 1; Feb 28 -> 3600 / 8400 on Apr 29;
+#              Mar 31 -> 3600 / 8400 on May 30; Apr 15 -> 4500 / 10500 on Jun 14;
+#              May 15 -> 4500 / 10500 on Jul 14 (out); Jun 15 -> 4500 / out
+#   gamma      5000 fixed at accrual, remainder 15000 at +45d:
+#              Mar 1 -> Apr 15; Apr 1 -> May 16; May 1 -> Jun 15
+#   partial    5000 fixed at Feb 1 paid in full; remainder 3000-5000 < 0 so it
+#              clamps to 0 at Mar 3 and raises CK-W001
+#   credit     accrual -4000 < 0 so the fixed 1000 leg pays nothing and the
+#              remainder carries the whole -4000 on May 1 (CK-W002)
+#
+# Derived, per period, from the daily revenue accrual R (cat:revenue):
+#   revenue_total = R;  bonus = -0.10*R;  fee = -0.025*R when R > 10000 else 0
+#   zero_guard = R/R = 1 where R != 0, and 0 (masked, CK-W005) where R == 0
+#   interest_income = 0.005 * cash[t-1] on fiscal quarter ends (Mar 31, Jun 30)
+#   cash[t] = cash[t-1] + sum of cash legs at t over flag:cashflow items
+#
+# Cash-balance derivation (opening 100000):
+#   Jan 1 +2000 -200 -200            = 101600
+#   Jan 2 -3605                      =  97995
+#   Jan 8 -200                       =  97795
+#   Jan 15 -200 -1236                =  96359
+#   Jan 22 -200                      =  96159
+#   Jan 29 -200                      =  95959
+#   Jan 30 -25000                    =  70959
+#   Jan 31 +3600 -4000 -1200 -300    =  69059   <- verified period 1
+#   Feb 1 +2000 +5000 -500           =  75559
+#   Feb 2 -3605                      =  71954
+#   Feb 5 -200                       =  71754
+#   Feb 10 -640                      =  71114
+#   Feb 12 -200                      =  70914
+#   Feb 15 -1236 -8000               =  61678
+#   Feb 19 -200                      =  61478
+#   Feb 26 -200                      =  61278
+#   Feb 27 -25000                    =  36278
+#   Feb 28 +3600 -1200 -300          =  38378
+#   Mar 1 +2000 +5000 -2200 -550     =  42628
+#   Mar 2 -3605                      =  39023
+#   Mar 3 -4000 +0                   =  35023
+#   Mar 5 -200                       =  34823
+#   Mar 10 -640                      =  34183
+#   Mar 12 +6400 -200                =  40383
+#   Mar 15 -1273.08                  =  39109.92
+#   Mar 19 -200                      =  38909.92
+#   Mar 26 -200                      =  38709.92
+#   Mar 31 +3600 -25000 -4000 -1200 -300 + interest
+#          interest = 0.005 * 38709.92 = 193.5496
+#                                    =  12003.4696
+#   Apr 1 +8400 +2000 +5000 -3605 -2200 -550
+#                                    =  21048.4696  <- verified period 2
+#   Apr 2 -200                       =  20848.4696
+#   Apr 9 +6400 -200                 =  27048.4696
+#   Apr 10 -640                      =  26408.4696
+#   Apr 15 +4500 +15000 -1273.08 -1500 -375
+#                                    =  42760.3896
+#   Apr 16 -200                      =  42560.3896
+#   Apr 23 -200                      =  42360.3896
+#   Apr 29 +8400                     =  50760.3896
+#   Apr 30 -25000 -200               =  25560.3896
+#   May 1 +2000 +5000 -4000 -3605 -4000 -1800 -450
+#                                    =  18705.3896
+#   May 7 -200                       =  18505.3896
+#   May 10 +6400                     =  24905.3896
+#   May 14 -200                      =  24705.3896
+#   May 15 +4500 -1273.08 -1500 -375 =  26057.3096
+#   May 16 +15000                    =  41057.3096
+#   May 20 -12000                    =  29057.3096
+#   May 21 -200                      =  28857.3096
+#   May 28 -200                      =  28657.3096
+#   May 29 -25000                    =   3657.3096
+#   May 30 +8400                     =  12057.3096
+#   May 31 -4000                     =   8057.3096
+#   Jun 1 +2000 -3605 -200           =   6252.3096
+#   Jun 4 -200                       =   6052.3096
+#   Jun 11 -200                      =   5852.3096
+#   Jun 14 +10500                    =  16352.3096
+#   Jun 15 +4500 +15000 -1273.08 -1500 -375
+#                                    =  32704.2296  <- verified period 3
+#
+# cum_revenue = cum(acme_impl accrual) + cum(acme_maint accrual):
+#   through Jan 31: 12000 + 2000                      = 14000
+#   through Apr 1:  (12000*3) + (2000*4)              = 44000
+#   through Jun 15: (12000*3 + 15000*3) + (2000*6)    = 93000
+period_start,item_id,measure,value
+2026-01-31,acme_impl,accrual,12000.0000
+2026-01-31,acme_impl,cash,3600.0000
+2026-01-31,acme_maint,accrual,0.0000
+2026-01-31,acme_maint,cash,0.0000
+2026-01-31,beta_project,accrual,0.0000
+2026-01-31,beta_project,cash,0.0000
+2026-01-31,gamma_deposit,accrual,0.0000
+2026-01-31,gamma_deposit,cash,0.0000
+2026-01-31,partial_delivery,accrual,0.0000
+2026-01-31,partial_delivery,cash,0.0000
+2026-01-31,credit_note,accrual,0.0000
+2026-01-31,credit_note,cash,0.0000
+2026-01-31,rent,accrual,0.0000
+2026-01-31,rent,cash,0.0000
+2026-01-31,insurance,accrual,0.0000
+2026-01-31,insurance,cash,0.0000
+2026-01-31,salaries,accrual,0.0000
+2026-01-31,salaries,cash,0.0000
+2026-01-31,consultant,accrual,0.0000
+2026-01-31,consultant,cash,-4000.0000
+2026-01-31,hosting,accrual,0.0000
+2026-01-31,hosting,cash,0.0000
+2026-01-31,equipment,accrual,0.0000
+2026-01-31,equipment,cash,0.0000
+2026-01-31,grant,accrual,0.0000
+2026-01-31,grant,cash,0.0000
+2026-01-31,revenue_total,accrual,12000.0000
+2026-01-31,revenue_total,cash,0.0000
+2026-01-31,bonus,accrual,-1200.0000
+2026-01-31,bonus,cash,-1200.0000
+2026-01-31,fee,accrual,-300.0000
+2026-01-31,fee,cash,-300.0000
+2026-01-31,interest_income,accrual,0.0000
+2026-01-31,interest_income,cash,0.0000
+2026-01-31,cash,accrual,69059.0000
+2026-01-31,cash,cash,0.0000
+2026-01-31,cum_revenue,accrual,14000.0000
+2026-01-31,cum_revenue,cash,0.0000
+2026-01-31,zero_guard,accrual,1.0000
+2026-01-31,zero_guard,cash,0.0000
+2026-04-01,acme_impl,accrual,0.0000
+2026-04-01,acme_impl,cash,8400.0000
+2026-04-01,acme_maint,accrual,2000.0000
+2026-04-01,acme_maint,cash,2000.0000
+2026-04-01,beta_project,accrual,0.0000
+2026-04-01,beta_project,cash,0.0000
+2026-04-01,gamma_deposit,accrual,20000.0000
+2026-04-01,gamma_deposit,cash,5000.0000
+2026-04-01,partial_delivery,accrual,0.0000
+2026-04-01,partial_delivery,cash,0.0000
+2026-04-01,credit_note,accrual,0.0000
+2026-04-01,credit_note,cash,0.0000
+2026-04-01,rent,accrual,-3605.0000
+2026-04-01,rent,cash,-3605.0000
+2026-04-01,insurance,accrual,0.0000
+2026-04-01,insurance,cash,0.0000
+2026-04-01,salaries,accrual,0.0000
+2026-04-01,salaries,cash,0.0000
+2026-04-01,consultant,accrual,-5000.0000
+2026-04-01,consultant,cash,0.0000
+2026-04-01,hosting,accrual,0.0000
+2026-04-01,hosting,cash,0.0000
+2026-04-01,equipment,accrual,0.0000
+2026-04-01,equipment,cash,0.0000
+2026-04-01,grant,accrual,25000.0000
+2026-04-01,grant,cash,0.0000
+2026-04-01,revenue_total,accrual,22000.0000
+2026-04-01,revenue_total,cash,0.0000
+2026-04-01,bonus,accrual,-2200.0000
+2026-04-01,bonus,cash,-2200.0000
+2026-04-01,fee,accrual,-550.0000
+2026-04-01,fee,cash,-550.0000
+2026-04-01,interest_income,accrual,0.0000
+2026-04-01,interest_income,cash,0.0000
+2026-04-01,cash,accrual,21048.4696
+2026-04-01,cash,cash,0.0000
+2026-04-01,cum_revenue,accrual,44000.0000
+2026-04-01,cum_revenue,cash,0.0000
+2026-04-01,zero_guard,accrual,1.0000
+2026-04-01,zero_guard,cash,0.0000
+2026-06-15,acme_impl,accrual,15000.0000
+2026-06-15,acme_impl,cash,4500.0000
+2026-06-15,acme_maint,accrual,0.0000
+2026-06-15,acme_maint,cash,0.0000
+2026-06-15,beta_project,accrual,0.0000
+2026-06-15,beta_project,cash,0.0000
+2026-06-15,gamma_deposit,accrual,0.0000
+2026-06-15,gamma_deposit,cash,15000.0000
+2026-06-15,partial_delivery,accrual,0.0000
+2026-06-15,partial_delivery,cash,0.0000
+2026-06-15,credit_note,accrual,0.0000
+2026-06-15,credit_note,cash,0.0000
+2026-06-15,rent,accrual,0.0000
+2026-06-15,rent,cash,0.0000
+2026-06-15,insurance,accrual,-1273.0800
+2026-06-15,insurance,cash,-1273.0800
+2026-06-15,salaries,accrual,0.0000
+2026-06-15,salaries,cash,0.0000
+2026-06-15,consultant,accrual,0.0000
+2026-06-15,consultant,cash,0.0000
+2026-06-15,hosting,accrual,0.0000
+2026-06-15,hosting,cash,0.0000
+2026-06-15,equipment,accrual,0.0000
+2026-06-15,equipment,cash,0.0000
+2026-06-15,grant,accrual,0.0000
+2026-06-15,grant,cash,0.0000
+2026-06-15,revenue_total,accrual,15000.0000
+2026-06-15,revenue_total,cash,0.0000
+2026-06-15,bonus,accrual,-1500.0000
+2026-06-15,bonus,cash,-1500.0000
+2026-06-15,fee,accrual,-375.0000
+2026-06-15,fee,cash,-375.0000
+2026-06-15,interest_income,accrual,0.0000
+2026-06-15,interest_income,cash,0.0000
+2026-06-15,cash,accrual,32704.2296
+2026-06-15,cash,cash,0.0000
+2026-06-15,cum_revenue,accrual,93000.0000
+2026-06-15,cum_revenue,cash,0.0000
+2026-06-15,zero_guard,accrual,1.0000
+2026-06-15,zero_guard,cash,0.0000

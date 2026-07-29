@@ -1,6 +1,6 @@
 """No-float-in-money-paths type audit (Definition of done).
 
-Two layers, covering everything that exists so far (Phase 1):
+Two layers, covering every module that touches money:
 
 1. Source audit: the identifier ``float`` never appears in ``cashkit/model/``
    or ``cashkit/engine/`` source at all (annotation, call, or reference).
@@ -8,8 +8,9 @@ Two layers, covering everything that exists so far (Phase 1):
    anywhere in its type tree.
 3. Behavioral: money fields reject float input outright.
 
-Later sessions extend the source audit to the vectorized engine; any
-exception must be argued in DECISIONS.md and allowlisted here explicitly.
+The audit covers ``model/``, ``engine/`` and ``reference/`` — every money
+path there is. Any exception must be argued in DECISIONS.md and allowlisted
+here explicitly.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ import cashkit.model as model_pkg
 from cashkit.model import Event, Segment, Amount, Recurrence, Grain
 
 PACKAGE_ROOT = Path(cashkit.__file__).parent
-AUDITED_DIRS = ("model", "engine")
+AUDITED_DIRS = ("model", "engine", "reference")
 
 
 #: The single allowed occurrence of the identifier ``float``: the boundary
