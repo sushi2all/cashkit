@@ -1,6 +1,8 @@
 # ADR-0008 — Import conflicts abort the batch; identical rows skip; void_event tombstones
 
-**Date** 2026-07-19 · **Status** accepted
+**Date** 2026-07-19 · **Status** accepted · **Superseded in part by** [ADR-0012](0012-actual-corrections-append-only.md)
+
+> The `void_event` clause below over-generalized scenario-overlay immutability into the ledger, leaving a mis-recorded actual with no resolution path. ADR-0012 adds `correct_event` and `Event.corrects`. `void_event` still refuses bare actuals; everything else here stands.
 
 ## Context
 
