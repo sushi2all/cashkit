@@ -74,7 +74,14 @@ def _quote(text: str) -> str:
         code = ord(ch)
         if code < 0x20 or code == 0x7F or 0x80 <= code <= 0x9F:
             out.append(f"\\x{code:02x}")
-        elif ch in ("\u2028", "\u2029", "\ufeff") or 0xD800 <= code <= 0xDFFF:
+        elif (
+            ch in ("\u2028", "\u2029", "\ufeff")
+            or 0xD800 <= code <= 0xDFFF
+            # U+FFFE / U+FFFF are the remaining characters a YAML reader refuses
+            # outright. Emitting them raw produces a document that cannot be
+            # parsed back, so escaping them is what makes the round trip total.
+            or 0xFFFE <= code <= 0xFFFF
+        ):
             out.append(f"\\u{code:04x}")
         else:
             out.append(ch)

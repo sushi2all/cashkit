@@ -192,3 +192,34 @@ class TestScenarioSerialization:
             "event_overrides: {}\n"
         )
         assert from_canonical_yaml(text, Scenario) == base
+
+
+class TestYamlForbiddenCharacters:
+    """Regression for an S1 emitter gap found by Hypothesis during Session S2.
+
+    PyYAML's reader refuses a fixed set of characters outright. Every one of them
+    must leave the emitter escaped, or the emitted document cannot be parsed back
+    and `parse(serialize(x)) == x` stops being total. U+FFFE / U+FFFF were the
+    one class the original escape table missed.
+    """
+
+    #: Exactly the characters PyYAML's `Reader.NON_PRINTABLE` rejects.
+    FORBIDDEN = [
+        *range(0x00, 0x20),
+        0x7F,
+        *range(0x80, 0xA0),
+        *range(0xD800, 0xE000),
+        0xFFFE,
+        0xFFFF,
+    ]
+
+    def test_every_forbidden_character_survives_the_round_trip(self) -> None:
+        for code in self.FORBIDDEN:
+            scenario = Scenario(id="s", note=f"a{chr(code)}b")
+            text = to_canonical_yaml(scenario)
+            assert from_canonical_yaml(text, Scenario) == scenario, f"U+{code:04X}"
+
+    def test_non_characters_are_escaped_not_emitted_raw(self) -> None:
+        text = to_canonical_yaml(Scenario(id="s", note="￾￿"))
+        assert '"\\ufffe\\uffff"' in text
+        assert "￾" not in text
