@@ -402,3 +402,97 @@ def build_gate_book() -> Book:
             ),
         },
     )
+
+
+def build_benchmark_book(items: int = 50, years: int = 5) -> Book:
+    """The PRD §5.2 benchmark shape: 40 generative flows with escalation and
+    settlement lags, 8 derived, 2 in a feedback loop, over a day-grain horizon.
+
+    Returns a :class:`~cashkit.model.Book`; produces no diagnostics. ``items`` and
+    ``years`` scale it for the scaling table in BENCHMARKS.md.
+    """
+    generative = max(1, items - 10)
+    start = date(2026, 1, 1)
+    end = date(start.year + years, 1, 1)
+    book_items: dict[str, Item] = {}
+
+    for index in range(generative):
+        sign = 1 if index % 3 else -1
+        anchor, day = [
+            ("period_start", None),
+            ("eom", None),
+            ("day_of_month", 15),
+            ("period_end", None),
+        ][index % 4]
+        adjust = ("none", "prev", "next")[index % 3]
+        book_items[f"gen_{index:03d}"] = Item(
+            id=f"gen_{index:03d}",
+            name=f"Generative {index}",
+            kind="flow",
+            tags={"cat": "revenue" if sign > 0 else "opex", "grp": f"g{index % 5}"},
+            flags=CASHFLOW,
+            segments=[
+                Segment(
+                    start=date(2025, 1, 1),
+                    end=date(2026 + years // 2, 1, 1),
+                    recurrence=_monthly(day=day, anchor=anchor, adjust=adjust),
+                    amount=Amount(constant=Decimal(sign * (1000 + index * 37))),
+                    escalation=Escalation(
+                        rate="inflation", every_years=1, anchor="segment_start"
+                    ),
+                    probability=Decimal("0.9") if index % 7 == 0 else Decimal(1),
+                ),
+                Segment(
+                    start=date(2026 + years // 2, 1, 1),
+                    recurrence=_monthly(anchor="period_start"),
+                    amount=Amount(constant=Decimal(sign * (1200 + index * 41))),
+                ),
+            ],
+            settlement=Settlement.split(
+                [(Decimal("0.4"), "0d"), (Decimal("0.6"), f"{30 + index % 60}d")]
+            ),
+        )
+
+    for index in range(items - generative - 2):
+        book_items[f"der_{index:03d}"] = Item(
+            id=f"der_{index:03d}",
+            name=f"Derived {index}",
+            kind="derived",
+            tags={"cat": "derived"},
+            flags=CASHFLOW,
+            formula=(
+                f'where(agg(tag="grp:g{index % 5}", measure="accrual") > 0, '
+                f'-agg(tag="grp:g{index % 5}", measure="accrual") * p.fee_rate, 0)'
+            ),
+        )
+
+    book_items["interest"] = Item(
+        id="interest",
+        name="Overdraft interest",
+        kind="derived",
+        tags={"cat": "financial"},
+        flags=CASHFLOW,
+        formula=(
+            'where(prev("cash", init=p.opening_balance) < 0, '
+            'prev("cash", init=p.opening_balance) * p.deposit_rate, 0)'
+        ),
+    )
+    book_items["cash"] = Item(
+        id="cash",
+        name="Cash balance",
+        kind="stock",
+        tags={"cat": "balance"},
+        formula='prev("cash", init=p.opening_balance) + agg(tag="flag:cashflow")',
+        agg_rule="last",
+    )
+
+    return Book(
+        id="benchmark-book",
+        base_grain=Grain.DAY,
+        calendar=GATE_CALENDAR,
+        horizon=PeriodRange(start=start, end=end),
+        opening_balance=Decimal("250000"),
+        cutover=start,
+        params=dict(GATE_PARAMS),
+        items=book_items,
+    )

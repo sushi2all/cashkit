@@ -35,11 +35,14 @@ __all__ = [
     "RoundingPolicy",
     "escalation_factor",
     "from_minor",
+    "mul_elementwise",
     "mul_ratio",
     "mul_ratio_array",
     "ratio_of",
     "round_div",
     "round_div_array",
+    "round_div_elementwise",
+    "scale_numerator",
     "to_minor",
 ]
 
@@ -246,21 +249,108 @@ def mul_ratio_array(
     return round_div_array(_as_exact(values, numerator), denominator, policy)
 
 
-def guard_sum(*arrays: np.ndarray) -> None:
-    """Raise :class:`MoneyOverflowError` if adding ``arrays`` could overflow int64.
+def round_div_elementwise(
+    numerators: np.ndarray, denominators: np.ndarray, policy: RoundingPolicy
+) -> np.ndarray:
+    """Elementwise integer division with a per-element denominator.
 
-    Checked *before* the addition — numpy wraps silently, so an after-the-fact
-    check would be worthless. Produces no diagnostics.
+    A zero denominator yields ``0`` rather than raising: formula division is
+    masked-safe by design, because both ``where`` branches always evaluate
+    (PRD §5.4). The caller decides whether that zero deserves ``CK-W005``.
+
+    Returns an ``int64`` array. Produces no diagnostics.
     """
-    total = 0
-    for array in arrays:
-        if array.size:
-            total += int(np.abs(array).max()) if array.dtype != object else max(
-                abs(int(v)) for v in array.ravel()
+    zero = denominators == 0
+    safe = np.where(zero, 1, denominators)
+    negative = (numerators < 0) != (safe < 0)
+    top = np.where(numerators < 0, -numerators, numerators)
+    bottom = np.where(safe < 0, -safe, safe)
+    quotient = top // bottom
+    remainder = top - quotient * bottom
+    half_floor = bottom // 2
+    bump = remainder > half_floor
+    tie = (bottom % 2 == 0) & (remainder == half_floor)
+    if policy is RoundingPolicy.HALF_UP:
+        bump = bump | tie
+    else:
+        bump = bump | (tie & (quotient % 2 == 1))
+    quotient = quotient + bump.astype(quotient.dtype)
+    signed = np.where(negative, -quotient, quotient)
+    return _narrow(np.where(zero, 0, signed))
+
+
+def mul_elementwise(
+    left: np.ndarray, right: np.ndarray, policy: RoundingPolicy
+) -> np.ndarray:
+    """Multiply two 4 dp money columns, rounding once to 4 dp.
+
+    Returns an ``int64`` array; intermediates widen to Python ints when the
+    product could leave int64. Produces no diagnostics.
+    """
+    product = _exact_product(left, right)
+    return round_div_array(product, MINOR_SCALE, policy)
+
+
+def _exact_product(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    if left.size == 0:
+        return left.astype(np.int64)
+    peak_left = int(np.abs(left).max())
+    peak_right = int(np.abs(right).max())
+    if peak_left * peak_right <= INT64_MAX:
+        return left * right
+    return left.astype(object) * right.astype(object)
+
+
+def scale_numerator(values: np.ndarray, factor: int) -> np.ndarray:
+    """Return ``values * factor`` exactly, widening past int64 when needed.
+
+    Used to build division numerators, where the ``x10000`` scaling routinely
+    exceeds int64 for large balances. Produces no diagnostics.
+    """
+    return _as_exact(values, factor)
+
+
+#: Headroom factor for additions. Every *stored* column is checked against
+#: ``INT64_MAX // ADDITION_HEADROOM``, which makes any sum of up to
+#: ADDITION_HEADROOM columns — or any chain of that many additions inside one
+#: formula — provably safe without a check per operation. Formula nesting is
+#: capped far below this (``MAX_AST_DEPTH``), and an ``agg()`` over more members
+#: than this is checked explicitly. One O(1) check per column write replaces one
+#: reduction per add, which is the difference between meeting the performance
+#: budget and missing it by 5x.
+ADDITION_HEADROOM = 4096
+
+#: Largest magnitude a stored money column may hold, in minor units.
+COLUMN_CEILING = INT64_MAX // ADDITION_HEADROOM
+
+
+def check_column(values: np.ndarray, what: str) -> np.ndarray:
+    """Verify a column stays inside the addition-safe ceiling.
+
+    Returns ``values`` unchanged, or raises :class:`MoneyOverflowError`. Checked
+    on every stored column so downstream additions need no per-operation guard.
+    Produces no diagnostics.
+    """
+    if values.size:
+        peak = int(np.abs(values).max())
+        if peak > COLUMN_CEILING:
+            raise MoneyOverflowError(
+                f"{what} reaches {peak} minor units, beyond the addition-safe "
+                f"ceiling of {COLUMN_CEILING}"
             )
-    if total > INT64_MAX:
+    return values
+
+
+def guard_total(peak: int, count: int, what: str) -> None:
+    """Raise if summing ``count`` values of magnitude ``peak`` could overflow.
+
+    Used where the headroom argument does not apply — a running total over a long
+    horizon, or an aggregate over more members than the headroom covers.
+    Produces no diagnostics.
+    """
+    if peak * max(1, count) > INT64_MAX:
         raise MoneyOverflowError(
-            f"sum of money columns would reach {total} minor units, beyond int64"
+            f"{what} would reach {peak * count} minor units, beyond int64"
         )
 
 

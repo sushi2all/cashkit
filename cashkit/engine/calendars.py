@@ -16,6 +16,7 @@ import re
 from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import date, timedelta
+from functools import lru_cache
 
 import numpy as np
 
@@ -43,8 +44,13 @@ _DAYS_PER_UNIT = {Grain.DAY: 1, Grain.WEEK: 7}
 _MAX_BUSINESS_DAY_WALK = 400
 
 
+@lru_cache(maxsize=8192)
 def month_length(year: int, month: int) -> int:
-    """Return the number of days in ``month`` of ``year``. No diagnostics."""
+    """Return the number of days in ``month`` of ``year``. No diagnostics.
+
+    Memoized: the engine asks this once per period while building its lookup
+    tables, and the distinct ``(year, month)`` count is tiny.
+    """
     return _calendar.monthrange(year, month)[1]
 
 

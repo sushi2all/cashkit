@@ -55,8 +55,22 @@ from cashkit.engine.formula import (
     Unary,
     Where,
 )
+from cashkit.engine.expand import (
+    FIXED,
+    IMMEDIATE,
+    INVALID,
+    NEVER,
+    SHARES,
+    classify_settlement,
+    escalation_boundary,
+)
 from cashkit.engine.graph import CompiledBook, CompiledItem, compile_book
-from cashkit.engine.numeric import RoundingPolicy, escalation_factor, to_minor
+from cashkit.engine.numeric import (
+    MAX_ESCALATION_EXPONENT,
+    RoundingPolicy,
+    escalation_factor,
+    to_minor,
+)
 from cashkit.engine.result import RunResult
 from cashkit.model import Book, Diagnostic, DueTerm, Item, ItemId, Segment, Settlement
 from cashkit.model.diagnostics import make_diagnostic
@@ -155,68 +169,8 @@ def _truth(value: _Value) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# Settlement classification
+# Settlement dates
 # --------------------------------------------------------------------------- #
-
-#: How an item turns accrual into cash. ``immediate`` is the ``settlement=None``
-#: default — cash moves when the amount accrues; ``none`` is an explicit empty
-#: ``due`` list, i.e. accrual only. See DECISIONS D-P2-04.
-_IMMEDIATE = "immediate"
-_NEVER = "none"
-_SHARES = "shares"
-_FIXED = "fixed"
-_INVALID = "invalid"
-
-
-def _classify_settlement(
-    item: Item,
-) -> tuple[str, tuple[Diagnostic, ...]]:
-    """Decide how an item settles, refusing to guess on a malformed term list.
-
-    Returns ``(kind, diagnostics)``. A structurally invalid settlement yields
-    ``CK-E004``/``CK-E005`` and kind ``invalid``: the item accrues but produces
-    no cash, because inventing a split the author did not write is exactly the
-    silent numerical error this engine forbids.
-    """
-    settlement = item.settlement
-    if settlement is None:
-        return _IMMEDIATE, ()
-    if not settlement.due:
-        return _NEVER, ()
-    shares = [term for term in settlement.due if term.share is not None]
-    amounts = [term for term in settlement.due if term.amount is not None]
-    remainders = [term for term in settlement.due if term.remainder]
-    if shares and (amounts or remainders):
-        return _INVALID, (
-            make_diagnostic(
-                "CK-E005",
-                item_id=item.id,
-                field="settlement.due",
-                reason="terms mix 'share' with 'amount'/'remainder'",
-            ),
-        )
-    if shares:
-        total = sum((term.share for term in shares), start=ZERO)
-        if total != ONE:
-            return _INVALID, (
-                make_diagnostic(
-                    "CK-E004", item_id=item.id, field="settlement.due", total=total
-                ),
-            )
-        return _SHARES, ()
-    if len(remainders) != 1:
-        return _INVALID, (
-            make_diagnostic(
-                "CK-E005",
-                item_id=item.id,
-                field="settlement.due",
-                reason=(
-                    f"fixed-amount settlement needs exactly one remainder term, "
-                    f"found {len(remainders)}"
-                ),
-            ),
-        )
-    return _FIXED, ()
 
 
 def _due_date(
@@ -285,7 +239,7 @@ class _Reference:
         self.diagnostics.append(diagnostic)
 
     def _settlement_of(self, item: Item) -> str:
-        kind, diagnostics = _classify_settlement(item)
+        kind, diagnostics = classify_settlement(item)
         self._settlement_kind[item.id] = kind
         for diagnostic in diagnostics:
             self._emit_built_once(diagnostic)
@@ -371,9 +325,9 @@ class _Reference:
     ) -> None:
         """Turn one accrual into cash legs, in the canonical order
         (ADR-0003): the split first, then withholding."""
-        if kind in (_NEVER, _INVALID):
+        if kind in (NEVER, INVALID):
             return
-        if kind == _IMMEDIATE:
+        if kind == IMMEDIATE:
             self.cash[item.id][accrual_index] += accrued
             return
         assert item.settlement is not None
@@ -392,7 +346,7 @@ class _Reference:
         self, item: Item, accrued: Decimal, settlement: Settlement, kind: str
     ) -> list[tuple[DueTerm, Decimal]]:
         terms = settlement.due
-        if kind == _SHARES:
+        if kind == SHARES:
             legs: list[tuple[DueTerm, Decimal]] = []
             running = ZERO
             for position, term in enumerate(terms):
@@ -532,7 +486,12 @@ class _Reference:
             chosen_else = self._eval(expr.otherwise, period, owner)
             # Both branches always evaluate (D8); selection is elementwise.
             taken = chosen_then if _truth(condition) else chosen_else
-            return _with_flag(taken, condition.zero_div or taken.zero_div)
+            # `where` is a masked column operation, so its result is always
+            # money: a per-period exact rate has no column representation
+            # (DECISIONS D-P2-20).
+            return _with_flag(
+                _to_money(taken, self.policy), condition.zero_div or taken.zero_div
+            )
         assert isinstance(expr, Builtin)
         return self._builtin(expr, period, owner)
 
@@ -706,22 +665,21 @@ def _exact_decimal(value: Fraction) -> Decimal:
 
 
 def _escalation_steps(anchor: str, every_years: int, segment_start: date, occurrence: date) -> int:
-    """Completed escalation steps at ``occurrence``.
+    """Completed escalation steps at ``occurrence``, counted naively.
 
-    ``segment_start`` anchoring counts whole years from the segment's own start
-    date; ``calendar_year`` anchoring steps on 1 January. Keyed to the
-    *unadjusted* occurrence date, so a business-day roll across New Year cannot
-    change an amount.
+    Steps are counted by walking the anniversary boundaries defined in
+    :func:`~cashkit.engine.expand.escalation_boundary` — the same definition the
+    vectorized engine resolves with a binary search. Keyed to the *unadjusted*
+    occurrence date, so a business-day roll across New Year cannot change an
+    amount.
     """
-    if anchor == "calendar_year":
-        elapsed = occurrence.year - segment_start.year
-    else:
-        elapsed = occurrence.year - segment_start.year
-        if (occurrence.month, occurrence.day) < (segment_start.month, segment_start.day):
-            elapsed -= 1
-    if elapsed < 0:
-        elapsed = 0
-    return elapsed // every_years
+    steps = 0
+    while steps < MAX_ESCALATION_EXPONENT:
+        boundary = escalation_boundary(anchor, every_years, segment_start, steps + 1)
+        if occurrence < boundary:
+            break
+        steps += 1
+    return steps
 
 
 def run(book: Book, *, policy: RoundingPolicy = RoundingPolicy.HALF_UP) -> RunResult:
