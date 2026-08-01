@@ -55,12 +55,17 @@ __all__ = [
     "NEVER",
     "SHARES",
     "Expansion",
+    "FoldSettlement",
+    "add_minor",
     "classify_settlement",
+    "derived_accrual_ordinals",
     "escalation_boundary",
     "escalation_steps_array",
     "expand_item",
+    "leg_targets",
     "occurrence_ordinals",
     "settle_occurrences",
+    "split_legs",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -361,32 +366,21 @@ def _apply_escalation(
     return result
 
 
-def settle_occurrences(
-    item: Item,
-    kind: str,
-    accrual_ords: np.ndarray,
-    amounts: np.ndarray,
-    accrual_indices: np.ndarray,
-    cash: np.ndarray,
-    dates: DateOps,
-    policy: RoundingPolicy,
-) -> list[Diagnostic]:
-    """Turn accruals into cash legs and scatter them into ``cash``.
+def split_legs(
+    item: Item, kind: str, amounts: np.ndarray, policy: RoundingPolicy
+) -> tuple[list[np.ndarray], list[Diagnostic]]:
+    """Split accruals into one leg array per :class:`DueTerm`, then withhold.
 
-    Applies the settlement split, then withholding — positions 3 and 4 of the
-    canonical rounding order (ADR-0003). In a share split the last term absorbs
-    the residual so the legs sum to the accrual exactly.
+    Positions 3 and 4 of the canonical rounding order (ADR-0003). In a share
+    split the last term absorbs the residual so the legs sum to the accrual
+    exactly. This is the *arithmetic* half of settlement — placement in time is
+    :func:`leg_targets` — and it is the only implementation, shared by the
+    whole-horizon path and the sequential fold, so the two cannot drift.
 
-    Returns diagnostics: ``CK-W001`` when a remainder clamps to zero and
-    ``CK-W002`` when a negative accrual routes entirely through the remainder.
+    Returns ``(legs, diagnostics)``: ``CK-W001`` when a remainder clamps to zero
+    and ``CK-W002`` when a negative accrual routes entirely through the remainder.
     """
     diagnostics: list[Diagnostic] = []
-    if kind in (NEVER, INVALID) or amounts.size == 0:
-        return diagnostics
-    if kind == IMMEDIATE:
-        _scatter(cash, accrual_indices, amounts)
-        return diagnostics
-
     assert item.settlement is not None
     terms = item.settlement.due
     legs: list[np.ndarray] = []
@@ -441,13 +435,60 @@ def settle_occurrences(
                     np.where(negative, 0, to_minor(term.amount)).astype(np.int64)
                 )
 
+    withheld: list[np.ndarray] = []
     for term, leg in zip(terms, legs):
         if term.withholding != Decimal(0):
             numerator, denominator = ratio_of(term.withholding)
             leg = leg - mul_ratio_array(leg, numerator, denominator, policy)
-        due = dates.offset(_basis_ordinals(term, accrual_ords, accrual_indices, dates), term.offset)
-        due = dates.calendar.adjust_array(due, term.adjust)
-        target = dates.periods.index_of_ordinals(due)
+        withheld.append(leg)
+    return withheld, diagnostics
+
+
+def leg_targets(
+    term: DueTerm,
+    accrual_ords: np.ndarray,
+    accrual_indices: np.ndarray,
+    dates: DateOps,
+) -> np.ndarray:
+    """The period index each leg of ``term`` lands in, or ``-1`` outside the horizon.
+
+    Placement is pure calendar arithmetic and depends only on the accrual dates,
+    so for a derived item — whose accrual dates are the period starts — it is
+    computed once per run and reused by every period of the fold. Returns an
+    int64 array; produces no diagnostics.
+    """
+    due = dates.offset(
+        _basis_ordinals(term, accrual_ords, accrual_indices, dates), term.offset
+    )
+    due = dates.calendar.adjust_array(due, term.adjust)
+    return dates.periods.index_of_ordinals(due)
+
+
+def settle_occurrences(
+    item: Item,
+    kind: str,
+    accrual_ords: np.ndarray,
+    amounts: np.ndarray,
+    accrual_indices: np.ndarray,
+    cash: np.ndarray,
+    dates: DateOps,
+    policy: RoundingPolicy,
+) -> list[Diagnostic]:
+    """Turn accruals into cash legs and scatter them into ``cash``.
+
+    Composes :func:`split_legs` with :func:`leg_targets`. Returns the split's
+    diagnostics (``CK-W001``, ``CK-W002``).
+    """
+    if kind in (NEVER, INVALID) or amounts.size == 0:
+        return []
+    if kind == IMMEDIATE:
+        _scatter(cash, accrual_indices, amounts)
+        return []
+
+    assert item.settlement is not None
+    legs, diagnostics = split_legs(item, kind, amounts, policy)
+    for term, leg in zip(item.settlement.due, legs):
+        target = leg_targets(term, accrual_ords, accrual_indices, dates)
         inside = target >= 0
         _scatter(cash, target[inside], leg[inside])
     return diagnostics
@@ -563,6 +604,83 @@ def derived_accrual_ordinals(periods: PeriodIndex) -> np.ndarray:
     return np.fromiter(
         (day.toordinal() for day in periods.starts), dtype=np.int64, count=len(periods)
     )
+
+
+@dataclass(frozen=True)
+class FoldSettlement:
+    """One fold member's settlement, with its calendar work already done.
+
+    A derived item accrues in every period, so where each leg lands is a fixed
+    function of the period index. Resolving it once per run keeps the sequential
+    fold free of calendar arithmetic, array allocation and scatter reductions —
+    it was the single largest cost in the fold's profile.
+    """
+
+    item: Item
+    kind: str
+    #: One int64 array per :class:`DueTerm`: the period each leg lands in, or -1.
+    targets: tuple[np.ndarray, ...]
+
+    @classmethod
+    def build(
+        cls, item: Item, kind: str, periods: PeriodIndex, dates: DateOps
+    ) -> "FoldSettlement":
+        """Resolve every term's landing period over the whole horizon. No diagnostics."""
+        if kind in (NEVER, INVALID, IMMEDIATE) or item.settlement is None:
+            return cls(item=item, kind=kind, targets=())
+        accrual_ords = derived_accrual_ordinals(periods)
+        indices = np.arange(len(periods), dtype=np.int64)
+        return cls(
+            item=item,
+            kind=kind,
+            targets=tuple(
+                leg_targets(term, accrual_ords, indices, dates)
+                for term in item.settlement.due
+            ),
+        )
+
+    @property
+    def splits(self) -> bool:
+        """True when settling needs the term split; ``False`` for immediate,
+        never-settling and structurally invalid settlements. No diagnostics."""
+        return bool(self.targets)
+
+    def apply(
+        self, period: int, amount: int, cash: np.ndarray, policy: RoundingPolicy
+    ) -> list[Diagnostic]:
+        """Settle one period's accrual into ``cash``, in place.
+
+        Only called when :attr:`splits` is true — immediate settlement is one
+        add and the fold does it inline. ``amount`` is int64 minor units.
+        Returns the split's diagnostics (``CK-W001``, ``CK-W002``); raises
+        :class:`~cashkit.engine.numeric.MoneyOverflowError` rather than letting
+        a cash cell wrap.
+        """
+        legs, diagnostics = split_legs(
+            self.item, self.kind, np.array([amount], dtype=np.int64), policy
+        )
+        for targets, leg in zip(self.targets, legs):
+            target = int(targets[period])
+            if target >= 0:
+                add_minor(cash, target, int(leg[0]))
+        return diagnostics
+
+
+def add_minor(column: np.ndarray, index: int, value: int) -> None:
+    """Add one minor-unit value into one cell, refusing to wrap.
+
+    numpy's int64 addition wraps silently, so the check happens before the add.
+    Produces no diagnostics; raises
+    :class:`~cashkit.engine.numeric.MoneyOverflowError` on overflow.
+    """
+    total = int(column[index]) + value
+    if not -INT64_MAX - 1 <= total <= INT64_MAX:
+        from .numeric import MoneyOverflowError
+
+        raise MoneyOverflowError(
+            f"cash cell would reach {total} minor units, beyond int64"
+        )
+    column[index] = total
 
 
 assert MINOR_SCALE == 10_000  # the 4 dp assumption baked into _as_decimal

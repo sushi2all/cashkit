@@ -27,6 +27,7 @@ import ast
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 
 from cashkit.model import Diagnostic, ItemId
 from cashkit.model.diagnostics import make_diagnostic
@@ -634,7 +635,18 @@ def parse_formula(source: str, *, item_id: ItemId | None = None) -> ParseOutcome
     ``diagnostics`` carries ``CK-E003`` naming the reason; a hostile or
     malformed string never raises and never executes. ``agg()`` selectors are
     parsed but not yet resolved to item ids — that happens at graph build.
+
+    Memoized: parsing is pure and the result is immutable, and the delta path
+    recompiles the whole book after a one-item change (see
+    :meth:`~cashkit.engine.run.Engine.delta`), so an unchanged formula must not
+    pay for `ast.parse` again. The cache is bounded so a fuzz corpus cannot grow
+    it without limit.
     """
+    return _parse_formula(source, item_id)
+
+
+@lru_cache(maxsize=4096)
+def _parse_formula(source: str, item_id: ItemId | None) -> ParseOutcome:
     if not source.strip():
         return ParseOutcome(
             None,

@@ -24,10 +24,11 @@ they meet money. Masks come from comparisons and logical operators.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from decimal import Decimal
 from fractions import Fraction
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -76,7 +77,19 @@ __all__ = [
     "ScalarKernel",
     "TimeColumns",
     "Value",
+    "exact_fraction",
 ]
+
+
+@lru_cache(maxsize=8192)
+def exact_fraction(value: Decimal) -> Fraction:
+    """``Fraction`` of an authored ``Decimal``, memoized.
+
+    Literals and params are re-read once per period inside the sequential fold;
+    the conversion is exact either way, and memoizing keeps it off the hot path.
+    Produces no diagnostics.
+    """
+    return Fraction(value)
 
 
 # --------------------------------------------------------------------------- #
@@ -84,7 +97,7 @@ __all__ = [
 # --------------------------------------------------------------------------- #
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Rate:
     """A dimensionless exact scalar — a literal or a param."""
 
@@ -92,7 +105,7 @@ class Rate:
     zero_div: bool = False
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Column:
     """Money at 4 dp: an int64 column, or one int under the scalar kernel."""
 
@@ -100,7 +113,7 @@ class Column:
     zero_div: Any
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Mask:
     """A boolean from a comparison or logical operator."""
 
@@ -182,6 +195,11 @@ class EvalWindow:
     #: Pre-summed ``agg()`` vectors for a feedback fold: node -> (sum of the
     #: members outside the component, members still inside it). None otherwise.
     presum: dict[Agg, tuple[np.ndarray, tuple[ItemId, ...]]] | None = None
+    #: Resolved ``(item, measure) -> column`` cache. Columns are mutated in
+    #: place during a fold and never rebound, so the array objects are stable
+    #: for the life of one window; the fold resolves each symbol thousands of
+    #: times and the dict walk showed up in the profile.
+    _resolved: dict[tuple[ItemId, str], np.ndarray] = field(default_factory=dict)
 
     @property
     def size(self) -> int:
@@ -194,9 +212,15 @@ class EvalWindow:
         A stock has no cash column: both measures read its level, or the
         canonical ``prev("cash")`` would read zero (DECISIONS D-P2-06).
         """
-        if self.kinds[item_id] == "stock":
-            return self.accrual[item_id]
-        return self.accrual[item_id] if measure == "accrual" else self.cash[item_id]
+        key = (item_id, measure)
+        column = self._resolved.get(key)
+        if column is None:
+            if self.kinds[item_id] == "stock" or measure == "accrual":
+                column = self.accrual[item_id]
+            else:
+                column = self.cash[item_id]
+            self._resolved[key] = column
+        return column
 
     def param(self, key: str) -> Decimal:
         """Resolve ``p.<key>``; ``opening_balance`` falls back to the Book field.
@@ -252,7 +276,7 @@ class ArrayKernel:
         return np.full(self.window.size, value, dtype=bool)
 
     def flag_of(self, value: Value) -> Any:
-        if isinstance(value, Rate):
+        if type(value) is Rate:
             return self.flag(value.zero_div)
         return value.zero_div
 
@@ -493,6 +517,17 @@ class ColumnEvaluator:
         self.kernel: ArrayKernel = (
             ScalarKernel(window) if scalar else ArrayKernel(window)
         )
+        #: Rate leaves — literals and params — are constant across periods, so the
+        #: sequential fold pays for the conversion once per run rather than once
+        #: per period. Only ever caches immutable values: a :class:`Rate` holds a
+        #: ``Fraction``, and a scalar-kernel :class:`Column` holds an ``int``.
+        #: Array columns are deliberately not cached, because a cached array
+        #: could be aliased into two items' output columns.
+        self._constants: dict[Expr, Rate] = {}
+        self._prev_init: dict[Prev, int] = {}
+        self._rate_money: dict[tuple[Fraction, bool], Column] | None = (
+            {} if scalar else None
+        )
 
     # -- promotion -------------------------------------------------------- #
 
@@ -501,21 +536,31 @@ class ColumnEvaluator:
 
         Returns a :class:`Column`; produces no diagnostics.
         """
-        kernel = self.kernel
-        if isinstance(value, Column):
+        if type(value) is Column:
             return value
-        if isinstance(value, Mask):
+        kernel = self.kernel
+        if type(value) is Mask:
             return Column(kernel.from_mask(value.value), value.zero_div)
+        assert isinstance(value, Rate)
+        memo = self._rate_money
+        key = (value.value, value.zero_div)
+        if memo is not None:
+            cached = memo.get(key)
+            if cached is not None:
+                return cached
         minor = round_div(
             value.value.numerator * MINOR_SCALE, value.value.denominator, self.policy
         )
-        return Column(kernel.broadcast(minor), kernel.flag(value.zero_div))
+        column = Column(kernel.broadcast(minor), kernel.flag(value.zero_div))
+        if memo is not None:
+            memo[key] = column
+        return column
 
     def _truth(self, value: Value) -> Any:
         kernel = self.kernel
-        if isinstance(value, Mask):
+        if type(value) is Mask:
             return value.value
-        if isinstance(value, Rate):
+        if type(value) is Rate:
             return kernel.mask_from_bool(value.value != 0)
         return kernel.truthy(value.value)
 
@@ -527,49 +572,64 @@ class ColumnEvaluator:
         Returns a :class:`Rate`, :class:`Column` or :class:`Mask`. Division by
         zero yields zero and raises the ``zero_div`` flag rather than an
         exception; the caller turns a surviving flag into ``CK-W005``.
+
+        Dispatch is an exact-type table rather than an ``isinstance`` chain: the
+        node set is closed and final, and the fold re-walks the same tree once
+        per period, so the chain showed up as real time in the profile.
         """
+        return _DISPATCH[expr.__class__](self, expr)
+
+    # -- leaves ----------------------------------------------------------- #
+
+    def _literal(self, expr: Literal) -> Value:
+        cached = self._constants.get(expr)
+        if cached is None:
+            cached = Rate(exact_fraction(expr.value))
+            self._constants[expr] = cached
+        return cached
+
+    def _param(self, expr: Param) -> Value:
+        cached = self._constants.get(expr)
+        if cached is None:
+            cached = Rate(exact_fraction(self.window.param(expr.key)))
+            self._constants[expr] = cached
+        return cached
+
+    def _time_field(self, expr: TimeField) -> Value:
         kernel = self.kernel
-        if isinstance(expr, Literal):
-            return Rate(Fraction(expr.value))
-        if isinstance(expr, Param):
-            return Rate(Fraction(self.window.param(expr.key)))
-        if isinstance(expr, TimeField):
-            if expr.name in TimeColumns.NUMERIC:
-                return Column(kernel.time_numeric(expr.name), kernel.no_flag())
-            return Mask(kernel.time_mask(expr.name), kernel.no_flag())
-        if isinstance(expr, ItemRef):
-            return Column(kernel.item(expr.item_id, expr.measure), kernel.no_flag())
-        if isinstance(expr, Prev):
+        if expr.name in TimeColumns.NUMERIC:
+            return Column(kernel.time_numeric(expr.name), kernel.no_flag())
+        return Mask(kernel.time_mask(expr.name), kernel.no_flag())
+
+    def _item_ref(self, expr: ItemRef) -> Value:
+        kernel = self.kernel
+        return Column(kernel.item(expr.item_id, expr.measure), kernel.no_flag())
+
+    def _prev(self, expr: Prev) -> Value:
+        kernel = self.kernel
+        minor = self._prev_init.get(expr)
+        if minor is None:
             init = (
-                Fraction(self.window.param(expr.init.key))
+                exact_fraction(self.window.param(expr.init.key))
                 if isinstance(expr.init, Param)
-                else Fraction(expr.init.value)
+                else exact_fraction(expr.init.value)
             )
             minor = round_div(
                 init.numerator * MINOR_SCALE, init.denominator, self.policy
             )
-            return Column(
-                kernel.lagged(expr.item_id, expr.measure, expr.lag, minor),
-                kernel.no_flag(),
-            )
-        if isinstance(expr, Agg):
-            return Column(kernel.aggregate(expr), kernel.no_flag())
-        if isinstance(expr, Cum):
-            return Column(
-                kernel.cumulative(expr.item_id, expr.measure), kernel.no_flag()
-            )
-        if isinstance(expr, Unary):
-            return self._unary(expr)
-        if isinstance(expr, Binary):
-            return self._binary(expr)
-        if isinstance(expr, Compare):
-            return self._compare(expr)
-        if isinstance(expr, Logical):
-            return self._logical(expr)
-        if isinstance(expr, Where):
-            return self._where(expr)
-        assert isinstance(expr, Builtin)
-        return self._builtin(expr)
+            self._prev_init[expr] = minor
+        return Column(
+            kernel.lagged(expr.item_id, expr.measure, expr.lag, minor),
+            kernel.no_flag(),
+        )
+
+    def _agg(self, expr: Agg) -> Value:
+        kernel = self.kernel
+        return Column(kernel.aggregate(expr), kernel.no_flag())
+
+    def _cum(self, expr: Cum) -> Value:
+        kernel = self.kernel
+        return Column(kernel.cumulative(expr.item_id, expr.measure), kernel.no_flag())
 
     # -- operators -------------------------------------------------------- #
 
@@ -582,7 +642,7 @@ class ColumnEvaluator:
             )
         if expr.op == "+":
             return operand
-        if isinstance(operand, Rate):
+        if type(operand) is Rate:
             return Rate(-operand.value, operand.zero_div)
         column = self.to_money(operand)
         return Column(kernel.negate(column.value), column.zero_div)
@@ -592,7 +652,7 @@ class ColumnEvaluator:
         left = self.eval(expr.left)
         right = self.eval(expr.right)
         flag = kernel.combine(kernel.flag_of(left), kernel.flag_of(right))
-        both_rate = isinstance(left, Rate) and isinstance(right, Rate)
+        both_rate = type(left) is Rate and type(right) is Rate
 
         if expr.op in ("+", "-"):
             if both_rate:
@@ -609,9 +669,9 @@ class ColumnEvaluator:
         if expr.op == "*":
             if both_rate:
                 return Rate(left.value * right.value, left.zero_div or right.zero_div)
-            if isinstance(left, Rate):
+            if type(left) is Rate:
                 money, rate = self.to_money(right), left
-            elif isinstance(right, Rate):
+            elif type(right) is Rate:
                 money, rate = self.to_money(left), right
             else:
                 return Column(
@@ -635,7 +695,7 @@ class ColumnEvaluator:
             if right.value == 0:
                 return Rate(Fraction(0), True)
             return Rate(left.value / right.value, left.zero_div or right.zero_div)
-        if isinstance(right, Rate):
+        if type(right) is Rate:
             if right.value == 0:
                 # Masked-safe division: both `where` branches always evaluate, so
                 # a/0 executes by design and yields 0 (PRD §5.4, CK-W005).
@@ -659,7 +719,7 @@ class ColumnEvaluator:
         left = self.eval(expr.left)
         right = self.eval(expr.right)
         flag = kernel.combine(kernel.flag_of(left), kernel.flag_of(right))
-        if isinstance(left, Rate) and isinstance(right, Rate):
+        if type(left) is Rate and type(right) is Rate:
             outcome = _COMPARISONS[expr.op](left.value, right.value)
             return Mask(kernel.mask_from_bool(bool(outcome)), flag)
         lhs = self.to_money(left).value
@@ -730,4 +790,23 @@ _COMPARISONS = {
     "<=": lambda a, b: a <= b,
     ">": lambda a, b: a > b,
     ">=": lambda a, b: a >= b,
+}
+
+#: Exact-type dispatch for :meth:`ColumnEvaluator.eval`. The restricted AST is a
+#: closed set (``cashkit.engine.formula``), so an exhaustive table is safe and
+#: `tests/test_columns.py` asserts it stays exhaustive.
+_DISPATCH = {
+    Literal: ColumnEvaluator._literal,
+    Param: ColumnEvaluator._param,
+    TimeField: ColumnEvaluator._time_field,
+    ItemRef: ColumnEvaluator._item_ref,
+    Prev: ColumnEvaluator._prev,
+    Agg: ColumnEvaluator._agg,
+    Cum: ColumnEvaluator._cum,
+    Unary: ColumnEvaluator._unary,
+    Binary: ColumnEvaluator._binary,
+    Compare: ColumnEvaluator._compare,
+    Logical: ColumnEvaluator._logical,
+    Where: ColumnEvaluator._where,
+    Builtin: ColumnEvaluator._builtin,
 }

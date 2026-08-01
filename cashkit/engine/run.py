@@ -32,11 +32,14 @@ from .expand import (
     IMMEDIATE,
     NEVER,
     INVALID,
+    FoldSettlement,
+    add_minor,
     classify_settlement,
     derived_accrual_ordinals,
     expand_item,
     settle_occurrences,
 )
+from .fold import compile_cell
 from .formula import Agg, iter_refs
 from .graph import CompiledBook, Component, compile_book
 from .numeric import RoundingPolicy, check_column
@@ -188,9 +191,7 @@ class Engine:
                     emit,
                 )
             else:
-                self._evaluate_fold(
-                    component, kinds, settlement_kind, derived_ords, emit
-                )
+                self._evaluate_fold(component, kinds, settlement_kind, emit)
 
         return RunResult(
             book_id=self.book.id,
@@ -263,14 +264,16 @@ class Engine:
         component: Component,
         kinds: dict[ItemId, str],
         settlement_kind: dict[ItemId, str],
-        derived_ords: np.ndarray,
         emit,
     ) -> None:
         """The sequential tier: one period at a time, members in same-period order.
 
-        The window is a single period, so the operator semantics are literally the
-        same code the whole-horizon path uses — the fold cannot drift from the
-        vectorized tier because it *is* the vectorized tier, narrowed.
+        Each member's formula is staged into a closure by
+        :func:`~cashkit.engine.fold.compile_cell` before the loop starts, so the
+        per-period cost is arithmetic rather than AST dispatch. The staged
+        semantics are pinned against the generic evaluator in
+        ``tests/test_fold.py`` and against the ``Decimal`` oracle by the
+        dual-engine gate.
         """
         members = [
             self.compiled.items[member]
@@ -293,31 +296,50 @@ class Engine:
                     total = total + self._column_of(member, ref.measure, kinds)
                 presum[ref] = (check_column(total, f"agg({ref.selector.source!r})"), still_inside)
 
+        # The fold is the one sequential loop in the engine, so everything that
+        # does not vary with the period is resolved before entering it: the cell
+        # expressions are staged into closures, and each cash leg's landing
+        # period is fixed calendar arithmetic over the period index.
         window = self._window(kinds, 0, 1)
         window.presum = presum
-        evaluator = ColumnEvaluator(window, self.policy, scalar=True)
+        plans: list[tuple] = []
+        for compiled_item in members:
+            assert compiled_item.expr is not None
+            # A stock is a level, not a movement: it produces no cash leg
+            # (DECISIONS D-P2-05).
+            kind = (
+                NEVER
+                if compiled_item.item.kind == "stock"
+                else settlement_kind[compiled_item.id]
+            )
+            plan = FoldSettlement.build(
+                compiled_item.item, kind, self.periods, self.dates
+            )
+            plans.append(
+                (
+                    compile_cell(compiled_item.expr, window, self.policy),
+                    self.accrual[compiled_item.id],
+                    None if kind in (NEVER, INVALID) else self.cash[compiled_item.id],
+                    compiled_item.id,
+                    plan if plan.splits else None,
+                )
+            )
+
+        starts = self.periods.starts
+        policy = self.policy
         for period in range(len(self.periods)):
-            window.start = period
-            window.stop = period + 1
-            for compiled_item in members:
-                assert compiled_item.expr is not None
-                result = evaluator.to_money(evaluator.eval(compiled_item.expr))
-                self.accrual[compiled_item.id][period] = result.value
-                if result.zero_div:
-                    emit(_zero_division(compiled_item.id, self.periods.starts[period]))
-                if compiled_item.item.kind == "stock":
+            for cell, accrual, cash, item_id, plan in plans:
+                value, zero_div = cell(period)
+                accrual[period] = value
+                if zero_div:
+                    emit(_zero_division(item_id, starts[period]))
+                if cash is None:
                     continue
-                for diagnostic in settle_occurrences(
-                    compiled_item.item,
-                    settlement_kind[compiled_item.id],
-                    derived_ords[period : period + 1],
-                    np.array([result.value], dtype=np.int64),
-                    np.array([period], dtype=np.int64),
-                    self.cash[compiled_item.id],
-                    self.dates,
-                    self.policy,
-                ):
-                    emit(diagnostic)
+                if plan is None:
+                    add_minor(cash, period, value)
+                else:
+                    for diagnostic in plan.apply(period, value, cash, policy):
+                        emit(diagnostic)
 
 
 def _zero_division(item_id: ItemId, period_start) -> Diagnostic:
