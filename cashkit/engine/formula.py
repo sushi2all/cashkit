@@ -13,8 +13,11 @@ Three rules shape everything here:
   closed set of node types in this module. No `eval`, no attribute access
   beyond `p.<param>` / `t.<field>`, no call outside the builtin table.
 * **Rejection is a diagnostic.** A malformed or hostile formula returns
-  ``CK-E003`` (or ``CK-E008`` for an unknown param), never an exception and
-  never execution.
+  ``CK-E003`` — or ``CK-E007`` for a malformed param key, ``CK-E008`` for an
+  unknown one — never an exception and never execution. The whitelist is the
+  translator itself rather than a separate pre-pass: a node type is legal
+  exactly when there is code below that translates it, so the two can never
+  disagree about what the language accepts.
 
 Numeric literals are read from the *source text*, not from the Python
 ``Constant`` value: ``0.05`` in a formula becomes ``Decimal("0.05")`` exactly,
@@ -43,6 +46,10 @@ __all__ = [
     "ItemRef",
     "Literal",
     "Logical",
+    "MAX_AST_DEPTH",
+    "MAX_FORMULA_LENGTH",
+    "MAX_LITERAL_MAGNITUDE",
+    "MAX_PREV_LAG",
     "MEASURES",
     "Param",
     "ParseOutcome",
@@ -75,6 +82,22 @@ _TAG_VALUE = re.compile(r"^[^\s:]+$")
 
 #: Guard against a formula that is technically legal but pathologically deep.
 MAX_AST_DEPTH = 40
+
+#: Refuse an absurdly long source before handing it to ``ast.parse``. A formula
+#: is a line of arithmetic; anything at this scale is an attack or an accident,
+#: and parsing it first would be doing the attacker's work.
+MAX_FORMULA_LENGTH = 4096
+
+#: Largest magnitude a numeric literal may carry — the same 9x10^14 ceiling the
+#: model puts on authored money (DECISIONS D-P1-06). Without it, `1e400` parses
+#: happily and then raises ``MoneyOverflowError`` the moment it is promoted to a
+#: money column: an exception on book content, which the error policy forbids.
+MAX_LITERAL_MAGNITUDE = Decimal("9E14")
+
+#: Largest ``prev(n=...)`` lag. A lag beyond this cannot mean anything — it is
+#: 2,700 years of day-grain periods — and an unbounded one reaches numpy as a
+#: Python int too large for int64, which raises instead of diagnosing.
+MAX_PREV_LAG = 1_000_000
 
 
 # --------------------------------------------------------------------------- #
@@ -370,6 +393,23 @@ _COMPARE_OPS = {
 }
 
 
+def _is_param_root(node: ast.expr) -> bool:
+    """True when ``node`` is ``p`` or a chain of attributes rooted at ``p``."""
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return isinstance(node, ast.Name) and node.id == "p"
+
+
+def _dotted(node: ast.Attribute) -> str:
+    """Render an attribute chain below ``p.`` as a dotted key."""
+    parts: list[str] = []
+    current: ast.expr = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    return ".".join(reversed(parts))
+
+
 class _Translator:
     """Translate a Python expression AST into the restricted node set."""
 
@@ -385,11 +425,23 @@ class _Translator:
         if text is None:  # pragma: no cover - defensive
             raise _Rejected("numeric literal could not be read from the source text")
         try:
-            return Decimal(text.strip())
+            value = Decimal(text.strip())
         except (InvalidOperation, ValueError) as exc:
             raise _Rejected(
                 f"literal {text.strip()!r} is not a decimal number"
             ) from exc
+        return self._bounded(value, text.strip())
+
+    @staticmethod
+    def _bounded(value: Decimal, text: str) -> Decimal:
+        if not value.is_finite():
+            raise _Rejected(f"literal {text!r} is not a finite number")
+        if value.copy_abs() > MAX_LITERAL_MAGNITUDE:
+            raise _Rejected(
+                f"literal {text!r} exceeds the {MAX_LITERAL_MAGNITUDE} magnitude "
+                "limit of the int64 money core"
+            )
+        return value
 
     def _string_arg(self, node: ast.expr, what: str) -> str:
         if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
@@ -505,7 +557,7 @@ class _Translator:
         if isinstance(value, bool):
             return Literal(Decimal(1) if value else Decimal(0))
         if isinstance(value, int):
-            return Literal(Decimal(value))
+            return Literal(self._bounded(Decimal(value), repr(value)))
         if isinstance(value, str):
             raise _Rejected(
                 "a bare string is not a value; strings appear only as it()/prev()/"
@@ -517,13 +569,25 @@ class _Translator:
 
     def _attribute(self, node: ast.Attribute) -> Expr:
         base = node.value
+        if isinstance(base, ast.Attribute) and _is_param_root(base):
+            # `p.a.b` is a dotted param key, which the catalogue names directly.
+            raise _Rejected(
+                f"param key 'p.{_dotted(base)}.{node.attr}' is dotted; param keys "
+                f"are flat and must match {IDENT_RE}",
+                code="CK-E007",
+                key=f"{_dotted(base)}.{node.attr}",
+            )
         if not isinstance(base, ast.Name):
             raise _Rejected(
                 "attribute access is restricted to p.<param> and t.<field>"
             )
         if base.id == "p":
             if not _IDENT_FULL.match(node.attr):
-                raise _Rejected(f"param key {node.attr!r} must match {IDENT_RE}")
+                raise _Rejected(
+                    f"param key {node.attr!r} must match {IDENT_RE}",
+                    code="CK-E007",
+                    key=node.attr,
+                )
             return Param(node.attr)
         if base.id == "t":
             if node.attr not in TIME_FIELDS:
@@ -542,9 +606,14 @@ class _Translator:
                 "no method calls, no computed callees"
             )
         name = node.func.id
-        handler = getattr(self, f"_call_{name}", None)
+        # An explicit table, never `getattr(self, f"_call_{name}")`: name-based
+        # dispatch made every method of this class whose name happens to start
+        # with the prefix reachable from a formula string, and `numeric(1, 2)`
+        # reached `_call_numeric` with the wrong signature and raised a
+        # TypeError out of the parser instead of returning a diagnostic.
+        handler = _CALL_TABLE.get(name)
         if handler is not None:
-            return handler(node, depth)
+            return handler(self, node, depth)
         if name in NUMERIC_BUILTINS:
             return self._call_numeric(name, node, depth)
         if name == "if_":
@@ -576,6 +645,10 @@ class _Translator:
         lag = 1 if "n" not in keywords else self._literal_int(keywords["n"], "prev(n=...)")
         if lag < 1:
             raise _Rejected("prev(n=...) must be at least 1")
+        if lag > MAX_PREV_LAG:
+            raise _Rejected(
+                f"prev(n={lag}) exceeds the {MAX_PREV_LAG}-period limit"
+            )
         return Prev(
             item_id=self._item_id(node.args[0], "prev() item id"),
             lag=lag,
@@ -628,13 +701,27 @@ class _Translator:
         return Builtin(name, tuple(args))
 
 
+#: The call surface of PRD §5.4, as an explicit table. Adding a builtin means
+#: adding a row here; nothing else in the class is reachable from a formula.
+_CALL_TABLE = {
+    "it": _Translator._call_it,
+    "cum": _Translator._call_cum,
+    "prev": _Translator._call_prev,
+    "agg": _Translator._call_agg,
+    "where": _Translator._call_where,
+}
+
+
 def parse_formula(source: str, *, item_id: ItemId | None = None) -> ParseOutcome:
     """Parse a formula string into the restricted AST.
 
     Returns a :class:`ParseOutcome`. On rejection ``expr`` is ``None`` and
-    ``diagnostics`` carries ``CK-E003`` naming the reason; a hostile or
-    malformed string never raises and never executes. ``agg()`` selectors are
-    parsed but not yet resolved to item ids — that happens at graph build.
+    ``diagnostics`` carries ``CK-E003`` naming the reason — or ``CK-E007`` when
+    the reason is specifically a malformed or dotted param key. A hostile or
+    malformed string never raises and never executes: the translator is
+    exhaustive, so an AST node type is legal exactly when there is code that
+    translates it. ``agg()`` selectors are parsed but not yet resolved to item
+    ids — that happens at graph build.
 
     Memoized: parsing is pure and the result is immutable, and the delta path
     recompiles the whole book after a one-item change (see
@@ -656,6 +743,21 @@ def _parse_formula(source: str, item_id: ItemId | None) -> ParseOutcome:
                     item_id=item_id,
                     field="formula",
                     reason="formula is empty",
+                ),
+            ),
+        )
+    if len(source) > MAX_FORMULA_LENGTH:
+        return ParseOutcome(
+            None,
+            (
+                make_diagnostic(
+                    "CK-E003",
+                    item_id=item_id,
+                    field="formula",
+                    reason=(
+                        f"formula is {len(source)} characters, beyond the "
+                        f"{MAX_FORMULA_LENGTH}-character limit"
+                    ),
                 ),
             ),
         )

@@ -93,3 +93,14 @@ each cash leg's landing period once per run took the delta from 39 ms to 4.5 ms
 and the cold run from 57 ms to 17 ms, with the two engines still byte-identical
 on the whole corpus.
 
+
+## Phase 4 — Formula language
+
+No performance gate. Recorded because the hardening corpus is a standing cost
+in every test run:
+
+| Measure | Value |
+|---|---|
+| `tests/test_formula_hardening.py` — 320 tests, 262-entry corpus plus 1,600 generated strings | 1.3 s |
+| `tests/test_builtins_vectorized.py` — 32 tests, every §5.4 symbol against a Decimal oracle | 0.4 s |
+| Full suite, all phases (615 tests) | 12.2 s |

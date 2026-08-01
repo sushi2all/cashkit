@@ -435,6 +435,79 @@ random books. Six of the focus books are deliberately *broken*, because the two
 engines must agree on which diagnostics a bad book produces and not only on the
 numbers in a good one.
 
+## Phase 4 — Formula language (Session S2)
+
+### D-P4-01 · The whitelist is the translator; the call surface is an explicit table
+An AST pre-pass listing legal node types would be a second definition of the
+language, free to drift from the translator. Instead the translator is
+exhaustive: every `ast` node it does not explicitly handle falls through to a
+`CK-E003` naming the node type, so a node type is legal exactly when there is
+code that translates it. `tests/test_formula_hardening.py` asserts the
+complement — for every expression node type in the `ast` grammar, a sample
+either translates or is rejected with a diagnostic, and a Python release adding
+a node type fails that test rather than widening the language silently.
+
+The *call* surface is the opposite: an explicit dict, not name-based dispatch.
+It used to be `getattr(self, f"_call_{name}")`, which made every method of the
+translator whose name began with that prefix reachable from a formula string —
+`numeric(1, 2)` reached the variadic-builtin handler with the wrong signature
+and raised `TypeError` out of the parser instead of returning a diagnostic. The
+Phase 4 gate found it through a structural check that walks the parser's own
+source for calls that could execute anything; the fix is `_CALL_TABLE`, and the
+corpus now includes every translator method name.
+
+### D-P4-02 · Three bounds on parse, because the failure is a crash and not a number
+`ast.parse` on a deeply nested expression can exhaust the C stack before any of
+our code runs; CPython raises `RecursionError` or `MemoryError` from inside the
+parser, and both are caught and turned into `CK-E003`. On top of that the
+translator enforces `MAX_AST_DEPTH`, and `parse_formula` refuses a source longer
+than `MAX_FORMULA_LENGTH` (4096) before calling `ast.parse` at all — parsing a
+100 kB "formula" is doing the attacker's work. Three bounds rather than one
+because what they prevent is a hard failure of the process evaluating someone's
+book, not a wrong number.
+
+### D-P4-03 · Numeric literals and `prev(n=)` are bounded at parse, not at evaluation
+`1e400` parsed happily and then raised `MoneyOverflowError` the moment it was
+promoted to a money column — an exception on book content, which the error
+policy forbids. Literals are now bounded at `MAX_LITERAL_MAGNITUDE` = 9x10^14,
+the same ceiling the model puts on authored money (D-P1-06), and rejected with
+`CK-E003` above it. `prev(n=...)` is bounded at `MAX_PREV_LAG` = 1,000,000 for
+the same reason: an unbounded lag reaches numpy as a Python int too large for
+int64 and raises there. Both bounds are generous enough that no real book can
+meet them and tight enough that the failure is a diagnostic.
+
+### D-P4-04 · A malformed param key is `CK-E007`, not `CK-E003`
+The catalogue has a code for exactly this — "dotted or otherwise invalid param
+key" — so `p.a.b` and `p.BAD` report `CK-E007` naming the key, while everything
+else about a rejected formula stays `CK-E003`. `p.9bad` is not in that class:
+it is a syntax error before any param key exists, and reporting it as a param
+problem would misdirect the reader. Consistent with the Phase 2-4 rule of
+mapping every detected condition onto an existing §10.1 code rather than
+minting new ones (D-P2-10).
+
+### D-P4-05 · `agg()` resolution is graph-build time; self-membership is a cycle
+PRD §5.4 requires selectors to resolve to concrete ids at graph-build time.
+Phase 2 already did this; Phase 4 pins the two edges with tests rather than
+changing behaviour. A selector matching *nothing* is `CK-E001` — the reference
+is unresolvable — while a selector matching the item that owns the formula is
+`CK-E002` with the cycle spelled `item -> agg("...") -> item`, because that is
+a self-dependency and §5.4 and the catalogue both describe it as one.
+Resolution reads the book's tags as they stand at compile time, which is why
+`Engine.delta` recompiles the graph after any item change: editing a tag moves
+aggregate membership, and a stale membership would be a silently wrong number.
+
+### D-P4-06 · "Never executes" is proved structurally as well as empirically
+The empirical half is a recorder wrapped around every dangerous builtin the
+corpus tries to reach; it must stay silent while the whole corpus is parsed.
+The recorder *delegates* to the original rather than replacing it, because a
+canary that swallowed calls would change the behaviour of everything else in
+the process — an earlier version that replaced `__import__`, `compile` and
+`type` outright hung the test session, which is a failure mode of the canary
+and not evidence about the parser. The structural half walks the parser's own
+source for calls to `eval`, `exec`, `__import__`, `compile`, `getattr` and
+friends; it holds for inputs the corpus never thought of, and it is what caught
+the name-based dispatch hole in D-P4-01.
+
 ## PRD conflicts
 
 ### C-P1-01 · `CalendarSpec.weekend` "ISO weekday indices" vs default `{5, 6}` = Sat/Sun
