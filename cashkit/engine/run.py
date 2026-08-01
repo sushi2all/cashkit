@@ -65,6 +65,14 @@ class Engine:
     time: TimeColumns = field(init=False)
     accrual: dict[ItemId, np.ndarray] = field(init=False, default_factory=dict)
     cash: dict[ItemId, np.ndarray] = field(init=False, default_factory=dict)
+    #: Runtime diagnostics per item, kept across evaluations. A delta run
+    #: recomputes only the stale cone, but it must still *report* everything a
+    #: full run would: a warning that stops appearing because the item that
+    #: raised it was not recomputed is exactly the silent-degradation failure
+    #: this engine exists to prevent.
+    item_diagnostics: dict[ItemId, list[Diagnostic]] = field(
+        init=False, default_factory=dict
+    )
 
     def __post_init__(self) -> None:
         self.periods = PeriodIndex.build(
@@ -123,25 +131,28 @@ class Engine:
 
     def _evaluate(self, stale: set[ItemId]) -> RunResult:
         length = len(self.periods)
-        diagnostics: list[Diagnostic] = list(self.compiled.diagnostics)
-        emitted: set[tuple[str, ItemId | None]] = set()
+        buckets = self.item_diagnostics
 
         def emit(diagnostic: Diagnostic) -> None:
             # One diagnostic per (code, item): a monthly clamp over five years is
-            # one modelling fact, not sixty (DECISIONS D-P2-11).
-            key = (diagnostic.code, diagnostic.item_id)
-            if key not in emitted:
-                emitted.add(key)
-                diagnostics.append(diagnostic)
+            # one modelling fact, not sixty (DECISIONS D-P2-11). Bucketing by
+            # item makes the dedup survive a partial recompute unchanged.
+            bucket = buckets.setdefault(diagnostic.item_id, [])
+            if all(existing.code != diagnostic.code for existing in bucket):
+                bucket.append(diagnostic)
 
         for item_id in self.book.items:
             if item_id in stale or item_id not in self.accrual:
                 self.accrual[item_id] = np.zeros(length, dtype=np.int64)
                 self.cash[item_id] = np.zeros(length, dtype=np.int64)
+                buckets.pop(item_id, None)
         for item_id in list(self.accrual):
             if item_id not in self.book.items:
                 del self.accrual[item_id]
                 del self.cash[item_id]
+        for item_id in list(buckets):
+            if item_id is not None and item_id not in self.book.items:
+                del buckets[item_id]
 
         kinds = {item_id: item.kind for item_id, item in self.book.items.items()}
         settlement_kind: dict[ItemId, str] = {}
@@ -192,6 +203,10 @@ class Engine:
                 )
             else:
                 self._evaluate_fold(component, kinds, settlement_kind, emit)
+
+        diagnostics: list[Diagnostic] = list(self.compiled.diagnostics)
+        for item_id in sorted(buckets, key=lambda key: (key is not None, key)):
+            diagnostics.extend(buckets[item_id])
 
         return RunResult(
             book_id=self.book.id,

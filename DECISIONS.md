@@ -350,6 +350,91 @@ character by character. Nothing else in `model/` was touched, and the committed
 golden fixture is byte-unchanged. Flagged in the S2 handoff note because it is
 S1's code, not S2's.
 
+### D-P2-20 · `where()` always yields money, never a per-period rate
+Recorded late: both engines already implement this (`columns.py`, `reference/
+engine.py` cite it) but the entry itself was lost when Session S2's first agent
+was interrupted mid-phase. A rate is exact and dimensionless; money is a 4 dp
+column. `where(cond, a, b)` selects elementwise, so if it could return a rate its
+result would have to be a *per-period* rate — a representation the column model
+does not have, and one that would make the rounding boundary depend on which
+branch each period took. `where` therefore coerces both branches to money before
+selecting, which fixes the rounding boundary at the `where` itself for every
+period. Consequence: `where(c, 0.1, 0.2) * x` rounds the fraction to 4 dp before
+multiplying, unlike `0.1 * x`. Acceptable, and the alternative — a value kind
+that is a rate in some periods and money in others — is not.
+
+## Phase 3 — Graph, condensation, vectorized engine (Session S2)
+
+### D-P3-01 · The sequential fold is staged, not interpreted
+The fold is the one loop left in the engine, so per-node interpreter overhead
+there is multiplied by the horizon length: walking the AST once per period cost
+39 ms of the delta path's 39.5 ms budget of 5 ms. `cashkit/engine/fold.py` walks
+each feedback member's expression **once** and returns a closure
+`fn(t) -> (minor_units, zero_div)`; rate arithmetic, the rate-to-money
+conversion, `prev()` init values, column resolution and rounding ratios are all
+resolved during that walk. This is sound because the value *kind* of every node
+is statically determined by the node type and never by a runtime value — and,
+because a rate can only come from a literal, a param, or arithmetic on rates,
+**every rate is a compile-time constant**. Delta went 39 ms → 4.5 ms, cold run
+57 ms → 17 ms. The cost is a second implementation of the promotion rules inside
+the vectorized engine; it is pinned by `tests/test_fold.py`, which compares the
+staged closure against `ColumnEvaluator` cell-by-cell over every node type and
+both rounding policies, and by the dual-engine gate against the Decimal oracle.
+`ScalarKernel` is deliberately kept: it is the readable definition of the scalar
+semantics and it is what the staged compiler is tested against.
+
+### D-P3-02 · A delta run reports the full diagnostic set, not the recomputed one
+Found by the Phase 3 gate: `Engine.delta` recomputed only the stale dependency
+cone, so warnings raised by items *outside* the cone silently vanished from
+`RunResult.diagnostics` — a `CK-W001` clamp that stopped being reported because
+its item happened not to be recomputed. Runtime diagnostics are now bucketed per
+item on the Engine and survive across evaluations; a stale item's bucket is
+cleared and refilled, everything else is carried forward, and the output list is
+compile diagnostics followed by the buckets in item order. The per-(code, item)
+deduplication of D-P2-11 falls out of the bucketing unchanged. Ordering of
+`RunResult.diagnostics` therefore differs from the reference engine's; only
+`diagnostic_keys()` — which sorts — is compared across engines, and it is now
+identical between a full run and a delta.
+
+### D-P3-03 · Settlement splits into arithmetic and placement
+`settle_occurrences` was one function doing both the leg arithmetic and the
+calendar placement, which forced the fold to redo per period what is constant
+per run. It is now `split_legs` (share/fixed split then withholding — positions
+3 and 4 of ADR-0003) and `leg_targets` (offset, basis, business-day adjustment,
+period lookup). A derived item accrues in every period, so its targets are a
+fixed function of the period index: `FoldSettlement` resolves them once per run.
+`split_legs` stays the single implementation of the arithmetic, called by both
+paths with the same array code — the fold passes a one-element array rather than
+getting a scalar twin that could drift. Immediate settlement (the common case
+for a feedback item) bypasses the split entirely and is one guarded add.
+
+### D-P3-04 · Memoize only immutable values; never cache an array column
+Three memoizations carry the performance gate: `parse_formula` (the delta path
+recompiles the whole book after a one-item change, and re-parsing 50 unchanged
+formulas is pure waste), `exact_fraction` (`Decimal` → `Fraction`), and the
+per-evaluator rate-constant cache. The last one is restricted to the scalar
+kernel on purpose: an `ArrayKernel` cache would hand the same `ndarray` object
+to two items, and a later in-place write to one column would corrupt the other.
+The whole-horizon path evaluates each expression once anyway, so it has nothing
+to gain and everything to lose. `EvalWindow` does cache the *resolved* column
+per `(item, measure)`, which is safe for the opposite reason: the fold mutates
+its columns in place and never rebinds them, so the array object is stable for
+the window's life — and the staged compiler depends on exactly that invariant.
+
+### D-P3-05 · The dual-engine corpus is deterministic and its coverage is derived
+The gate names eleven features the corpus must cover. Two failure modes were
+avoided deliberately: a corpus that drifts (so the random layer is seeded, and a
+failing book can be rebuilt exactly by id), and a coverage claim that rots into
+a stale list (so `corpus.coverage_of` re-derives what the books actually
+exercise — by reading the segments, the classified settlements and the compiled
+graphs — and the test asserts the required set is a subset of that). The corpus
+is built in three layers: focus books for one idea each, cross-product sweeps
+where a bug would hide in a single cell (anchor × business-day adjustment,
+settlement basis × leg adjustment, recurrence unit, base grain), and seeded
+random books. Six of the focus books are deliberately *broken*, because the two
+engines must agree on which diagnostics a bad book produces and not only on the
+numbers in a good one.
+
 ## PRD conflicts
 
 ### C-P1-01 · `CalendarSpec.weekend` "ISO weekday indices" vs default `{5, 6}` = Sat/Sun

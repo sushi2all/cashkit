@@ -35,3 +35,6 @@ packages = ["cashkit"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "benchmark: asserts a PRD §5.2 performance budget; timing-sensitive, deselect with -m 'not benchmark'",
+]
