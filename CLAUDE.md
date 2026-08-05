@@ -17,6 +17,7 @@ Deterministic cash-flow modelling engine, SDK-only surface, built for LLM agents
 - No wall clock during evaluation (`today()`/`now()`/`time.time()` lint-banned in `engine/`, `model/`).
 - Errors are `Diagnostic` objects (catalogue in PRD §10.1); exceptions only for programmer error.
 - Actuals immutable. `segments` atomic in overlays. Git never exposed in the SDK.
+- No LLM dependency anywhere under `cashkit/` (ADR-0016). The engine is content-free: domain knowledge (tax mechanics, checklists) and the agent are app-layer, never core (ADR-0021).
 - Silent numerical error is the worst failure mode — prefer a diagnostic over a guess, always.
 
 ## Working conventions
