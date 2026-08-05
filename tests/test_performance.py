@@ -115,6 +115,54 @@ def test_a_five_thousand_row_ledger_stays_inside_the_cold_budget() -> None:
 
 
 @pytest.mark.benchmark
+def test_a_fully_vat_bearing_book_stays_inside_the_cold_budget() -> None:
+    """VAT is the last step of the canonical order, not a second pass.
+
+    Every generative flow carries a VatSpec here and a quarterly regime nets
+    them all, which is the worst case a real book can present. The delta path
+    on this shape is measured in BENCHMARKS.md but deliberately not gated: it
+    sits close enough to the 5 ms budget that gating it would test the machine
+    rather than the design.
+    """
+    from cashkit.model import TaxRegime, VatSpec
+
+    items = {
+        item_id: (
+            item.model_copy(update={"vat": VatSpec(rate="vat_standard")})
+            if item.kind == "flow"
+            else item
+        )
+        for item_id, item in BOOK.items.items()
+    }
+    book = BOOK.model_copy(
+        update={
+            "items": items,
+            "params": {**BOOK.params, "vat_standard": Decimal("0.22")},
+            "tax_regimes": [
+                TaxRegime(
+                    id="vat",
+                    accumulates="",
+                    measure="accrual",
+                    periodicity="quarterly",
+                    payment_offset="16d",
+                )
+            ],
+        }
+    )
+
+    def once() -> float:
+        started = time.perf_counter()
+        Engine(book).run()
+        return (time.perf_counter() - started) * 1000
+
+    once()
+    best = _best(once, 7)
+    assert best < COLD_BUDGET_MS, (
+        f"cold run with VAT everywhere {best:.1f} ms exceeds {COLD_BUDGET_MS} ms"
+    )
+
+
+@pytest.mark.benchmark
 def test_delta_touches_only_the_dependency_cone() -> None:
     """The delta budget rests on recomputing a cone, not the book. If the cone
     ever silently became 'everything', the timing would still pass on a small

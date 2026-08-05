@@ -27,6 +27,11 @@ import numpy as np
 from cashkit.model import Diagnostic, DueTerm, Item, Segment
 from cashkit.model.diagnostics import make_diagnostic
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .vat import VatColumns, VatRule
+
 from .calendars import (
     BusinessCalendar,
     PeriodIndex,
@@ -57,6 +62,7 @@ __all__ = [
     "Expansion",
     "FoldSettlement",
     "add_minor",
+    "apply_vat",
     "classify_settlement",
     "derived_accrual_ordinals",
     "escalation_boundary",
@@ -67,6 +73,8 @@ __all__ = [
     "scatter_add",
     "settle_occurrences",
     "split_legs",
+    "SplitLegs",
+    "VatSink",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -367,9 +375,23 @@ def _apply_escalation(
     return result
 
 
+@dataclass(frozen=True)
+class SplitLegs:
+    """The result of splitting one batch of accruals into settlement legs.
+
+    ``gross`` is the split before withholding — the invoice's own schedule, and
+    the base VAT rides (see :mod:`cashkit.engine.vat`); ``net`` is what actually
+    moves, after the ritenuta. They are the same arrays when no term withholds.
+    """
+
+    gross: list[np.ndarray]
+    net: list[np.ndarray]
+    diagnostics: list[Diagnostic] = field(default_factory=list)
+
+
 def split_legs(
     item: Item, kind: str, amounts: np.ndarray, policy: RoundingPolicy
-) -> tuple[list[np.ndarray], list[Diagnostic]]:
+) -> SplitLegs:
     """Split accruals into one leg array per :class:`DueTerm`, then withhold.
 
     Positions 3 and 4 of the canonical rounding order (ADR-0003). In a share
@@ -378,8 +400,9 @@ def split_legs(
     :func:`leg_targets` — and it is the only implementation, shared by the
     whole-horizon path and the sequential fold, so the two cannot drift.
 
-    Returns ``(legs, diagnostics)``: ``CK-W001`` when a remainder clamps to zero
-    and ``CK-W002`` when a negative accrual routes entirely through the remainder.
+    Returns a :class:`SplitLegs`; its diagnostics are ``CK-W001`` when a
+    remainder clamps to zero and ``CK-W002`` when a negative accrual routes
+    entirely through the remainder.
     """
     diagnostics: list[Diagnostic] = []
     assert item.settlement is not None
@@ -442,7 +465,7 @@ def split_legs(
             numerator, denominator = ratio_of(term.withholding)
             leg = leg - mul_ratio_array(leg, numerator, denominator, policy)
         withheld.append(leg)
-    return withheld, diagnostics
+    return SplitLegs(gross=legs, net=withheld, diagnostics=diagnostics)
 
 
 def leg_targets(
@@ -465,6 +488,66 @@ def leg_targets(
     return dates.periods.index_of_ordinals(due)
 
 
+@dataclass
+class VatSink:
+    """Where an item's VAT accumulates while its occurrences are settled.
+
+    Carrying the sink alongside the settlement is what keeps VAT in its declared
+    position at the end of the canonical rounding order (ADR-0003): the split
+    has already happened, so a line's VAT can be allocated across exactly the
+    legs it will be collected with.
+    """
+
+    rule: "VatRule"
+    columns: "VatColumns"
+
+
+def apply_vat(
+    sink: "VatSink",
+    kind: str,
+    amounts: np.ndarray,
+    accrual_indices: np.ndarray,
+    legs: list[np.ndarray] | None,
+    targets: list[np.ndarray] | None,
+    cash: np.ndarray | None,
+    policy: RoundingPolicy,
+) -> None:
+    """Place one batch's VAT: on the accrual date, and on each cash leg.
+
+    The line's VAT is allocated across its legs with the last absorbing the
+    residual, so what the customer pays adds up to what the invoice states —
+    and, because both tax points are filled from the same allocation, what the
+    return owes on the accrual basis equals what it owes on the cash basis over
+    the life of the line.
+    """
+    from .vat import allocate_across_legs, line_vat_columns
+
+    if sink.rule.inert or amounts.size == 0:
+        return
+    cash_vat, output, input_vat = line_vat_columns(sink.rule, amounts, policy)
+    scatter_add(sink.columns.output_accrual, accrual_indices, output)
+    scatter_add(sink.columns.input_accrual, accrual_indices, input_vat)
+
+    if kind in (NEVER, INVALID) or cash is None:
+        return
+    if legs is None or targets is None:
+        scatter_add(cash, accrual_indices, cash_vat)
+        scatter_add(sink.columns.output_cash, accrual_indices, output)
+        scatter_add(sink.columns.input_cash, accrual_indices, input_vat)
+        return
+
+    cash_parts = allocate_across_legs(cash_vat, legs, policy)
+    output_parts = allocate_across_legs(output, legs, policy)
+    input_parts = allocate_across_legs(input_vat, legs, policy)
+    for target, cash_part, output_part, input_part in zip(
+        targets, cash_parts, output_parts, input_parts
+    ):
+        inside = target >= 0
+        scatter_add(cash, target[inside], cash_part[inside])
+        scatter_add(sink.columns.output_cash, target[inside], output_part[inside])
+        scatter_add(sink.columns.input_cash, target[inside], input_part[inside])
+
+
 def settle_occurrences(
     item: Item,
     kind: str,
@@ -474,25 +557,40 @@ def settle_occurrences(
     cash: np.ndarray,
     dates: DateOps,
     policy: RoundingPolicy,
+    vat: "VatSink | None" = None,
 ) -> list[Diagnostic]:
     """Turn accruals into cash legs and scatter them into ``cash``.
 
-    Composes :func:`split_legs` with :func:`leg_targets`. Returns the split's
-    diagnostics (``CK-W001``, ``CK-W002``).
+    Composes :func:`split_legs` with :func:`leg_targets`, then closes the
+    canonical rounding order with VAT when ``vat`` is supplied. Returns the
+    split's diagnostics (``CK-W001``, ``CK-W002``).
     """
-    if kind in (NEVER, INVALID) or amounts.size == 0:
+    if amounts.size == 0:
+        return []
+    if kind in (NEVER, INVALID):
+        if vat is not None:
+            apply_vat(vat, kind, amounts, accrual_indices, None, None, cash, policy)
         return []
     if kind == IMMEDIATE:
         scatter_add(cash, accrual_indices, amounts)
+        if vat is not None:
+            apply_vat(vat, kind, amounts, accrual_indices, None, None, cash, policy)
         return []
 
     assert item.settlement is not None
-    legs, diagnostics = split_legs(item, kind, amounts, policy)
-    for term, leg in zip(item.settlement.due, legs):
-        target = leg_targets(term, accrual_ords, accrual_indices, dates)
+    split = split_legs(item, kind, amounts, policy)
+    targets = [
+        leg_targets(term, accrual_ords, accrual_indices, dates)
+        for term in item.settlement.due
+    ]
+    for target, leg in zip(targets, split.net):
         inside = target >= 0
         scatter_add(cash, target[inside], leg[inside])
-    return diagnostics
+    if vat is not None:
+        apply_vat(
+            vat, kind, amounts, accrual_indices, split.gross, targets, cash, policy
+        )
+    return split.diagnostics
 
 
 def _basis_ordinals(
@@ -527,6 +625,7 @@ def expand_item(
     cutover: date,
     params: dict[str, Decimal],
     policy: RoundingPolicy,
+    vat: "VatSink | None" = None,
 ) -> Expansion:
     """Expand a generative item's segments into accrual and cash columns.
 
@@ -590,7 +689,7 @@ def expand_item(
         scatter_add(accrual, indices, amounts)
         diagnostics.extend(
             settle_occurrences(
-                item, kind, accrual_ords, amounts, indices, cash, dates, policy
+                item, kind, accrual_ords, amounts, indices, cash, dates, policy, vat=vat
             )
         )
 
@@ -647,7 +746,12 @@ class FoldSettlement:
         return bool(self.targets)
 
     def apply(
-        self, period: int, amount: int, cash: np.ndarray, policy: RoundingPolicy
+        self,
+        period: int,
+        amount: int,
+        cash: np.ndarray,
+        policy: RoundingPolicy,
+        vat: "VatSink | None" = None,
     ) -> list[Diagnostic]:
         """Settle one period's accrual into ``cash``, in place.
 
@@ -657,14 +761,25 @@ class FoldSettlement:
         :class:`~cashkit.engine.numeric.MoneyOverflowError` rather than letting
         a cash cell wrap.
         """
-        legs, diagnostics = split_legs(
-            self.item, self.kind, np.array([amount], dtype=np.int64), policy
-        )
-        for targets, leg in zip(self.targets, legs):
+        amounts = np.array([amount], dtype=np.int64)
+        split = split_legs(self.item, self.kind, amounts, policy)
+        for targets, leg in zip(self.targets, split.net):
             target = int(targets[period])
             if target >= 0:
                 add_minor(cash, target, int(leg[0]))
-        return diagnostics
+        if vat is not None:
+            index = np.array([period], dtype=np.int64)
+            apply_vat(
+                vat,
+                self.kind,
+                amounts,
+                index,
+                split.gross,
+                [targets[period : period + 1] for targets in self.targets],
+                cash,
+                policy,
+            )
+        return split.diagnostics
 
 
 def add_minor(column: np.ndarray, index: int, value: int) -> None:

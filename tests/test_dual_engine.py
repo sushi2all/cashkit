@@ -16,7 +16,13 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from corpus import LEDGER_COVERAGE, REQUIRED_COVERAGE, build_corpus, coverage_of
+from corpus import (
+    LEDGER_COVERAGE,
+    REQUIRED_COVERAGE,
+    VAT_COVERAGE,
+    build_corpus,
+    coverage_of,
+)
 
 import cashkit.engine as engine
 import cashkit.reference as reference
@@ -38,6 +44,10 @@ def _compare(case, policy: RoundingPolicy) -> list[str]:
     if sorted(expected.accrual) != sorted(actual.accrual):
         problems.append("item sets differ")
         return problems
+    if sorted(expected.vat) != sorted(actual.vat):
+        problems.append(
+            f"VAT item sets differ: {sorted(expected.vat)} vs {sorted(actual.vat)}"
+        )
     for item_id in sorted(expected.accrual):
         for measure in ("accrual", "cash"):
             left = expected.column(item_id, measure)
@@ -50,6 +60,23 @@ def _compare(case, policy: RoundingPolicy) -> list[str]:
                 first = int(differing[0])
                 problems.append(
                     f"{item_id}.{measure}: {differing.size} cells differ, first at "
+                    f"period {first} ({expected.periods.starts[first]}): "
+                    f"reference {int(left[first])} vs vectorized {int(right[first])}"
+                )
+    # VAT columns are compared too: two engines agreeing on cash while
+    # disagreeing on which return period a line's VAT fell into would produce
+    # the right bank balance and the wrong F24.
+    for item_id in sorted(set(expected.vat) & set(actual.vat)):
+        left_vat = expected.vat[item_id]
+        right_vat = actual.vat[item_id]
+        for column in ("output_accrual", "input_accrual", "output_cash", "input_cash"):
+            left = getattr(left_vat, column)
+            right = getattr(right_vat, column)
+            differing = np.flatnonzero(left != right)
+            if differing.size:
+                first = int(differing[0])
+                problems.append(
+                    f"{item_id}.vat.{column}: {differing.size} cells differ, first at "
                     f"period {first} ({expected.periods.starts[first]}): "
                     f"reference {int(left[first])} vs vectorized {int(right[first])}"
                 )
@@ -67,7 +94,7 @@ def test_corpus_ids_are_unique() -> None:
 
 def test_corpus_covers_every_feature_the_gate_names() -> None:
     """Coverage is re-derived from the books, so it cannot drift from them."""
-    missing = (REQUIRED_COVERAGE | LEDGER_COVERAGE) - coverage_of(CORPUS)
+    missing = (REQUIRED_COVERAGE | LEDGER_COVERAGE | VAT_COVERAGE) - coverage_of(CORPUS)
     assert not missing, f"corpus does not exercise: {sorted(missing)}"
 
 

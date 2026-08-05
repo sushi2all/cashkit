@@ -46,14 +46,14 @@ class EventFact:
 
     ``target`` is the item id whose accrual and cash columns receive the event:
     the referenced ``Item`` when the event has one, otherwise a synthetic item
-    carrying the event's own dimensions. ``settlement_item`` is the item whose
-    settlement terms govern the cash legs — the target item unless the event
-    overrides ``settlement``, in which case it is a copy carrying the override.
+    carrying the event's own dimensions. ``carrier`` is the item whose settlement
+    terms and VAT govern this row — the target item, unless the event overrides
+    ``settlement`` or ``vat``, in which case it is a copy carrying the override.
     """
 
     event: Event
     target: ItemId
-    settlement_item: Item
+    carrier: Item
 
 
 @dataclass(frozen=True)
@@ -116,10 +116,14 @@ def _synthetic_item(item_id: ItemId, event: Event) -> Item:
     )
 
 
-def _with_settlement(item: Item, settlement: Settlement | None) -> Item:
-    if settlement is None or settlement == item.settlement:
-        return item
-    return item.model_copy(update={"settlement": settlement})
+def _carrier(item: Item, event: Event) -> Item:
+    """The item as this event sees it: its own settlement and VAT win (PRD §4.3)."""
+    overrides: dict[str, object] = {}
+    if event.settlement is not None and event.settlement != item.settlement:
+        overrides["settlement"] = event.settlement
+    if event.vat is not None and event.vat != item.vat:
+        overrides["vat"] = event.vat
+    return item.model_copy(update=overrides) if overrides else item
 
 
 def resolve_facts(book: Book, events: tuple[Event, ...] | list[Event]) -> FactSet:
@@ -194,11 +198,7 @@ def resolve_facts(book: Book, events: tuple[Event, ...] | list[Event]) -> FactSe
             target = _synthetic_id(event)
             carrier = synthetic.setdefault(target, _synthetic_item(target, event))
         facts.append(
-            EventFact(
-                event=event,
-                target=target,
-                settlement_item=_with_settlement(carrier, event.settlement),
-            )
+            EventFact(event=event, target=target, carrier=_carrier(carrier, event))
         )
 
     return FactSet(

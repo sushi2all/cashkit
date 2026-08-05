@@ -34,11 +34,13 @@ from .expand import (
     INVALID,
     FoldSettlement,
     add_minor,
+    apply_vat,
     classify_settlement,
     derived_accrual_ordinals,
     expand_item,
     scatter_add,
     settle_occurrences,
+    VatSink,
 )
 from .facts import EventFact, FactSet, augmented_items, resolve_facts
 from .fold import compile_cell
@@ -46,6 +48,8 @@ from .formula import Agg, iter_refs
 from .graph import CompiledBook, Component, compile_book
 from .numeric import RoundingPolicy, check_column, to_minor
 from .result import RunResult
+from .tax import RegimeResult, TaxPlan, evaluate_regime
+from .vat import VatColumns, VatRule, rule_for
 
 __all__ = ["Engine", "run"]
 
@@ -71,6 +75,11 @@ class Engine:
     time: TimeColumns = field(init=False)
     accrual: dict[ItemId, np.ndarray] = field(init=False, default_factory=dict)
     cash: dict[ItemId, np.ndarray] = field(init=False, default_factory=dict)
+    #: Per-item VAT, on both tax points (PRD §4.5). Filled as each item settles,
+    #: consumed by the regimes' synthetic items.
+    vat: dict[ItemId, VatColumns] = field(init=False, default_factory=dict)
+    rules: dict[ItemId, VatRule] = field(init=False, default_factory=dict)
+    _regimes: dict[str, RegimeResult] = field(init=False, default_factory=dict)
     #: Runtime diagnostics per item, kept across evaluations. A delta run
     #: recomputes only the stale cone, but it must still *report* everything a
     #: full run would: a warning that stops appearing because the item that
@@ -97,7 +106,11 @@ class Engine:
             self.book = self.book.model_copy(
                 update={"items": augmented_items(self.book, self.factset)}
             )
-        self.compiled = compile_book(self.book)
+        self.compiled = compile_book(self.book, self.periods)
+        # `compile_book` injects the regimes' synthetic items (ADR-0005); adopt
+        # its book so every later lookup sees one item map, not two.
+        self.book = self.compiled.book
+        self.rules = _vat_rules(self.book)
 
     # -- evaluation ------------------------------------------------------- #
 
@@ -126,7 +139,9 @@ class Engine:
         items = dict(self.book.items)
         items.update(changed)
         self.book = self.book.model_copy(update={"items": items})
-        self.compiled = compile_book(self.book)
+        self.compiled = compile_book(self.book, self.periods)
+        self.book = self.compiled.book
+        self.rules = _vat_rules(self.book)
 
         moved: set[ItemId] = set(changed)
         for item_id, compiled_item in self.compiled.items.items():
@@ -146,6 +161,7 @@ class Engine:
     def _evaluate(self, stale: set[ItemId]) -> RunResult:
         length = len(self.periods)
         buckets = self.item_diagnostics
+        self._regimes = {}
 
         def emit(diagnostic: Diagnostic) -> None:
             # One diagnostic per (code, item): a monthly clamp over five years is
@@ -159,11 +175,16 @@ class Engine:
             if item_id in stale or item_id not in self.accrual:
                 self.accrual[item_id] = np.zeros(length, dtype=np.int64)
                 self.cash[item_id] = np.zeros(length, dtype=np.int64)
+                # VAT columns are allocated on demand: four extra arrays per
+                # item would cost the delta path more than the VAT arithmetic
+                # itself on a book where most items are not VAT-bearing.
+                self.vat.pop(item_id, None)
                 buckets.pop(item_id, None)
         for item_id in list(self.accrual):
             if item_id not in self.book.items:
                 del self.accrual[item_id]
                 del self.cash[item_id]
+                self.vat.pop(item_id, None)
         for item_id in list(buckets):
             if item_id is not None and item_id not in self.book.items:
                 del buckets[item_id]
@@ -184,6 +205,8 @@ class Engine:
         for item_id, compiled_item in sorted(self.compiled.items.items()):
             if compiled_item.broken or compiled_item.is_derived or item_id not in stale:
                 continue
+            if item_id in self.compiled.tax.nodes:
+                continue  # a regime's columns come from its schedule, not segments
             expansion = expand_item(
                 compiled_item.item,
                 settlement_kind[item_id],
@@ -192,6 +215,7 @@ class Engine:
                 self.book.cutover,
                 self.book.params,
                 self.policy,
+                vat=self._sink(item_id),
             )
             self.accrual[item_id] = check_column(
                 expansion.accrual, f"item {item_id!r} accrual"
@@ -211,7 +235,9 @@ class Engine:
         for component in self.compiled.components:
             if not any(member in stale for member in component.members):
                 continue
-            if component.trivial:
+            if component.trivial and component.members[0] in self.compiled.tax.nodes:
+                self._evaluate_tax(component.members[0])
+            elif component.trivial:
                 self._evaluate_trivial(
                     component.members[0],
                     kinds,
@@ -237,7 +263,63 @@ class Engine:
             currencies={
                 item_id: item.currency for item_id, item in self.book.items.items()
             },
+            vat={
+                item_id: self.vat.get(item_id) or VatColumns.zeros(length)
+                # Every item with a resolvable VatSpec reports columns, zero or
+                # not, plus any item an event gave VAT to. Both engines report
+                # the same key set, which is what makes the dual-engine
+                # comparison over VAT meaningful.
+                for item_id in sorted(set(self.rules) | set(self.vat))
+            },
         )
+
+    # -- VAT and tax ------------------------------------------------------- #
+
+    def _sink(self, item_id: ItemId) -> VatSink | None:
+        """The VAT sink for an item, or ``None`` when it can produce no VAT."""
+        rule = self.rules.get(item_id)
+        if rule is None or rule.inert:
+            return None
+        return VatSink(rule=rule, columns=self._vat_columns(item_id))
+
+    def _vat_columns(self, item_id: ItemId) -> VatColumns:
+        """This item's VAT columns, allocated the first time they are needed."""
+        columns = self.vat.get(item_id)
+        if columns is None:
+            columns = VatColumns.zeros(len(self.periods))
+            self.vat[item_id] = columns
+        return columns
+
+    def _evaluate_tax(self, item_id: ItemId) -> None:
+        """Fill a regime's synthetic columns (ADR-0005).
+
+        The liability and the credit are one recurrence, so both are computed
+        when the first of them comes up — the credit, which the liability
+        depends on. The regime iterates its *return* periods, of which a
+        five-year day-grain book has twenty, not its 1,826 base-grain periods.
+        """
+        if self.compiled.items[item_id].broken:
+            # The regime was caught in a cycle and refused; a zero column plus a
+            # loud error beats a plausible-looking half-answer.
+            return
+        plan = self.compiled.tax.plan_for(item_id)
+        if plan is None:  # pragma: no cover - guarded by the caller
+            return
+        result = self._regimes.get(plan.regime.id)
+        if result is None:
+            result = evaluate_regime(plan, self.vat, len(self.periods), self.policy)
+            self._regimes[plan.regime.id] = result
+        if item_id == plan.credit:
+            self.accrual[item_id] = check_column(
+                result.credit_level, f"item {item_id!r} credit"
+            )
+        else:
+            self.accrual[item_id] = check_column(
+                result.liability_accrual, f"item {item_id!r} accrual"
+            )
+            self.cash[item_id] = check_column(
+                result.liability_cash, f"item {item_id!r} cash"
+            )
 
     def _apply_event_facts(self, stale: set[ItemId], emit) -> None:
         """Scatter ledger facts into the columns of the items they land in.
@@ -252,7 +334,7 @@ class Engine:
         for target, facts in self.factset.by_target().items():
             if target not in stale or target not in self.accrual:
                 continue
-            for carrier, group in _batch_by_settlement(facts):
+            for carrier, group in _batch_by_carrier(facts):
                 kind, structural = classify_settlement(carrier)
                 for diagnostic in structural:
                     emit(diagnostic)
@@ -275,6 +357,12 @@ class Engine:
                     continue
                 ordinals, amounts, indices = ordinals[keep], amounts[keep], indices[keep]
                 scatter_add(self.accrual[target], indices, amounts)
+                rule, _ = rule_for(carrier, self.book.params)
+                sink = (
+                    None
+                    if rule.inert
+                    else VatSink(rule=rule, columns=self._vat_columns(target))
+                )
                 for diagnostic in settle_occurrences(
                     carrier,
                     kind,
@@ -284,6 +372,7 @@ class Engine:
                     self.cash[target],
                     self.dates,
                     self.policy,
+                    vat=sink,
                 ):
                     emit(diagnostic)
             check_column(self.accrual[target], f"item {target!r} accrual")
@@ -341,6 +430,7 @@ class Engine:
             self.cash[item_id],
             self.dates,
             self.policy,
+            vat=self._sink(item_id),
         ):
             emit(diagnostic)
 
@@ -407,30 +497,48 @@ class Engine:
                     None if kind in (NEVER, INVALID) else self.cash[compiled_item.id],
                     compiled_item.id,
                     plan if plan.splits else None,
+                    # A stock is a level, not a movement, so it carries no VAT
+                    # either — settling a balance is meaningless (D-P2-05).
+                    None
+                    if compiled_item.item.kind == "stock"
+                    else self._sink(compiled_item.id),
+                    kind,
                 )
             )
 
         starts = self.periods.starts
         policy = self.policy
         for period in range(len(self.periods)):
-            for cell, accrual, cash, item_id, plan in plans:
+            for cell, accrual, cash, item_id, plan, sink, kind in plans:
                 value, zero_div = cell(period)
                 accrual[period] = value
                 if zero_div:
                     emit(_zero_division(item_id, starts[period]))
-                if cash is None:
-                    continue
-                if plan is None:
-                    add_minor(cash, period, value)
-                else:
-                    for diagnostic in plan.apply(period, value, cash, policy):
+                if plan is not None:
+                    for diagnostic in plan.apply(period, value, cash, policy, sink):
                         emit(diagnostic)
+                    continue
+                if cash is not None:
+                    add_minor(cash, period, value)
+                if sink is not None:
+                    # Immediate (or never-settling) VAT in the fold: one line,
+                    # one period, the same arithmetic the batched path uses.
+                    apply_vat(
+                        sink,
+                        kind,
+                        np.array([value], dtype=np.int64),
+                        np.array([period], dtype=np.int64),
+                        None,
+                        None,
+                        cash,
+                        policy,
+                    )
 
 
-def _batch_by_settlement(
+def _batch_by_carrier(
     facts: list[EventFact],
 ) -> list[tuple[Item, list[EventFact]]]:
-    """Group facts sharing a target by the settlement that governs them.
+    """Group facts sharing a target by the settlement and VAT governing them.
 
     Order-preserving, so the batching is deterministic. ``Settlement`` holds a
     list and is therefore unhashable, so the grouping compares by equality — the
@@ -439,12 +547,32 @@ def _batch_by_settlement(
     batches: list[tuple[Item, list[EventFact]]] = []
     for fact in facts:
         for carrier, group in batches:
-            if carrier.settlement == fact.settlement_item.settlement:
+            if (carrier.settlement, carrier.vat) == (
+                fact.carrier.settlement,
+                fact.carrier.vat,
+            ):
                 group.append(fact)
                 break
         else:
-            batches.append((fact.settlement_item, [fact]))
+            batches.append((fact.carrier, [fact]))
     return batches
+
+
+def _vat_rules(book: Book) -> dict[ItemId, VatRule]:
+    """Resolve every item's VatSpec once per compile.
+
+    Items whose rate names an undefined param are already marked broken by
+    `compile_book` (``CK-E008``), so an inert rule here can only mean a
+    zero-rated treatment.
+    """
+    rules: dict[ItemId, VatRule] = {}
+    for item_id, item in book.items.items():
+        if item.vat is None:
+            continue
+        rule, problem = rule_for(item, book.params)
+        if problem is None:
+            rules[item_id] = rule
+    return rules
 
 
 def _zero_division(item_id: ItemId, period_start) -> Diagnostic:

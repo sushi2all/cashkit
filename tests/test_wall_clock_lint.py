@@ -1,6 +1,7 @@
 """Wall-clock lint (non-negotiable constraint 3, ADR-0010).
 
-Nothing in ``cashkit/engine/``, ``cashkit/model/`` or ``cashkit/reference/``
+Nothing in ``cashkit/engine/``, ``cashkit/model/``, ``cashkit/reference/``
+or ``cashkit/stores/``
 may read the wall clock:
 ``date.today()``, ``datetime.now()``, ``datetime.utcnow()``,
 ``datetime.today()``, ``time.time()`` are banned. ``cutover`` is a stored
@@ -19,7 +20,10 @@ from pathlib import Path
 import cashkit
 
 PACKAGE_ROOT = Path(cashkit.__file__).parent
-LINTED_DIRS = ("engine", "model", "reference")
+#: ``stores`` joins the ban in Phase 5: `cutover` is a stored field and a
+#: ledger entry is ordered by its sequence number, never by a timestamp, so a
+#: ledger replays identically on any machine (DECISIONS D-P5-01).
+LINTED_DIRS = ("engine", "model", "reference", "stores")
 
 BANNED_ATTRIBUTES = {"today", "now", "utcnow"}
 

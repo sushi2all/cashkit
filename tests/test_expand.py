@@ -239,7 +239,7 @@ def test_share_legs_sum_to_the_accrual_exactly(
     item = _item(settlement)
     assume(classify_settlement(item)[0] == SHARES)
     values = np.array(amounts, dtype=np.int64)
-    legs, _ = split_legs(item, SHARES, values, policy)
+    legs = split_legs(item, SHARES, values, policy).net
     assert np.array_equal(sum(legs), values)
 
 
@@ -259,7 +259,8 @@ def test_fixed_legs_never_flip_sign_and_the_remainder_absorbs(
     )
     item = _item(settlement)
     values = np.array(amounts, dtype=np.int64)
-    legs, diagnostics = split_legs(item, FIXED, values, RoundingPolicy.HALF_UP)
+    split = split_legs(item, FIXED, values, RoundingPolicy.HALF_UP)
+    legs, diagnostics = split.net, split.diagnostics
     fixed, remainder = legs
     negative = values < 0
     assert (fixed[negative] == 0).all()

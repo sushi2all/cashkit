@@ -29,7 +29,7 @@ import cashkit.model as model_pkg
 from cashkit.model import Event, Segment, Amount, Recurrence, Grain
 
 PACKAGE_ROOT = Path(cashkit.__file__).parent
-AUDITED_DIRS = ("model", "engine", "reference")
+AUDITED_DIRS = ("model", "engine", "reference", "stores")
 
 
 #: The single allowed occurrence of the identifier ``float``: the boundary

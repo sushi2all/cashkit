@@ -680,3 +680,139 @@ graph-build time (D-P4-05), so a carrier created after `compile_book` would be
 invisible to every aggregate in the book. Both engines therefore resolve facts
 first, augment the book's item map, and compile that. The numeric union stays
 where the handoff put it — after expansion, before the component loop.
+
+## Phase 6 — VAT and tax regimes (Session S3)
+
+### D-P6-01 · VAT is computed per line and *allocated* across the cash legs
+ADR-0003 puts VAT last in the canonical order, but not whether "per line" means
+per accrual occurrence or per settlement leg. Per leg (`round(leg × rate)`) is
+simpler and wrong in a way that matters: the legs' VAT would not sum to the VAT
+the invoice states, so cash collected would differ from VAT remitted by
+fractions of a cent, and accrual-basis and cash-basis totals would disagree for
+the same line. VAT is therefore computed once per occurrence — one rounding —
+and split across the legs in proportion, with the **last leg absorbing the
+residual**, which is exactly the rule ADR-0003 already fixes for the share
+split. Consequence: `Σ leg VAT == line VAT` exactly, always.
+
+Proportions are taken against the **sum of the legs**, not against the accrual.
+They are the same number for a share split (legs sum to the accrual by
+construction) but not for fixed terms whose remainder clamps to zero, where
+dividing by the accrual would hand a leg more VAT than the line carries.
+
+### D-P6-02 · VAT is computed on the taxable amount, not on what withholding leaves
+The canonical order runs `… → settlement share split → withholding → VAT`,
+which read strictly would apply VAT to the amount net of the ritenuta. That is
+wrong twice over: a ritenuta d'acconto has never reduced the VAT on an invoice,
+and the Italian arithmetic everyone knows is 1,000 + 220 VAT − 200 ritenuta =
+1,020 collected. Withholding and VAT are two *independent* adjustments to the
+same taxable base; VAT's position in the order fixes it as the last **rounding
+boundary**, not as an operation on withholding's output. `split_legs` therefore
+returns both the pre-withholding legs (which VAT rides) and the post-withholding
+legs (which move cash). Read as a clarification of ADR-0003, not a deviation.
+
+### D-P6-03 · The output/input side follows `direction`, falling back to the sign
+`Item.direction` is "display only; storage is signed" (PRD §4.2), but VAT needs
+to know whether a line is a sale or a purchase, and the sign cannot answer it: a
+credit note against a sale is negative and is still a sale. Classifying it by
+sign would move it to the input side and reclaim VAT that was never paid.
+`direction` therefore decides when set, and the sign decides when it is not —
+right for the ordinary case where revenue is positive and costs negative, and
+`add_item()` already rejects amounts whose sign contradicts a stated direction
+(CK-E011), so the two can never disagree on a book built through the SDK.
+
+### D-P6-04 · What each treatment does, and why four of them are the same
+Only two treatments produce numbers. `standard` charges VAT, grosses up the cash
+leg, and books output or input VAT by side. `reverse_charge` on a *purchase*
+self-accounts: the same VAT is booked as output (owed) and as recoverable input,
+so a fully deductible purchase nets to zero and a partly deductible one leaves
+the non-recoverable part payable — which is the correct Italian answer, and the
+reason the treatment cannot be modelled as "no VAT". A reverse-charge *sale*
+carries no VAT at all. `exempt`, `out_of_scope`, `export` and `split_payment`
+all produce no VAT cash leg and no regime liability and are, in v1,
+observationally identical; split payment because the buyer remits the VAT to
+the state directly, so the supplier never owes it (PRD §7.2). They stay distinct
+values because a return form distinguishes them and the authored intent is worth
+keeping for the reporting this engine does not yet do.
+
+### D-P6-05 · The regime's contributions are signed, so the net is a sum
+Output and input VAT are stored as *signed contributions to the liability*
+rather than as magnitudes: a sale's output VAT is positive, a purchase's input
+VAT negative, and a credit note is the mirror of the line it reverses. The
+period's net is then `output + input` with no sign gymnastics and no `abs()`,
+and a credit note on the sales side correctly reduces output VAT instead of
+appearing as input VAT.
+
+### D-P6-06 · Return periods follow `fiscal_year_start_month`, and an open one recognises nothing
+The PRD gives `periodicity` but never says what a quarter is phased on. Quarters
+follow the fiscal year, like every other quarter in the system (D-P2-07); with
+the default January start these are the calendar quarters an Italian entity
+files on. A return period that does not *close* inside the horizon recognises
+nothing — the return is not due yet, and inventing a payment for it would put an
+obligation in the forecast that nobody owes. A period that closes inside the
+horizon but opened before it accumulates only what the horizon contains,
+consistent with the pre-horizon world being represented by `opening_balance`
+(D-P2-03).
+
+### D-P6-07 · Tax items are graph nodes whose columns come from a schedule, not a formula
+ADR-0005 requires the regime to be *in* the graph before condensation, and the
+formula language cannot express "net the quarter and pay 16 days after it ends"
+— `agg()` and `prev()` are per-period, and a return is not. So `_tax:<id>:credit`
+and `_tax:<id>:liability` are compiled items with `expr=None` whose columns are
+filled by a fold over *return* periods (twenty of them in a five-year day-grain
+book, not 1,826). The credit depends on the regime's base; the liability depends
+on the credit it is netted against — one direction, no artificial cycle — and
+both are computed when the credit's component comes up.
+
+What ADR-0005 actually wanted from graph membership is preserved: the cash fold
+sees tax payments like any other flow, and `trace()` will explain a tax number
+with the same machinery as everything else.
+
+The two items are tagged `cat:tax`, the convention §9.5 already asks *manual*
+tax items to follow, so `agg(tag="cat:tax")` pulls every tax outflow — native
+and manual — into a cash balance. They carry no flags: inventing a flag name
+would only work for books that happened to guess it.
+
+`compile_book` keeps a guard (`CK-E019`) for a tax node caught in a non-trivial
+component. Its ordinary path is `CK-E002`, because a base item that reads the
+regime back closes a *same-period* cycle and the existing cycle check finds it
+first; the guard covers the case a future lagged edge could create. A refused
+regime produces zero columns rather than a plausible-looking half-answer.
+
+### D-P6-08 · `Diagnostic.item_id` had to widen to name synthetic items
+Found by the Phase 6 gate, fixed in its own commit. `Diagnostic.item_id` was
+typed `ItemId`, whose grammar deliberately excludes `_tax:…` and `_event:…`, so
+*any* diagnostic about a synthetic item raised `ValidationError` out of the
+engine — a regime caught in a cycle, or an unattached event whose settlement
+shares did not sum to 1, crashed the run instead of reporting it. Errors are
+data (PRD §6.5), so the field now accepts the authored grammar plus the
+synthetic one. `ItemId` itself is unchanged: authored ids still cannot start
+with `_`, which is precisely why a synthetic id can never collide.
+
+### D-P6-09 · A regime accumulates items, so an event's VAT reaches it only through its item
+An event may override its item's `VatSpec` (PRD §4.3), and the override is
+honoured — the VAT is computed and grosses up the event's cash leg. Whether it
+reaches a regime is decided by the regime's base, exactly as for the item's own
+VAT: a default base is "every item carrying a VatSpec", so an event that
+introduces VAT to an item that has none is computed but not accumulated. This is
+one rule applied consistently rather than a special case, and the remedy is to
+give the item a `VatSpec` (an `exempt` one costs nothing) so it joins the base.
+Unattached events are unaffected: their synthetic carrier holds the event's own
+`VatSpec` and is therefore in the default base already.
+
+### D-P6-10 · `refund_annual` is implemented; without a month it is refused
+PRD §4.5 says a credit zeroes out "only on annual adjustment or refund claim"
+but leaves the mechanics open. Implemented: at the return period whose end falls
+in `annual_adjustment_month`, any outstanding credit becomes a cash inflow at
+that period's payment date and the stock zeroes. `refund_annual` without an
+`annual_adjustment_month` names no date for the claim, so the regime is refused
+with `CK-E019` rather than silently behaving as `carry` — the two produce
+materially different cash and guessing between them is exactly the class of
+silent error this project forbids.
+
+### D-P6-11 · VAT columns are part of the run result, and part of the dual-engine gate
+Four columns per VAT-bearing item — output and input, on each tax point — ride
+on `RunResult` and are compared byte-for-byte between the engines. Without them
+the gate would pass for two engines that agreed on every cash cell while
+disagreeing about which return period a line's VAT fell into: the right bank
+balance and the wrong F24. Every item with a resolvable `VatSpec` reports
+columns, zero or not, so the two engines report the same key set.

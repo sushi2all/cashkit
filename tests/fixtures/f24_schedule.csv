@@ -1,0 +1,15 @@
+# Hand-computed F24 schedule for tests/vat_book.py::build_f24_book.
+# Quarterly, accrual tax point, 1% IVA trimestrale surcharge, payment on
+# period_end + 16d. Every month of 2026 carries the same six lines:
+#   consulting  +10000 @ 22%  ->  output  +2200.00
+#   training     +4000 @ 10%  ->  output   +400.00
+#   grants       +2000 exempt ->  output      0.00
+#   contractor   -3000 @ 22% reverse charge -> output +660.00, input -660.00
+#   rent         -2500 @ 22%  ->  input    -550.00
+#   car_lease     -800 @ 22%, 40% recoverable -> input -70.40
+# Monthly output 3260.00, monthly input -1280.40, monthly net 1979.60.
+quarter,period_end,payment_date,output_vat,input_vat,net,surcharge,payment
+2026Q1,2026-03-31,2026-04-16,9780.0000,-3841.2000,5938.8000,59.3880,5998.1880
+2026Q2,2026-06-30,2026-07-16,9780.0000,-3841.2000,5938.8000,59.3880,5998.1880
+2026Q3,2026-09-30,2026-10-16,9780.0000,-3841.2000,5938.8000,59.3880,5998.1880
+2026Q4,2026-12-31,2027-01-16,9780.0000,-3841.2000,5938.8000,59.3880,5998.1880

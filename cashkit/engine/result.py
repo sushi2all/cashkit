@@ -11,7 +11,7 @@ denormalized into the rows; they live on the item and are joined on demand
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
@@ -21,6 +21,7 @@ from cashkit.model import Diagnostic, ItemId
 
 from .calendars import PeriodIndex
 from .numeric import from_minor
+from .vat import VatColumns
 
 __all__ = ["MEASURE_NAMES", "RunResult", "Row"]
 
@@ -57,6 +58,11 @@ class RunResult:
     cash: dict[ItemId, np.ndarray]
     diagnostics: tuple[Diagnostic, ...]
     currencies: dict[ItemId, str]
+    #: Per-item VAT for every item carrying a ``VatSpec`` (PRD §4.5), on both
+    #: tax points. Part of the dual-engine comparison: two engines that agreed
+    #: on cash but disagreed on which return period a line's VAT fell into would
+    #: produce the same balance and the wrong F24.
+    vat: dict[ItemId, VatColumns] = field(default_factory=dict)
 
     def column(self, item_id: ItemId, measure: str) -> np.ndarray:
         """Return one item's column for ``measure``.
@@ -102,6 +108,16 @@ class RunResult:
                         )
                     )
         return out
+
+    def vat_columns(self, item_id: ItemId) -> VatColumns:
+        """Return one item's VAT columns, or four zero columns if it has none.
+
+        Produces no diagnostics.
+        """
+        columns = self.vat.get(item_id)
+        if columns is None:
+            return VatColumns.zeros(len(self.periods))
+        return columns
 
     def diagnostic_keys(self) -> tuple[tuple[str, str | None, str | None], ...]:
         """Return a canonical, order-independent view of the diagnostics.

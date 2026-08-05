@@ -23,7 +23,10 @@ from dataclasses import dataclass, field
 from cashkit.model import Book, Diagnostic, Item, ItemId
 from cashkit.model.diagnostics import make_diagnostic
 
+from .calendars import PeriodIndex
 from .formula import Agg, Cum, Expr, ItemRef, Param, Prev, iter_refs, map_expr, parse_formula
+from .tax import TaxPlanning, plan_regimes
+from .vat import rule_for
 
 __all__ = ["Component", "CompiledBook", "CompiledItem", "compile_book"]
 
@@ -81,6 +84,9 @@ class CompiledBook:
     components: tuple[Component, ...]
     dependents: dict[ItemId, frozenset[ItemId]]
     diagnostics: tuple[Diagnostic, ...] = field(default_factory=tuple)
+    #: Tax regimes resolved to synthetic graph items (ADR-0005). ``book.items``
+    #: above already contains them; ``tax.nodes`` says which is which.
+    tax: TaxPlanning = field(default_factory=TaxPlanning)
 
     @property
     def has_errors(self) -> bool:
@@ -218,22 +224,55 @@ def _resolve_selector(book: Book, agg: Agg, owner: ItemId) -> tuple[tuple[ItemId
     return matched, None
 
 
-def compile_book(book: Book) -> CompiledBook:
+def compile_book(book: Book, periods: PeriodIndex | None = None) -> CompiledBook:
     """Parse formulas, resolve references, build and condense the graph.
+
+    Tax regimes are materialized into synthetic items and injected **before**
+    condensation (ADR-0005), so the credit carry participates in the graph and
+    the cash fold sees tax payments like any other flow. ``periods`` is only
+    needed to lay out the return schedule; it is derived from the book when the
+    caller has not built it already.
 
     Returns a :class:`CompiledBook`. Diagnostics cover every user-reachable
     problem: ``CK-E001`` (unknown item id, or a selector matching nothing),
     ``CK-E002`` (a cycle with no ``prev()`` edge, including self-dependency),
     ``CK-E003`` (formula rejected, or kind/formula/segments inconsistency),
-    ``CK-E008`` (unknown param) and ``CK-E020`` (aggregation across currencies).
-    Never raises on book content.
+    ``CK-E008`` (unknown param, VAT rates included), ``CK-E019`` (regime
+    misconfigured, or a regime caught in a feedback cycle) and ``CK-E020``
+    (aggregation across currencies). Never raises on book content.
     """
     diagnostics: list[Diagnostic] = []
     compiled: dict[ItemId, CompiledItem] = {}
     param_keys = _param_keys(book)
 
+    if periods is None:
+        periods = PeriodIndex.build(
+            book.horizon, book.base_grain, book.calendar.fiscal_year_start_month
+        )
+    tax = plan_regimes(book, periods)
+    diagnostics.extend(tax.diagnostics)
+    if tax.items:
+        book = book.model_copy(update={"items": {**book.items, **tax.items}})
+
     for item_id, item in sorted(book.items.items()):
         broken = False
+        if item_id in tax.nodes:
+            plan = tax.plans[tax.nodes[item_id][0]]
+            # The credit reads the base; the liability reads the credit it is
+            # netted against. One direction only — no artificial cycle.
+            deps = (
+                frozenset(plan.base)
+                if tax.nodes[item_id][1] == "credit"
+                else frozenset({plan.credit})
+            )
+            compiled[item_id] = CompiledItem(
+                item=item,
+                expr=None,
+                same_period_deps=deps,
+                lagged_deps=frozenset(),
+                broken=False,
+            )
+            continue
         expr: Expr | None = None
         same: set[ItemId] = set()
         lagged: set[ItemId] = set()
@@ -390,6 +429,16 @@ def compile_book(book: Book) -> CompiledBook:
                     )
                     broken = True
 
+        if item.vat is not None:
+            # Phase 6 resolves VatSpec.rate params, which Phases 2-4 deliberately
+            # left alone so the engine never implied VAT support it lacked
+            # (D-P2-14). An unresolvable rate breaks the item rather than
+            # quietly charging 0%.
+            _, vat_problem = rule_for(item, book.params)
+            if vat_problem is not None:
+                diagnostics.append(vat_problem)
+                broken = True
+
         compiled[item_id] = CompiledItem(
             item=item,
             expr=None if broken else expr,
@@ -439,6 +488,38 @@ def compile_book(book: Book) -> CompiledBook:
                 Component(members=(member,), trivial=True) for member in sorted(members)
             )
             continue
+        trapped = [member for member in order if member in tax.nodes]
+        if trapped:
+            # A tax item's schedule is a fold over return periods, not over base
+            # periods, so it cannot participate in a per-period feedback loop.
+            # This only happens when an item in the regime's own base depends on
+            # the regime's output — a modelling error, and one that would produce
+            # a silently zero tax column if it were merely tolerated.
+            diagnostics.append(
+                make_diagnostic(
+                    "CK-E019",
+                    item_id=None,
+                    field="tax_regimes",
+                    regime_id=tax.nodes[trapped[0]][0],
+                    reason=(
+                        "the regime is inside a prev() feedback loop with its own "
+                        f"base ({' -> '.join(order)}); a return schedule cannot be "
+                        "folded period by period"
+                    ),
+                )
+            )
+            for member in order:
+                compiled[member] = CompiledItem(
+                    item=compiled[member].item,
+                    expr=None,
+                    same_period_deps=frozenset(),
+                    lagged_deps=frozenset(),
+                    broken=True,
+                )
+            components.extend(
+                Component(members=(member,), trivial=True) for member in sorted(order)
+            )
+            continue
         components.append(Component(members=order, trivial=False))
 
     return CompiledBook(
@@ -447,6 +528,7 @@ def compile_book(book: Book) -> CompiledBook:
         components=tuple(components),
         dependents={node: frozenset(value) for node, value in dependents.items()},
         diagnostics=tuple(diagnostics),
+        tax=tax,
     )
 
 

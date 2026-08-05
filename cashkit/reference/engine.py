@@ -66,6 +66,8 @@ from cashkit.engine.expand import (
 )
 from cashkit.engine.facts import FactSet, augmented_items, resolve_facts
 from cashkit.engine.graph import CompiledBook, CompiledItem, compile_book
+from cashkit.engine.tax import TaxPlan
+from cashkit.engine.vat import VatColumns, VatRule, is_output_side, rule_for
 from cashkit.engine.numeric import (
     MAX_ESCALATION_EXPONENT,
     RoundingPolicy,
@@ -178,6 +180,65 @@ def _truth(value: _Value) -> bool:
     return value.value != 0
 
 
+class _VatLedger:
+    """One item's VAT columns as ``Decimal`` lists — the oracle's own storage."""
+
+    def __init__(self, length: int) -> None:
+        self.output_accrual = [ZERO] * length
+        self.input_accrual = [ZERO] * length
+        self.output_cash = [ZERO] * length
+        self.input_cash = [ZERO] * length
+
+    def to_columns(self) -> VatColumns:
+        """Convert to the int64 form both engines are compared on."""
+        return VatColumns(
+            output_accrual=np.array(
+                [to_minor(v) for v in self.output_accrual], dtype=np.int64
+            ),
+            input_accrual=np.array(
+                [to_minor(v) for v in self.input_accrual], dtype=np.int64
+            ),
+            output_cash=np.array(
+                [to_minor(v) for v in self.output_cash], dtype=np.int64
+            ),
+            input_cash=np.array([to_minor(v) for v in self.input_cash], dtype=np.int64),
+        )
+
+
+def _allocate(
+    total: Decimal, legs: list[Decimal], policy: RoundingPolicy
+) -> list[Decimal]:
+    """Split one line's VAT across its settlement legs, in proportion.
+
+    The last leg absorbs the residual, so the parts sum to the total exactly —
+    the residual-absorption rule ADR-0003 already fixes for the share split, and
+    the reason an invoice's VAT legs always add up to the VAT it states.
+    """
+    if not legs:
+        return []
+    if len(legs) == 1:
+        return [total]
+    denominator = sum(legs, start=ZERO)
+    if denominator == ZERO:
+        return [ZERO] * len(legs)
+    parts: list[Decimal] = []
+    running = ZERO
+    for leg in legs[:-1]:
+        part = _divide(_exact_product(total, leg), denominator, policy)
+        running += part
+        parts.append(part)
+    parts.append(total - running)
+    return parts
+
+
+def _exact_product(left: Decimal, right: Decimal) -> Decimal:
+    """Multiply without rounding: the context is sized to the operands."""
+    needed = len(left.as_tuple().digits) + len(right.as_tuple().digits) + 10
+    with localcontext() as ctx:
+        ctx.prec = max(60, needed)
+        return left * right
+
+
 # --------------------------------------------------------------------------- #
 # Settlement dates
 # --------------------------------------------------------------------------- #
@@ -221,11 +282,13 @@ class _Reference:
             book = book.model_copy(
                 update={"items": augmented_items(book, self.factset)}
             )
-        self.book = book
-        self.compiled: CompiledBook = compile_book(book)
         self.periods = PeriodIndex.build(
             book.horizon, book.base_grain, book.calendar.fiscal_year_start_month
         )
+        self.compiled: CompiledBook = compile_book(book, self.periods)
+        # `compile_book` injects the regimes' synthetic items (ADR-0005).
+        book = self.compiled.book
+        self.book = book
         self.calendar = BusinessCalendar.from_spec(book.calendar)
         self.length = len(self.periods)
         self.accrual: dict[ItemId, list[Decimal]] = {
@@ -234,12 +297,27 @@ class _Reference:
         self.cash: dict[ItemId, list[Decimal]] = {
             item_id: [ZERO] * self.length for item_id in book.items
         }
+        self._rules: dict[ItemId, VatRule] = {}
+        for item_id, item in book.items.items():
+            if item.vat is None:
+                continue
+            rule, problem = rule_for(item, book.params)
+            if problem is None:
+                self._rules[item_id] = rule
+        # Every item with a resolvable VatSpec reports columns, zero or not; an
+        # item an event gives VAT to gains its ledger on the way past.
+        self.vat: dict[ItemId, _VatLedger] = {
+            item_id: _VatLedger(self.length) for item_id in self._rules
+        }
         self.diagnostics: list[Diagnostic] = list(self.compiled.diagnostics)
         self.diagnostics.extend(self.factset.diagnostics)
         self._emitted: set[tuple[str, ItemId | None]] = set()
         self._settlement_kind: dict[ItemId, str] = {}
         self._cum_cache: dict[tuple[ItemId, str], list[Decimal]] = {}
         self._component_members: frozenset[ItemId] = frozenset()
+        self._regimes: dict[
+            str, tuple[list[Decimal], list[Decimal], list[Decimal]]
+        ] = {}
 
     # -- diagnostics ------------------------------------------------------ #
 
@@ -281,6 +359,8 @@ class _Reference:
         for item_id, compiled in sorted(self.compiled.items.items()):
             if compiled.broken or compiled.is_derived:
                 continue
+            if item_id in self.compiled.tax.nodes:
+                continue  # a regime's columns come from its schedule
             kind = self._settlement_of(compiled.item)
             for segment in compiled.item.segments:
                 self._expand_segment(compiled.item, segment, kind)
@@ -298,7 +378,7 @@ class _Reference:
             index = self.periods.index_of(fact.event.date)
             if index is None:
                 continue
-            carrier = fact.settlement_item
+            carrier = fact.carrier
             kind, structural = classify_settlement(carrier)
             for diagnostic in structural:
                 self._emit_built_once(diagnostic)
@@ -366,24 +446,78 @@ class _Reference:
         accrual_index: int,
         kind: str,
     ) -> None:
-        """Turn one accrual into cash legs, in the canonical order
-        (ADR-0003): the split first, then withholding."""
+        """Turn one accrual into cash legs, in the canonical order (ADR-0003):
+        the split, then withholding, then VAT — which closes the chain."""
+        rule = self._rules.get(item.id) if item.vat is not None else None
+        if rule is not None and item.vat != self.book.items[item.id].vat:
+            # A ledger row may override its item's VatSpec (PRD §4.3).
+            rule, _ = rule_for(item, self.book.params)
+        cash_vat, output_vat, input_vat = self._vat_of(rule, accrued)
+        active = rule is not None and not rule.inert
+        if active:
+            ledger = self._ledger(item.id)
+            ledger.output_accrual[accrual_index] += output_vat
+            ledger.input_accrual[accrual_index] += input_vat
+
         if kind in (NEVER, INVALID):
             return
         if kind == IMMEDIATE:
-            self.cash[item.id][accrual_index] += accrued
+            self.cash[item.id][accrual_index] += accrued + cash_vat
+            if active:
+                ledger = self._ledger(item.id)
+                ledger.output_cash[accrual_index] += output_vat
+                ledger.input_cash[accrual_index] += input_vat
             return
         assert item.settlement is not None
         legs = self._split(item, accrued, item.settlement, kind)
         period_end_inclusive = self.periods.ends[accrual_index] - timedelta(days=1)
-        for term, leg in legs:
+        gross = [leg for _, leg in legs]
+        cash_parts = _allocate(cash_vat, gross, self.policy)
+        output_parts = _allocate(output_vat, gross, self.policy)
+        input_parts = _allocate(input_vat, gross, self.policy)
+        for position, (term, leg) in enumerate(legs):
             net = leg
             if term.withholding != ZERO:
                 net = leg - _multiply(leg, term.withholding, self.policy)
             due = _due_date(term, accrual_date, period_end_inclusive, self.calendar)
             index = self.periods.index_of(due)
-            if index is not None:
-                self.cash[item.id][index] += net
+            if index is None:
+                continue
+            self.cash[item.id][index] += net + cash_parts[position]
+            if active:
+                ledger = self._ledger(item.id)
+                ledger.output_cash[index] += output_parts[position]
+                ledger.input_cash[index] += input_parts[position]
+
+    def _ledger(self, item_id: ItemId) -> "_VatLedger":
+        """This item's VAT ledger, created the first time it is needed."""
+        ledger = self.vat.get(item_id)
+        if ledger is None:
+            ledger = _VatLedger(self.length)
+            self.vat[item_id] = ledger
+        return ledger
+
+    def _vat_of(
+        self, rule: VatRule | None, accrued: Decimal
+    ) -> tuple[Decimal, Decimal, Decimal]:
+        """Decompose one line into ``(cash_vat, output, input)`` — position 5 of
+        the canonical rounding order, computed on the taxable amount and not on
+        what is left after withholding."""
+        if rule is None or rule.inert:
+            return ZERO, ZERO, ZERO
+        line = _multiply(accrued, rule.rate, self.policy)
+        outputs = is_output_side(rule, accrued >= ZERO)
+        if rule.recoverable == ONE:
+            deductible = line
+        elif rule.recoverable == ZERO:
+            deductible = ZERO
+        else:
+            deductible = _multiply(line, rule.recoverable, self.policy)
+        input_vat = ZERO if outputs else deductible
+        if rule.treatment.self_assess:
+            return ZERO, (ZERO if outputs else -line), input_vat
+        cash_vat = line if rule.treatment.collects_cash else ZERO
+        return cash_vat, (line if outputs else ZERO), input_vat
 
     def _split(
         self, item: Item, accrued: Decimal, settlement: Settlement, kind: str
@@ -442,6 +576,9 @@ class _Reference:
                 self._evaluate_fold(component.members)
 
     def _evaluate_trivial(self, item_id: ItemId) -> None:
+        if item_id in self.compiled.tax.nodes:
+            self._evaluate_tax(item_id)
+            return
         compiled = self.compiled.items[item_id]
         if compiled.broken or not compiled.is_derived or compiled.expr is None:
             return
@@ -477,6 +614,82 @@ class _Reference:
                         period,
                         self._settlement_kind[item_id],
                     )
+
+    # -- tax regimes (ADR-0005) ------------------------------------------- #
+
+    def _evaluate_tax(self, item_id: ItemId) -> None:
+        """Fill a regime's synthetic columns, one return period at a time.
+
+        The liability and the credit are one recurrence — this period's credit
+        depends on the last one's — so both are computed when the credit comes
+        up, which the liability depends on and therefore follows.
+        """
+        if self.compiled.items[item_id].broken:
+            # The regime was caught in a cycle and refused; a zero column plus a
+            # loud error beats a plausible-looking half-answer.
+            return
+        plan = self.compiled.tax.plan_for(item_id)
+        if plan is None:  # pragma: no cover - guarded by the caller
+            return
+        cached = self._regimes.get(plan.regime.id)
+        if cached is None:
+            cached = self._fold_regime(plan)
+            self._regimes[plan.regime.id] = cached
+        liability_accrual, liability_cash, credit_level = cached
+        if item_id == plan.credit:
+            self.accrual[item_id] = list(credit_level)
+        else:
+            self.accrual[item_id] = list(liability_accrual)
+            self.cash[item_id] = list(liability_cash)
+
+    def _fold_regime(
+        self, plan: TaxPlan
+    ) -> tuple[list[Decimal], list[Decimal], list[Decimal]]:
+        regime = plan.regime
+        accrual_basis = regime.measure == "accrual"
+        net = [ZERO] * self.length
+        for base_id in plan.base:
+            ledger = self.vat.get(base_id)
+            if ledger is None:
+                continue
+            outputs = ledger.output_accrual if accrual_basis else ledger.output_cash
+            inputs = ledger.input_accrual if accrual_basis else ledger.input_cash
+            for period in range(self.length):
+                net[period] += outputs[period] + inputs[period]
+
+        liability_accrual = [ZERO] * self.length
+        liability_cash = [ZERO] * self.length
+        credit_level = [ZERO] * self.length
+        credit = ZERO
+        for period in plan.periods:
+            if not period.closes:
+                continue
+            due = sum(net[period.lo : period.hi], start=ZERO)
+            if due >= ZERO:
+                applied = min(credit, due)
+                payable = due - applied
+                credit -= applied
+                if payable != ZERO and regime.surcharge != ZERO:
+                    payable += _multiply(payable, regime.surcharge, self.policy)
+                movement = -payable
+            else:
+                # Input exceeded output: a credit stock, never a negative payment.
+                credit += -due
+                movement = ZERO
+            if (
+                regime.credit_handling == "refund_annual"
+                and period.end.month == regime.annual_adjustment_month
+                and credit != ZERO
+            ):
+                movement += credit
+                credit = ZERO
+            if movement != ZERO:
+                liability_accrual[period.recognition] += movement
+                if period.payment >= 0:
+                    liability_cash[period.payment] += movement
+            for index in range(period.recognition, self.length):
+                credit_level[index] = credit
+        return liability_accrual, liability_cash, credit_level
 
     def _evaluate_cell(self, compiled: CompiledItem, period: int) -> None:
         assert compiled.expr is not None
@@ -690,6 +903,10 @@ class _Reference:
             },
             diagnostics=tuple(self.diagnostics),
             currencies={item_id: item.currency for item_id, item in self.book.items.items()},
+            vat={
+                item_id: ledger.to_columns()
+                for item_id, ledger in sorted(self.vat.items())
+            },
         )
 
 

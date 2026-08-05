@@ -43,6 +43,8 @@ from cashkit.model import (
     Recurrence,
     Segment,
     Settlement,
+    TaxRegime,
+    VatSpec,
 )
 
 __all__ = ["build_corpus", "coverage_of", "Case", "REQUIRED_COVERAGE"]
@@ -1192,7 +1194,7 @@ def build_corpus() -> list[Case]:
         + _grain_sweep()
         + _random_books(14)
     )
-    return [_case(entry) for entry in entries] + _ledger_cases()
+    return [_case(entry) for entry in entries] + _ledger_cases() + _vat_cases()
 
 
 # --------------------------------------------------------------------------- #
@@ -1384,6 +1386,342 @@ def _ledger_cases() -> list[Case]:
 
 
 # --------------------------------------------------------------------------- #
+# VAT layer (Phase 6): per-line VAT and the regime schedule
+# --------------------------------------------------------------------------- #
+
+VAT_PARAMS = {
+    "vat_standard": Decimal("0.22"),
+    "vat_reduced": Decimal("0.10"),
+    "vat_super_reduced": Decimal("0.04"),
+}
+
+
+def _vat_book(book_id: str, items: list[Item], regimes: list[TaxRegime], **kwargs) -> Book:
+    book = _book(book_id, items, **kwargs)
+    return book.model_copy(
+        update={
+            "params": {**book.params, **VAT_PARAMS},
+            "tax_regimes": regimes,
+        }
+    )
+
+
+def _vat_flow(
+    item_id: str,
+    amount: str,
+    *,
+    direction: str,
+    vat: VatSpec,
+    settlement: Settlement | None = None,
+    recurrence: Recurrence | None = None,
+    tags: dict[str, str] | None = None,
+) -> Item:
+    item = _flow(
+        item_id,
+        [_seg(amount, recurrence=recurrence or _rec(Grain.MONTH))],
+        settlement=settlement,
+        tags=tags if tags is not None else {"cat": "revenue" if direction == "in" else "cost"},
+    )
+    return item.model_copy(update={"direction": direction, "vat": vat})
+
+
+def _regime(regime_id: str, **kwargs) -> TaxRegime:
+    defaults = dict(
+        accumulates="",
+        measure="accrual",
+        periodicity="quarterly",
+        payment_offset="16d",
+    )
+    defaults.update(kwargs)
+    return TaxRegime(id=regime_id, **defaults)
+
+
+def _vat_cases() -> list[Case]:
+    """Books where the canonical rounding order runs all the way to VAT.
+
+    A divergence here is a divergence in the F24 schedule, which is the number
+    people pay; it is checked on the VAT columns as well as on cash, because two
+    engines agreeing on the balance while disagreeing on which return period a
+    line fell into would produce the right bank account and the wrong return.
+    """
+    cases: list[Case] = []
+    long_horizon = dict(start=START, end=date(2027, 4, 1))
+
+    every_treatment = [
+        _vat_flow(
+            "std_sale", "9333.33", direction="in", vat=VatSpec(rate="vat_standard"),
+            settlement=Settlement(due=[DueTerm(share=Decimal(1), offset="60d")]),
+        ),
+        _vat_flow(
+            "reduced_sale", "1777.77", direction="in", vat=VatSpec(rate="vat_reduced")
+        ),
+        _vat_flow(
+            "super_reduced", "333.33", direction="in",
+            vat=VatSpec(rate="vat_super_reduced"),
+        ),
+        _vat_flow(
+            "exempt_sale", "555.55", direction="in",
+            vat=VatSpec(rate="vat_standard", treatment="exempt"),
+        ),
+        _vat_flow(
+            "export_sale", "777.77", direction="in",
+            vat=VatSpec(rate="vat_standard", treatment="export"),
+        ),
+        _vat_flow(
+            "pa_sale", "1111.11", direction="in",
+            vat=VatSpec(rate="vat_standard", treatment="split_payment"),
+        ),
+        _vat_flow(
+            "oos_sale", "222.22", direction="in",
+            vat=VatSpec(rate="vat_standard", treatment="out_of_scope"),
+        ),
+        _vat_flow(
+            "reverse_buy", "-1234.56", direction="out",
+            vat=VatSpec(rate="vat_standard", treatment="reverse_charge"),
+            settlement=Settlement(due=[DueTerm(share=Decimal(1), offset="30d")]),
+        ),
+        _vat_flow(
+            "partial_buy", "-987.65", direction="out",
+            vat=VatSpec(rate="vat_standard", recoverable=Decimal("0.4")),
+        ),
+        _vat_flow(
+            "reverse_partial", "-456.78", direction="out",
+            vat=VatSpec(
+                rate="vat_standard", treatment="reverse_charge",
+                recoverable=Decimal("0.55"),
+            ),
+        ),
+        CASH,
+    ]
+    cases.append(
+        Case(
+            "every VAT treatment, quarterly accrual basis with surcharge",
+            _vat_book(
+                "vat-treatments",
+                every_treatment,
+                [_regime("vat", surcharge=Decimal("0.01"))],
+                **long_horizon,
+            ),
+        )
+    )
+    cases.append(
+        Case(
+            "every VAT treatment, monthly cash basis",
+            _vat_book(
+                "vat-cash-basis",
+                every_treatment,
+                [_regime("vat", measure="cash", periodicity="monthly", payment_offset="16d")],
+                **long_horizon,
+            ),
+        )
+    )
+    cases.append(
+        Case(
+            "every VAT treatment, annual with a July fiscal year",
+            _vat_book(
+                "vat-annual-fiscal",
+                every_treatment,
+                [_regime("vat", periodicity="annual", payment_offset="4m")],
+                calendar=FISCAL_CALENDAR,
+                **long_horizon,
+            ),
+        )
+    )
+
+    # Allocation of a line's VAT across legs: shares with an awkward residual,
+    # fixed terms whose remainder clamps, and withholding on both.
+    split = Settlement(
+        due=[
+            DueTerm(share=Decimal("0.3333"), offset="0d", withholding=Decimal("0.2")),
+            DueTerm(share=Decimal("0.3333"), offset="45d", adjust="next"),
+            DueTerm(share=Decimal("0.3334"), offset="3m", basis="month_end"),
+        ]
+    )
+    fixed = Settlement(
+        due=[
+            DueTerm(amount=Decimal("5000"), offset="0d"),
+            DueTerm(remainder=True, offset="30d", withholding=Decimal("0.04")),
+        ]
+    )
+    cases.append(
+        Case(
+            "VAT allocated across split and fixed settlement legs",
+            _vat_book(
+                "vat-allocation",
+                [
+                    _vat_flow(
+                        "thirds", "1000.01", direction="in",
+                        vat=VatSpec(rate="vat_standard"), settlement=split,
+                    ),
+                    _vat_flow(
+                        "deposit", "4000", direction="in",
+                        vat=VatSpec(rate="vat_reduced"), settlement=fixed,
+                    ),
+                    _vat_flow(
+                        "credit_note", "-1500.55", direction="in",
+                        vat=VatSpec(rate="vat_standard"), settlement=split,
+                    ),
+                    _vat_flow(
+                        "never_settles", "700.07", direction="in",
+                        vat=VatSpec(rate="vat_standard"),
+                        settlement=Settlement(due=[]),
+                    ),
+                    CASH,
+                ],
+                [_regime("vat", measure="cash", periodicity="monthly")],
+                **long_horizon,
+            ),
+        )
+    )
+
+    # Credit carry-forward, then consumption, then an annual refund.
+    heavy_input = [
+        _vat_flow("small_sales", "1000", direction="in", vat=VatSpec(rate="vat_standard")),
+        _vat_flow("equipment", "-12345.67", direction="out", vat=VatSpec(rate="vat_standard")),
+        CASH,
+    ]
+    cases.append(
+        Case(
+            "VAT credit carried across quarters",
+            _vat_book(
+                "vat-credit-carry", heavy_input, [_regime("vat")], **long_horizon
+            ),
+        )
+    )
+    cases.append(
+        Case(
+            "VAT credit refunded at the annual adjustment",
+            _vat_book(
+                "vat-credit-refund",
+                heavy_input,
+                [_regime("vat", credit_handling="refund_annual", annual_adjustment_month=12)],
+                **long_horizon,
+            ),
+        )
+    )
+
+    # An explicit selector, two regimes side by side, and a derived item inside
+    # the feedback set carrying VAT — the fold's own VAT path.
+    cases.append(
+        Case(
+            "two regimes on explicit selectors, VAT inside the feedback set",
+            _vat_book(
+                "vat-two-regimes",
+                [
+                    _vat_flow(
+                        "eu_sales", "2500", direction="in",
+                        vat=VatSpec(rate="vat_standard"), tags={"cat": "revenue", "book": "eu"},
+                    ),
+                    _vat_flow(
+                        "it_sales", "3500", direction="in",
+                        vat=VatSpec(rate="vat_reduced"), tags={"cat": "revenue", "book": "it"},
+                    ),
+                    _flow(
+                        "overheads",
+                        [_seg("-9000", recurrence=_rec(Grain.MONTH))],
+                        tags={"cat": "cost"},
+                    ),
+                    # Inside the feedback set *and* VAT-bearing: the fold has its
+                    # own VAT path, and a vacuous item (one that evaluates to
+                    # zero every period) would never exercise it.
+                    _derived(
+                        "overdraft_fee",
+                        'where(prev("cash", init=p.opening_balance) < 0,'
+                        ' prev("cash", init=p.opening_balance) * p.interest_rate,'
+                        ' 0 - 12.5)',
+                        tags={"cat": "cost", "book": "it"},
+                    ).model_copy(
+                        update={
+                            "direction": "out",
+                            "vat": VatSpec(rate="vat_standard"),
+                            "flags": {"cashflow"},
+                            "settlement": Settlement(
+                                due=[
+                                    DueTerm(share=Decimal("0.5"), offset="0d"),
+                                    DueTerm(share=Decimal("0.5"), offset="1m"),
+                                ]
+                            ),
+                        }
+                    ),
+                    # Outside the feedback set: the whole-column derived path.
+                    _derived(
+                        "royalty",
+                        'agg(tag="cat:revenue") * p.fee_rate',
+                        tags={"cat": "fee", "book": "eu"},
+                    ).model_copy(
+                        update={
+                            "direction": "in",
+                            "vat": VatSpec(rate="vat_reduced"),
+                            "flags": {"cashflow"},
+                            "settlement": Settlement(
+                                due=[DueTerm(share=Decimal(1), offset="45d")]
+                            ),
+                        }
+                    ),
+                    CASH,
+                ],
+                [
+                    _regime("eu_vat", accumulates="book:eu", periodicity="monthly"),
+                    _regime("it_vat", accumulates="book:it", periodicity="quarterly"),
+                ],
+                opening="1500",
+                **long_horizon,
+            ),
+        )
+    )
+
+    # Ledger rows carrying their own VAT, plus deliberately broken regimes.
+    cases.append(
+        Case(
+            "ledger events with VAT, attached and unattached",
+            _vat_book(
+                "vat-events",
+                [
+                    _vat_flow(
+                        "services", "800", direction="in",
+                        vat=VatSpec(rate="vat_standard"),
+                        settlement=Settlement(
+                            due=[DueTerm(share=Decimal(1), offset="30d")]
+                        ),
+                    ),
+                    CASH,
+                ],
+                [_regime("vat", periodicity="monthly")],
+                cutover=date(2026, 3, 1),
+            ),
+            (
+                _event("v1", date(2026, 1, 20), "1234.56", item="services"),
+                _event("v2", date(2026, 2, 20), "-345.67", item="services"),
+                _event(
+                    "v3", date(2026, 4, 2), "999.99",
+                    tags={"cat": "revenue"},
+                    settlement=Settlement(due=[DueTerm(share=Decimal(1), offset="0d")]),
+                ),
+            ),
+        )
+    )
+    cases.append(
+        Case(
+            "regimes the book cannot support",
+            _vat_book(
+                "vat-broken-regimes",
+                [
+                    _vat_flow(
+                        "sales", "1000", direction="in", vat=VatSpec(rate="vat_missing")
+                    ),
+                    CASH,
+                ],
+                [
+                    _regime("empty_base", accumulates="cat:nothing"),
+                    _regime("no_month", credit_handling="refund_annual"),
+                ],
+            ),
+        )
+    )
+    return cases
+
+
+# --------------------------------------------------------------------------- #
 # Coverage, derived from the corpus rather than asserted about it
 # --------------------------------------------------------------------------- #
 
@@ -1436,6 +1774,36 @@ REQUIRED_COVERAGE = frozenset(
     }
 )
 
+#: What the Phase 6 gate adds: per-line VAT and the regime schedule.
+VAT_COVERAGE = frozenset(
+    {
+        "vat:standard",
+        "vat:exempt",
+        "vat:export",
+        "vat:out_of_scope",
+        "vat:split_payment",
+        "vat:reverse_charge",
+        "vat:partial_recoverable",
+        "vat:on_events",
+        "vat:allocated_across_legs",
+        "vat:with_withholding",
+        "vat:credit_note",
+        "measure:accrual",
+        "measure:cash",
+        "periodicity:monthly",
+        "periodicity:quarterly",
+        "periodicity:annual",
+        "regime:surcharge",
+        "regime:explicit_selector",
+        "regime:multiple",
+        "regime:refund_annual",
+        "regime:credit_carried",
+        "regime:broken",
+        "vat:derived_whole_column",
+        "vat:derived_in_fold",
+    }
+)
+
 #: What the Phase 5 gate adds: the event side of the fact union.
 LEDGER_COVERAGE = frozenset(
     {
@@ -1465,6 +1833,7 @@ def coverage_of(corpus: list["Case"]) -> set[str]:
     for case in corpus:
         book = case.book
         found |= _ledger_coverage(case)
+        found |= _vat_coverage(case)
         found.add(f"grain:{book.base_grain.value}")
         if book.cutover > book.horizon.start:
             found.add("cutover_mid_horizon")
@@ -1473,6 +1842,18 @@ def coverage_of(corpus: list["Case"]) -> set[str]:
             found.add("broken_item")
         if any(not component.trivial for component in compiled.components):
             found.add("feedback_loop")
+        for component in compiled.components:
+            for member in component.members:
+                entry = compiled.items.get(member)
+                if entry is None or entry.broken or entry.item.vat is None:
+                    continue
+                if not entry.is_derived:
+                    continue
+                found.add(
+                    "vat:derived_whole_column"
+                    if component.trivial
+                    else "vat:derived_in_fold"
+                )
         for item in book.items.values():
             if len(item.segments) >= 2:
                 found.add("multi_segment")
@@ -1556,6 +1937,67 @@ def _ledger_coverage(case: "Case") -> set[str]:
             found.add("event:before_cutover")
         elif event.status == "actual":
             found.add("event:after_cutover_actual")
+    return found
+
+
+def _vat_coverage(case: "Case") -> set[str]:
+    """What the VAT half of a case exercises, read off its items and regimes."""
+    found: set[str] = set()
+    book = case.book
+    specs = [item.vat for item in book.items.values() if item.vat is not None]
+    specs += [event.vat for event in case.events if event.vat is not None]
+    if any(event.vat is not None for event in case.events) or any(
+        event.item is not None
+        and event.item in book.items
+        and book.items[event.item].vat is not None
+        for event in case.events
+    ):
+        found.add("vat:on_events")
+    for spec in specs:
+        found.add(f"vat:{spec.treatment}")
+        if spec.recoverable != Decimal(1):
+            found.add("vat:partial_recoverable")
+    for item in book.items.values():
+        if item.vat is None or item.settlement is None:
+            continue
+        if len(item.settlement.due) > 1:
+            found.add("vat:allocated_across_legs")
+        if any(term.withholding != Decimal(0) for term in item.settlement.due):
+            found.add("vat:with_withholding")
+        for segment in item.segments:
+            if segment.amount.constant is not None and segment.amount.constant < 0:
+                found.add("vat:credit_note")
+    if len(book.tax_regimes) > 1:
+        found.add("regime:multiple")
+    for regime in book.tax_regimes:
+        found.add(f"measure:{regime.measure}")
+        found.add(f"periodicity:{regime.periodicity}")
+        if regime.surcharge != Decimal(0):
+            found.add("regime:surcharge")
+        if regime.accumulates.strip():
+            found.add("regime:explicit_selector")
+        if regime.credit_handling == "refund_annual":
+            found.add("regime:refund_annual")
+    if book.tax_regimes:
+        found |= _regime_outcome_coverage(case)
+    return found
+
+
+def _regime_outcome_coverage(case: "Case") -> set[str]:
+    """Two things only a run can confirm: a credit was actually carried, and a
+    misconfigured regime was actually refused."""
+    import cashkit.engine as engine
+
+    from cashkit.engine.tax import credit_id
+
+    result = engine.run(case.book, events=case.events)
+    found: set[str] = set()
+    if any(d.code == "CK-E019" for d in result.diagnostics):
+        found.add("regime:broken")
+    for regime in case.book.tax_regimes:
+        column = result.accrual.get(credit_id(regime.id))
+        if column is not None and column.any():
+            found.add("regime:credit_carried")
     return found
 
 

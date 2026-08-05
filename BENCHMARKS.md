@@ -153,3 +153,60 @@ by row.
 |---|---|
 | Dual-engine corpus, now 73 books incl. 4 ledger cases | 105 tests |
 | Full suite, all phases (686 tests) | 14.9 s |
+
+## Phase 6 — VAT and tax regimes
+
+### Gate: the F24 schedule
+
+`uv run pytest tests/test_vat.py` — 71 tests, 1.2 s. A six-line fixture entity
+(standard-rate sale on 60-day terms, reduced-rate sale, exempt sale,
+reverse-charge purchase, deductible purchase, car lease at 40%
+deductibility), quarterly accrual-basis VAT with the 1% *IVA trimestrale*
+surcharge, reproduces `tests/fixtures/f24_schedule.csv` exactly on both
+engines: 9,780.00 output, −3,841.20 input, 5,938.80 net, 59.3880 surcharge,
+5,998.1880 paid on 16 April / 16 July / 16 October / 16 January.
+
+A second fixture with input above output for two consecutive quarters shows a
+credit stock of 5,940 then 11,880, no payment at all while the credit stands,
+and 7,920 when the credit is consumed — never a negative payment. Flipping
+`measure` to `"cash"` moves the first F24 from 5,998.19 to 1,554.19.
+
+### Gate: dual-engine equality, extended to VAT
+
+`uv run pytest tests/test_dual_engine.py` — **82 books, 118 tests, zero
+mismatches.** The comparison now covers the four VAT columns per item as well
+as accrual and cash: two engines agreeing on the bank balance while disagreeing
+on which return period a line's VAT fell into would produce the right cash and
+the wrong F24.
+
+| Measure | Value |
+|---|---|
+| Corpus of 82 books, reference engine | 331 ms total |
+| Corpus of 82 books, vectorized engine | 169 ms total |
+
+### Performance with VAT
+
+Same PRD §5.2 shape, with **every** generative flow carrying a `VatSpec` and a
+quarterly regime netting all forty — the worst case a real book can present.
+
+| Path | Budget | No VAT (min / median) | VAT everywhere (min / median) |
+|---|---|---|---|
+| Full cold run, 50 × 1826 | < 50 ms | 16.9 / 17.4 ms | **28.1 / 30.4 ms** |
+| Delta recompute | < 5 ms | 4.29 / 4.43 ms | **4.93 / 5.04 ms** |
+
+The cold run is gated on both shapes. The delta is gated on the no-VAT shape
+only: the VAT figure sits close enough to the budget that gating it would test
+the machine rather than the design. VAT costs roughly 15% of the delta — the
+sequential fold still dominates it, as it has since Phase 3.
+
+Two allocations were worth removing while getting there, and both were the same
+mistake in different places. Allocating four VAT columns for every stale item
+cost the delta more than the VAT arithmetic did on a book where most items are
+not VAT-bearing, so they are allocated on demand (4.44 → 4.29 ms with no VAT).
+Summing the regime's base with `total = total + columns.net_accrual()` allocated
+eighty horizon-length arrays per run; in-place accumulation took the VAT delta
+from 5.26 to 4.93 ms.
+
+| Measure | Value |
+|---|---|
+| Full suite, all phases (759 tests) | 18.6 s |
