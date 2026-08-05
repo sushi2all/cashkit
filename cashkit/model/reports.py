@@ -33,10 +33,14 @@ __all__ = [
     "FieldOrigin",
     "ImportReport",
     "ItemDiff",
+    "OutcomeDiff",
     "ParamDiff",
     "Provenance",
+    "Reproduction",
+    "RevisionDiff",
     "RunSummary",
     "ScenarioDiff",
+    "WorkingState",
 ]
 
 
@@ -224,3 +228,122 @@ class ScenarioDiff(CashKitModel):
             or self.items
             or self.event_overrides
         )
+
+
+# --------------------------------------------------------------------------- #
+# Version control results (PRD §6.6)
+# --------------------------------------------------------------------------- #
+
+
+class OutcomeDiff(CashKitModel):
+    """How one scenario's committed *numbers* moved between two revisions.
+
+    PRD §10 requires the config diff and the outcome diff to appear in the same
+    commit; this is the outcome half. ``left``/``right`` are the summaries as
+    committed, so an outcome that moved because the engine changed is
+    distinguishable from one that moved because the model did —
+    ``engine_version_changed`` says which.
+    """
+
+    scenario: ScenarioId
+    fields: tuple[str, ...] = ()
+    left: RunSummary | None = None
+    right: RunSummary | None = None
+    engine_version_changed: bool = False
+
+    @property
+    def empty(self) -> bool:
+        """True when nothing about this scenario's outcome moved. No diagnostics."""
+        return not self.fields and self.left is not None and self.right is not None
+
+
+class RevisionDiff(CashKitModel):
+    """The semantic difference between two revisions (PRD §6.6).
+
+    Semantic, not textual: both sides are parsed and compared as models, so a
+    revision whose files were reformatted by hand — different key order, different
+    quoting, different indentation — diffs **empty**. Textual comparison is the
+    store's :class:`~cashkit.stores.revisions.StateDiff`; this is the answer an
+    agent should be given, because "the file changed" is not the same statement
+    as "the plan changed".
+    """
+
+    left: str
+    right: str
+    scenario: ScenarioId | None = None
+    opening_balance: tuple[Decimal, Decimal] | None = None
+    params: tuple[ParamDiff, ...] = ()
+    items: tuple[ItemDiff, ...] = ()
+    scenarios_added: tuple[ScenarioId, ...] = ()
+    scenarios_removed: tuple[ScenarioId, ...] = ()
+    scenarios_changed: tuple[ScenarioId, ...] = ()
+    outcomes: tuple[OutcomeDiff, ...] = ()
+    #: Paths whose *bytes* differ. Non-empty with everything else empty is
+    #: exactly the reformat-only case, and saying so beats saying nothing.
+    reformatted: tuple[str, ...] = ()
+    diagnostics: tuple[Diagnostic, ...] = ()
+
+    @property
+    def empty(self) -> bool:
+        """True when nothing semantic differs between the two revisions.
+
+        A pure reformat is empty by this definition and non-empty by
+        ``reformatted``. Produces no diagnostics.
+        """
+        return not (
+            self.opening_balance
+            or self.params
+            or self.items
+            or self.scenarios_added
+            or self.scenarios_removed
+            or self.scenarios_changed
+            or any(not outcome.empty for outcome in self.outcomes)
+        )
+
+
+class WorkingState(CashKitModel):
+    """The uncommitted difference between the working state and HEAD (PRD §6.6).
+
+    Structured, never a git porcelain string: an agent can branch on
+    ``items_changed``; it cannot branch on ``" M items/rent.yaml"``.
+    ``revision`` names the revision the comparison is against — ``None`` before
+    the first commit, when everything is new.
+    """
+
+    revision: str | None = None
+    clean: bool = True
+    items_added: tuple[ItemId, ...] = ()
+    items_removed: tuple[ItemId, ...] = ()
+    items_changed: tuple[ItemId, ...] = ()
+    params_changed: tuple[ParamKey, ...] = ()
+    book_fields_changed: tuple[str, ...] = ()
+    scenarios_changed: tuple[ScenarioId, ...] = ()
+    settings_changed: tuple[str, ...] = ()
+    #: Tracked paths whose bytes differ, for the rare case where a semantic
+    #: comparison sees nothing and the file still moved (a hand reformat).
+    paths_changed: tuple[str, ...] = ()
+    diagnostics: tuple[Diagnostic, ...] = ()
+
+
+class Reproduction(CashKitModel):
+    """The result of re-running a past revision against its committed snapshot.
+
+    ADR-0006: exact historical reproduction is guaranteed **at matching engine
+    version**, and an engine-version mismatch surfaces as a reported delta,
+    never a silent failure. Both outcomes are represented here and neither is
+    an absence: ``reproduced`` is the answer, ``deltas`` is the evidence, and
+    ``engine_version_matches`` says which of the two guarantees applies.
+    """
+
+    ref: str
+    revision: str
+    scenario: ScenarioId
+    engine_version_recorded: str
+    engine_version_current: str
+    engine_version_matches: bool
+    reproduced: bool
+    #: ``(field, committed, recomputed)`` for every summary field that moved.
+    deltas: tuple[tuple[str, str, str], ...] = ()
+    committed: RunSummary | None = None
+    recomputed: RunSummary | None = None
+    diagnostics: tuple[Diagnostic, ...] = ()

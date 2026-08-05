@@ -1146,3 +1146,227 @@ none of it is provable with the extra uninstalled, and a gate that skips is not
 a gate. `duckdb` stays an *optional* runtime extra per PRD §8.2 and becomes a
 required *development* one. `pyarrow` was deliberately not added: DuckDB reads
 and writes Parquet natively, so the export path has no second library in it.
+
+## Phase 9 — Version control (Session S5)
+
+### D-P9-01 · The revision store is four operations over text keyed by path
+ADR-0018 requires the interface before the git store. The question it leaves
+open is what a "state" is at the seam. `RevisionState` is `Mapping[str, str]` —
+book-root-relative path to canonical text — which is the least structured thing
+that still round-trips the §3.3 layout. Anything richer would leak the config
+store's vocabulary into the revision store (which would then have to know what a
+Book is to store one), and anything poorer would make `read_state` unable to
+answer without a second call per file. The four operations are exactly §6.6's
+needs: write a revision from a state, list revisions, read a state at a
+revision, diff two revisions.
+
+The second implementation ADR-0018 demands be *plausible on paper* is an
+append-only SQLite revision table: one row per revision (`id`, `parent`,
+`message`, `author`, `timestamp`, `depth`, metadata JSON) and one blob row per
+`(revision, path)`. Every method above is a query against those two tables;
+`HEAD~n` is `depth = head_depth - n`, which is why `Revision` carries `depth` at
+all. Nothing in the interface needs a commit graph, content addressing or a
+merge base — and nothing in it *has* one, which is the test.
+
+### D-P9-02 · Refs are opaque strings with a linear grammar, parsed once
+Non-negotiable 7 says no method takes a git ref-spec "other than the opaque
+`ref` string", and the Phase 9 gate is literally `at("HEAD~5")`. Those two only
+reconcile if `HEAD~n` is CashKit's grammar rather than git's. `parse_ref` in the
+interface module is therefore the single definition — `HEAD`, `HEAD~<n>`, or a
+revision id — shared by every implementation so none of them can drift into a
+dialect. `HEAD^`, `HEAD@{2}` and every other git spelling is **refused**, which
+is a deliberate reduction in expressiveness: an append-only revision table can
+answer `HEAD~n` and cannot answer `HEAD^2`, and an interface that quietly
+admitted the second would be a git wrapper.
+
+### D-P9-03 · History is linear; there is no merge path, not even a private one
+v1 defers branch-based propose-and-review (PRD §7.3), the writer lock makes
+concurrent divergence an error rather than a state, and the Phase 9 gate demands
+that a second writer "never merges silently". The strongest way to guarantee
+that is for no merge to be expressible: `write_revision` always parents on the
+current tip and passes exactly one parent, the store walks first-parent only,
+and there is no branch API. The second writer cannot merge silently because
+there is no code that merges at all.
+
+### D-P9-04 · `.cashkit/config.toml` is tracked, holds engine settings, and closes D-P2-01
+Open since S2: where the rounding policy is stored. §3.3 names `config.toml` as
+the home for "store backends, engine settings" and lists the tracked paths
+without mentioning it either way. The two halves of that file have opposite
+requirements — backends are machine-local, engine settings change every number —
+so they cannot share a tracking decision.
+
+Resolution: `config.toml` holds **engine settings only** and is tracked. Store
+backends become constructor arguments and CLI flags, so nothing machine-local is
+committed. The rounding policy must be tracked because a run is identified by
+`(revision, scenario, engine_version, ledger_watermark)` and `at("HEAD~5")` has
+to recover all four from the revision; a policy living in an untracked file
+would reproduce the wrong numbers on a machine whose local settings differ,
+silently, which is the exact failure this project ranks worst.
+
+The alternative — a `Book.rounding_policy` field — was rejected on cost, not on
+principle: it changes the canonical serialization S1's gate pins and the
+committed `tests/fixtures/canonical_book.yaml`, to put a setting on the model
+that no formula and no item references. If a later phase needs the policy inside
+the model (a per-book default an overlay could sweep, say), the migration path
+now exists to add it.
+
+### D-P9-05 · The working tree on disk is the working state
+PRD §6.7 says exploratory sweeping stays in memory, and §8.4 lists
+`cashkit status` as a shell command. Those are only compatible if "the working
+state" is something a *second process* can see. So: mutations are in memory,
+`save()` writes the §3.3 layout, `commit()` writes it and records a revision, and
+`open()` reads it back. `status()` compares the in-memory state to HEAD;
+`discard()` restores from HEAD. A long-lived REPL session sweeping parameters
+touches no file until it decides to, and a CLI invocation — which loads from disk
+and exits — sees exactly what was last saved.
+
+`write_working_tree` removes tracked files the state does not contain, so the
+tree is the state rather than a superset of it. An item deleted in memory and
+then saved must not come back on the next `open()`, and it would if the writer
+only ever wrote.
+
+### D-P9-06 · One wall-clock read in the package, allowlisted and fenced
+A commit and a writer lock need a timestamp; ADR-0010's lint bans the clock in
+`engine/`, `model/`, `reference/`, `sdk/` and `stores/`. Three ways out: put the
+clock in a directory the lint does not cover (a loophole that invites the next
+one), carve a per-call exemption (a ban that decays into a habit), or name a
+single file.
+
+`cashkit/stores/clock.py` is that file. The lint was **widened** to the whole
+package — `cli/` and anything added later are now covered by default — and
+allowlists exactly one path, with a companion test asserting that only
+`git_store.py` and `lock.py` reach `wall_clock()`. Importing the `Timestamp`
+*type* is unrestricted, because a signature that accepts an injected timestamp is
+the opposite of a module that reads one: every commit and lock takes
+`timestamp=`, which is also what makes a fixture repository byte-reproducible.
+
+The clock is built from `time.time_ns()` — integer nanoseconds — rather than
+`time.time()`, so the identifier `float` still appears nowhere under `cashkit/`
+except the boundary guard that rejects it. A timestamp is not money, but an
+exception carved for one non-money value is an exception that gets cited for the
+next one.
+
+### D-P9-07 · Three schema generations, and what each of them changed
+PRD §8.5 requires a migration path tested against "at least three schema
+generations", which means inventing two historical layouts. They are the two the
+§3.3 layout most obviously evolved from, and each migration step is the move that
+made the layout more reviewable:
+
+- **generation 1** — the whole Book in one `book.yaml`. Every plan review is a
+  diff of one enormous file.
+- **generation 2** — `items/<id>.yaml`, one file per item. `params` still inline.
+- **generation 3** (current) — `params.yaml` split out; `.cashkit/config.toml`
+  appears, so a state that predates it is read at the documented default.
+
+Migrations run on **parsed documents**, not on models, and before validation: a
+generation-1 document need not satisfy today's `Book`. They are forward-only, and
+a state from a *newer* generation is refused with `CK-E026` rather than read
+optimistically — reading a file you do not understand and getting plausible
+numbers is worse than refusing.
+
+The fixture repository writes generations 1 and 2 with `yaml.safe_dump` rather
+than the canonical emitter. That is realistic — a past generation had a past
+emitter — and it proves that reading an old revision does not depend on the bytes
+having been written by today's one.
+
+### D-P9-08 · `diff_revisions()` is semantic; the store's path diff is separate
+The gate says a reformat-only change produces an empty `diff_revisions()`. Two
+ways to get there: compare bytes and hope everything was always written
+canonically, or parse both sides and compare models. The first is true today
+*by construction* — every state CashKit writes goes through the canonical emitter
+— and stops being true the moment a human edits a file, which §3.3's whole
+"config in git-tracked YAML" premise invites them to do.
+
+So `RevisionDiff` (SDK, in `model/reports.py`) is semantic, and `StateDiff`
+(store, path-based) is what it is built on. The reformat case reports
+`empty == True` **and** a non-empty `reformatted` tuple, so the answer is "the
+plan did not change, these files did" rather than silence — and the gate's
+assertion is a real comparison rather than one that never ran. It also carries
+the outcome diff, because PRD §10 wants config and outcome changes in the same
+place, and an item edit whose `min_cash` did not move is a different fact from
+one whose did.
+
+### D-P9-09 · `commit()` returns a report carrying `Revision | None`
+§6.6 types `commit()` as `-> Revision | None`; §6.5 requires every fallible
+operation to return diagnostics rather than raise. A contended lock (`CK-E013`)
+is exactly such a failure and has nowhere to go in a bare `Revision | None`.
+`CommitReport` extends `ChangeReport` with `revision`, so both hold: `None`
+still means "the tree was unchanged", and the diagnostics channel stays open.
+Reading §6.6's annotation as a sketch and §6.5 as the rule is the reading that
+satisfies §2 — this is not recorded as a PRD conflict because the two sections
+do not actually disagree about behaviour, only about how much of it a return
+annotation shows.
+
+### D-P9-10 · Reproduction is asserted, not assumed, and the two failure modes differ
+ADR-0006 says exact reproduction is guaranteed at matching engine version and
+that a mismatch "surfaces as a reported delta, never a silent failure".
+`reproduce(ref, scenario)` makes both checkable and gives them different
+severities:
+
+- **engine versions match, numbers differ** → `CK-E028`, an error. Something
+  outside `(revision, scenario, engine_version, watermark)` reached the
+  computation, and both numbers are now suspect. This is the failure the whole
+  design exists to make impossible, so it is loud.
+- **engine versions differ** → `CK-W011`, a warning, `reproduced=False`, and the
+  deltas listed field by field. The engine moved; that is a fact about the build,
+  not about the model, and calling it an error would train users to ignore it.
+
+`reproduced` is never `True` on an engine-version mismatch even when every number
+agrees, because "these numbers happen to match" is a weaker claim than the
+guarantee, and the report says which one it is making.
+
+### D-P9-11 · `blame()` counts creation as a change; an unknown field blames to nothing
+"Which revisions changed this field" has to say what happens at the revision that
+introduced the field. It counts: the value moved from absent to set, and a reader
+asking when `rent.segments` was last touched wants the revision that first set
+them if nothing has since. An unknown field name returns an empty list rather
+than raising or matching everything — a typo must never read as a fact about the
+model, and `OVERLAY_FIELDS` is the authority on what a field is.
+
+### D-P9-12 · A revision-bound kit refuses every write (`CK-E030`)
+`at()` returns a kit, so it has the same methods as a live one and something has
+to happen when `commit()` is called on the past. Raising would be an exception on
+something an agent can plausibly do; silently writing to the live history would
+be worse. `bound_to` marks the kit and every write returns `CK-E030` naming the
+revision. Reads — `run`, `summary`, `diff_revisions`, `reproduce` — all work,
+which is the entire point of the object.
+
+### D-P9-13 · The lock covers the whole commit, and all three stores
+ADR-0010 puts the lock at `.cashkit/lock` without saying what it spans.
+`commit()` recomputes snapshots (reads the ledger), stamps the watermark (reads
+the ledger), serializes config and writes a revision — one consistency domain. A
+per-store lock, or a lock held only across the revision write, would let a second
+writer import events between the watermark read and the commit, producing a
+revision whose watermark describes a ledger that never existed. The lock is taken
+before the first snapshot recompute and released after the revision is written,
+asserted by a test that checks the lockfile exists at the moment
+`write_revision` is called.
+
+Reclaiming a stale lock removes the file and retries the same atomic `O_EXCL`
+create rather than overwriting it, so two reclaimers racing still produce exactly
+one winner. A lockfile that exists but cannot be parsed is treated as pid 0 —
+reclaimable, because it is corrupt rather than live — and a pid we cannot judge
+(`PermissionError`) counts as **alive**, so an ambiguous lock is refused rather
+than stolen.
+
+### D-P9-14 · The canonical emitter's tuple rule is keyed off the field, not the value
+Committing a snapshot means serializing a `RunSummary`, which holds
+`diagnostics: tuple[Diagnostic, ...]`. The emitter's only tuple branch existed
+for `Amount.schedule`'s `(date, Money)` pairs and unpacked *every* tuple into
+`{date, amount}` — so the first model with a tuple of anything else would have
+serialized as nonsense or raised.
+
+Fixed by keying the pair form off `(Amount, "schedule")` rather than off the
+value's shape. A value-sniffing rule ("a 2-tuple of date and Decimal is a
+schedule point") would have worked today and silently reinterpreted the next
+model that happened to hold one; a canonical emitter must not guess. No existing
+output changes — `Amount.schedule` keeps its form and no other serialized model
+had a tuple field — which the S1 round-trip and golden-file tests confirm.
+
+### D-P9-15 · `pygit2` joins the dev dependency group
+The same argument as `duckdb` in D-P8-15: all four Phase 9 gates run through the
+git store, and a gate that skips because an extra is uninstalled is not a gate.
+`pygit2` stays an *optional runtime extra* per PRD §8.2 (`cashkit[git]`) and
+becomes a required development one. The seam means a book with no revision store
+is still usable — `CashKit` takes `revisions=` — but v1 ships exactly one
+implementation, so the tests must run it.

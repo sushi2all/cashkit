@@ -15,4 +15,12 @@ from .numeric import RoundingPolicy
 from .result import RunResult
 from .run import Engine, run
 
-__all__ = ["Engine", "RoundingPolicy", "RunResult", "run"]
+#: Evaluation-semantics generation. A run is identified by
+#: ``(revision_sha, scenario_id, engine_version, ledger_watermark)`` (PRD §6.6),
+#: so this string must change whenever a change to this package could move a
+#: number — and must *not* change for a refactor that cannot. It is recorded in
+#: every committed snapshot; ``at(ref)`` guarantees exact reproduction only at a
+#: matching value and reports the delta otherwise (ADR-0006), never silently.
+ENGINE_VERSION = "1"
+
+__all__ = ["ENGINE_VERSION", "Engine", "RoundingPolicy", "RunResult", "run"]

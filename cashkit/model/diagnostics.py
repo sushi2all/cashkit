@@ -240,6 +240,47 @@ CATALOGUE: Mapping[str, DiagnosticSpec] = {
             "Decimal at 4 dp.",
         ),
         _spec(
+            "CK-E025",
+            "error",
+            "Stored book state at {path} is not readable: {reason}",
+            "The file was written by something other than the SDK, or is from a "
+            "schema generation with no migration path. Restore it from a "
+            "revision with at(ref), or fix the file and re-run validate().",
+        ),
+        _spec(
+            "CK-E026",
+            "error",
+            "Config schema version {found} is newer than this build understands "
+            "({supported})",
+            "Migrations are forward-only: an older CashKit cannot read a newer "
+            "book. Upgrade CashKit to a build whose schema version is at least "
+            "{found}.",
+        ),
+        _spec(
+            "CK-E027",
+            "error",
+            "Revision {ref!r} does not resolve: {reason}",
+            "Use 'HEAD', 'HEAD~<n>' or a revision id from history(). Refs are "
+            "opaque strings; no other form is addressable.",
+        ),
+        _spec(
+            "CK-E028",
+            "error",
+            "Historical reproduction mismatch at revision {ref} for scenario "
+            "{scenario}: {reason}",
+            "The engine version matches the snapshot's, so the run should have "
+            "reproduced exactly. Something outside (revision, scenario, "
+            "engine_version, ledger_watermark) reached the computation — report "
+            "this rather than trusting either number.",
+        ),
+        _spec(
+            "CK-E029",
+            "error",
+            "No CashKit book at {path}",
+            "Run 'cashkit init <path>' to create one, or point at the directory "
+            "containing .cashkit/.",
+        ),
+        _spec(
             "CK-W001",
             "warning",
             "Settlement remainder clamped to zero on item {item_id}: fixed terms "
@@ -280,6 +321,23 @@ CATALOGUE: Mapping[str, DiagnosticSpec] = {
             "Elementwise division by zero yields 0 by design. Guard the "
             "denominator with where(), or verify the upstream zero with "
             "why_zero().",
+        ),
+        _spec(
+            "CK-E030",
+            "error",
+            "This kit is bound to revision {ref} and is read-only",
+            "at(ref) returns a read-only view of the past — history is not "
+            "editable. Make the change on the live kit and commit it; use "
+            "at(ref) to read, compare and reproduce.",
+        ),
+        _spec(
+            "CK-W011",
+            "warning",
+            "Engine version moved since revision {ref}: snapshot recorded "
+            "{recorded}, this build is {current}",
+            "Exact historical reproduction is guaranteed only at matching engine "
+            "version (ADR-0006). The comparison reports the delta field by field; "
+            "read it as 'the engine changed', not as 'the model changed'.",
         ),
         _spec(
             "CK-W010",

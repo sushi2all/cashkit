@@ -30,7 +30,7 @@ from typing import TypeVar
 import yaml
 from pydantic import BaseModel
 
-from .primitives import SparseOverlay
+from .primitives import Amount, SparseOverlay
 
 __all__ = ["from_canonical_yaml", "to_canonical_yaml"]
 
@@ -108,7 +108,7 @@ def _scalar_token(value: object) -> str:
     raise TypeError(f"no canonical scalar form for {type(value).__name__}")
 
 
-def _value_to_tree(value: object) -> _Tree:
+def _value_to_tree(value: object, *, schedule_points: bool = False) -> _Tree:
     if isinstance(value, BaseModel):
         return _model_to_tree(value)
     if isinstance(value, dict):
@@ -119,30 +119,42 @@ def _value_to_tree(value: object) -> _Tree:
         }
     if isinstance(value, (set, frozenset)):
         return [_value_to_tree(v) for v in sorted(value)]
-    if isinstance(value, tuple):
-        # The only tuple in the model set is Amount.schedule's (date, Money);
-        # emitted as a {date, amount} map for legible git diffs. Revisit if a
-        # second tuple shape ever appears.
+    if isinstance(value, tuple) and schedule_points:
+        # ``Amount.schedule``'s ``(date, Money)`` pairs, emitted as
+        # ``{date, amount}`` maps for legible git diffs. The pair form is keyed
+        # off the *field* (see :func:`_model_to_tree`), never off the value's
+        # shape: a value-sniffing rule would silently reinterpret any other
+        # two-element tuple, and a canonical emitter must not guess.
         point_date, point_amount = value
         return {
             "date": _scalar_token(point_date),
             "amount": _scalar_token(point_amount),
         }
-    if isinstance(value, list):
-        return [_value_to_tree(v) for v in value]
+    if isinstance(value, (list, tuple)):
+        return [
+            _value_to_tree(v, schedule_points=schedule_points) for v in value
+        ]
     return _scalar_token(value)
+
+
+#: The one field whose list elements are ``(date, Money)`` pairs rather than
+#: models or scalars. Any other tuple-valued field serializes as a sequence.
+_SCHEDULE_FIELD = (Amount, "schedule")
 
 
 def _model_to_tree(model: BaseModel) -> dict[str, _Tree]:
     tree: dict[str, _Tree] = {}
     sparse = isinstance(model, SparseOverlay)
-    for name in type(model).model_fields:
+    model_type = type(model)
+    for name in model_type.model_fields:
         if sparse and name not in model.model_fields_set:
             continue
         value = getattr(model, name)
         if value is None and not sparse:
             continue
-        tree[name] = _value_to_tree(value)
+        tree[name] = _value_to_tree(
+            value, schedule_points=(model_type, name) == _SCHEDULE_FIELD
+        )
     return tree
 
 

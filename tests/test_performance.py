@@ -29,6 +29,8 @@ DELTA_BUDGET_MS = 5.0
 SWEEP_BUDGET_MS = 500.0
 #: PRD §5.2: frame materialization into DuckDB (Phase 8).
 MATERIALIZE_BUDGET_MS = 200.0
+#: PRD §5.2: commit — serialize + snapshots + git (Phase 9).
+COMMIT_BUDGET_MS = 3000.0
 
 BOOK = build_benchmark_book(items=50, years=5)
 
@@ -255,3 +257,29 @@ def test_the_materialized_frame_is_complete() -> None:
     with DuckdbFrameStore() as store:
         store.materialize("bench", result, BOOK)
         assert len(store.frame("bench")) == 50 * 1826 * 2
+
+
+@pytest.mark.benchmark
+def test_commit_including_snapshot_recompute_is_under_budget(tmp_path) -> None:
+    """PRD §5.2: commit (serialize + snapshots + git) < 3 s.
+
+    The whole operation is measured, not a part of it: taking the writer lock,
+    running every scenario to recompute its snapshot, serializing 50 items
+    through the canonical emitter, writing the working tree, and building and
+    committing the tree in the object database.
+    """
+    from cashkit.sdk.kit import CashKit
+
+    def once() -> float:
+        root = tmp_path / f"book{time.perf_counter_ns()}"
+        kit = CashKit.init(root, BOOK)
+        started = time.perf_counter()
+        report = kit.commit("benchmark")
+        elapsed = (time.perf_counter() - started) * 1000
+        assert report.revision is not None
+        return elapsed
+
+    best = _best(once, 3)
+    assert best < COMMIT_BUDGET_MS, (
+        f"commit {best:.1f} ms exceeds {COMMIT_BUDGET_MS} ms"
+    )

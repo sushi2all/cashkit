@@ -308,3 +308,37 @@ verified exact against `Decimal` including at ±(10¹⁸−1) minor units.
 | Measure | Value |
 |---|---|
 | Full suite, Phases 1-8 (866 tests) | 21 s |
+
+## Phase 9 — Version control
+
+Same machine and shape as the earlier phases: M3 Pro, Python 3.13, the PRD §5.2
+benchmark book (50 items, 1,826 day-grain periods, one `base` scenario). Best
+of five unless stated.
+
+| Path | Budget | Measured |
+|---|---|---|
+| `commit()` — lock, snapshot recompute, serialize, working tree, revision | < 3 s | **61 ms** |
+| `status()` vs HEAD | — | 67 ms |
+| `at("HEAD~5")` — resolve, read state, migrate, validate | — | 63 ms |
+| `reproduce("HEAD~5")` — the above plus a full run and the comparison | — | 84 ms |
+| `diff_revisions("HEAD~5", "HEAD")` — semantic, both sides parsed | — | 126 ms |
+| `history(limit=50)` over 11 revisions | — | 0.09 ms |
+| `blame(item, "segments")` over 11 revisions | — | 63 ms |
+
+The commit budget is the only one the PRD states, and it has fifty times more
+headroom than it needs. Everything else is dominated by the same cost: reading a
+revision means parsing 57 YAML files through Pydantic, which is ~60 ms for this
+book. `history()` is three orders of magnitude cheaper because it walks commit
+metadata and never opens a tree — which is exactly the split the revision-store
+interface draws, and the reason `history()` stays usable on a long history while
+`blame()` pays per revision it has to open.
+
+`diff_revisions()` costs two state loads plus a resolution, and it is
+deliberately semantic rather than textual: a byte comparison would be ~1 ms and
+would report a hand reformat as a change (Phase 9 gate 2). 126 ms to tell an
+agent the truth instead of 1 ms to tell it something misleading is not a
+trade worth revisiting.
+
+| Measure | Value |
+|---|---|
+| Full suite, Phases 1-9 (919 tests) | 22 s |

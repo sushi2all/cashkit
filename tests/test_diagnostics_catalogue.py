@@ -52,6 +52,17 @@ ADDED_CODES = {
     "CK-E022",  # scenario id already exists
     "CK-E023",  # overlay targets an item the parent chain does not define
     "CK-E024",  # reserved param opening_balance is not a valid money value
+    # Phase 9 — version control. The config store, the migration path and the
+    # revision store all have failure modes an agent can provoke (a ref that
+    # does not resolve, a book from a newer schema generation, a hand-edited
+    # file), and §10.1 has no code for any of them.
+    "CK-E025",  # stored book state is unreadable or fails validation
+    "CK-E026",  # config schema version is newer than this build (forward-only)
+    "CK-E027",  # revision ref does not resolve
+    "CK-E028",  # historical reproduction mismatch at matching engine version
+    "CK-E029",  # no CashKit book at this path
+    "CK-E030",  # a revision-bound kit is read-only
+    "CK-W011",  # engine version moved since the snapshot — delta reported
 }
 
 SEVERITY_BY_LETTER = {"E": "error", "W": "warning", "I": "info"}

@@ -44,6 +44,7 @@ git = [
 dev = [
     { name = "duckdb" },
     { name = "hypothesis" },
+    { name = "pygit2" },
     { name = "pytest" },
 ]
 
@@ -64,6 +65,7 @@ provides-extras = ["duckdb", "git", "all"]
 dev = [
     { name = "duckdb", specifier = ">=1.5" },
     { name = "hypothesis", specifier = ">=6.100" },
+    { name = "pygit2", specifier = ">=1.14" },
     { name = "pytest", specifier = ">=8" },
 ]
 
