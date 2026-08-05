@@ -23,4 +23,5 @@ Numbered, append-only. Status: accepted unless noted.
 | [0017](0017-local-first-adoption-requirement.md) | Local-first is an adoption requirement: privacy-conscious host and offline mobile | 2026-08-05 |
 | [0018](0018-revision-store-is-an-interface.md) | The revision store is an interface; git is one implementation | 2026-08-05 |
 | [0019](0019-intent-grammar-agent-surface.md) | The agent surface is an enumerated intent grammar, not free-form SDK composition | 2026-08-05 |
-| [0020](0020-tax-coverage-as-diagnostic.md) | Non-native tax coverage is a deterministic diagnostic, not agent behaviour | 2026-08-05 |
+| [0020](0020-tax-coverage-as-diagnostic.md) | Non-native tax coverage is a deterministic diagnostic, not agent behaviour — *superseded by 0021* | 2026-08-05 |
+| [0021](0021-engine-is-content-free.md) | The engine is content-free: domain knowledge and the agent are app-layer | 2026-08-05 |

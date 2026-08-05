@@ -4,6 +4,8 @@ Generated: 2026-08-05 · Source: design session 2026-08-05 (ADR-0015 … ADR-002
 
 Not applied. Each entry needs approval before editing the target file.
 
+**Disposition 2026-08-05 (ADR-0021):** superseded before application. The agent implementation — and with it PRD §9 and the agent-related §11 acceptance criteria — is reclassified as app-layer material; the engine core neither implements nor specifies agent behaviour. These staged edits are retained as design record for the app-layer agent work (with ADR-0015/0019 and `km/notes/intent-schema-draft.md`). The one engine-side piece (ADR-0020's CK-I010…I015 diagnostics) was cancelled before implementation.
+
 ---
 
 ## From ADR-0015: The agent is a command interpreter, not a financial advisor

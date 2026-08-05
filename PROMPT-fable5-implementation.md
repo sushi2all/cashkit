@@ -58,7 +58,7 @@ Phases run inside **sessions**: one fresh-context Opus 5 subagent per session, s
 | S3 | 5–6 | Ledger, cutover, fact union; VAT and tax regimes | Facts entering evaluation; first cold-read test of the engine's documentation |
 | S4 | 7–8 | Scenarios; frame store and views | Consumers of the engine, not modifiers of it |
 | S5 | 9–10 | Version control; introspection and CLI | Read-side surfaces over stable internals |
-| S6 | 11 | Agent skill package | Mandatorily fresh — the Phase 11 gate itself specifies a fresh agent session |
+| ~~S6~~ | ~~11~~ | ~~Agent skill package~~ | Removed from core — app-layer per ADR-0021 |
 
 ### Orchestrator protocol
 
@@ -157,13 +157,11 @@ pygit2 against the object database. `commit()`, `status()`, `discard()`, `histor
 
 **Gate:** `trace()` on any cell of a 50-item fixture returns formula, resolved bindings and arithmetic to depth 3 with no `None` fields. `why_zero()` distinguishes all five zero causes. `describe_book()` output is complete enough that a fresh agent, given only that output, writes a working `pivot()` call with no invalid field names.
 
-**Session S6 — fresh implementation subagent (mandatorily fresh: the gate requires it)**
+**Session S6 — REMOVED FROM CORE (ADR-0021, 2026-08-05)**
 
-### Phase 11 — Agent skill package
+### Phase 11 — Agent skill package — *moved to the app layer*
 
-Build `cashkit-skill/` per PRD §9, including all ten recipes and the tax-handling section verbatim from §9.5.
-
-**Gate:** A fresh agent session given only `SKILL.md` and a bare workspace: installs CashKit from a local wheel (path supplied by the harness — the package is not on PyPI), initializes a book, adds 20 items including VAT, imports a CSV of actuals, builds a downside scenario, answers "when do we run out of cash", and produces the tax coverage statement — with no direct file access and no git commands. Run this end-to-end and record the transcript in `tests/agent/`.
+Per ADR-0021 the core is a pure logic/calculation engine: the agent implementation, its skill package, recipes, and all tax-content behaviour are the domain of applications built on top of the SDK. The Phase 11 gate (fresh-agent end-to-end transcript) moves to the app-layer backlog alongside the UI (ADR-0013/0014) and the intent grammar (ADR-0019, draft in `km/notes/intent-schema-draft.md`). **v1 of the core completes at Phase 10 / Session S5.**
 
 ---
 
@@ -180,8 +178,6 @@ cashkit/
 tests/
   property/       # Hypothesis: round-trip, dual-engine, invariants
   fixtures/       # hand-verified books and expected outputs
-  agent/          # end-to-end agent transcripts
-cashkit-skill/    # the packaged agent skill
 DECISIONS.md      # every design choice made under ambiguity, with reasoning
 BENCHMARKS.md     # measured numbers per phase gate, on stated hardware
 README.md
@@ -189,14 +185,15 @@ README.md
 
 ## Definition of done
 
-All acceptance criteria in PRD §10 pass. Additionally:
+All acceptance criteria in PRD §10 pass, excluding agent-skill criteria (app-layer per ADR-0021). Additionally:
 
 - The reference engine still exists and still agrees with the vectorized engine.
 - No `date.today()` in `engine/` or `model/` (enforced by lint).
 - No `float` in money paths (enforced by a type-audit test).
+- No LLM dependency anywhere under `cashkit/` (enforced by lint, ADR-0016).
 - Test coverage ≥ 90% on `engine/` and `model/`.
 - `DECISIONS.md` records every judgement call, including ones where you chose against an instinct.
-- All six session handoff notes exist in `km/notes/`, and the orchestrator has re-run the full suite green after S6.
+- All five session handoff notes (S1–S5) exist in `km/notes/`, and the orchestrator has re-run the full suite green after S5.
 
 ## When you hit ambiguity
 

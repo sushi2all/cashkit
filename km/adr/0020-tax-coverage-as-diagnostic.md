@@ -1,6 +1,8 @@
 # ADR-0020 — Non-native tax coverage is a deterministic diagnostic, not agent behaviour
 
-**Date** 2026-08-05 · **Status** accepted · **Type** feature / safety · **Source** design session 2026-08-05
+**Date** 2026-08-05 · **Status** superseded by [ADR-0021](0021-engine-is-content-free.md) · **Type** feature / safety · **Source** design session 2026-08-05
+
+> Superseded before implementation: enumerated tax mechanics are domain content, and the engine is content-free (ADR-0021). The coverage check moves to the app layer; the engine contributes tags, flags, and `describe_book()`.
 
 ## Context
 
