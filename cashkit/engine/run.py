@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from cashkit.model import Book, Diagnostic, Item, ItemId
+from cashkit.model import Book, Diagnostic, Event, Item, ItemId
 
 from .calendars import BusinessCalendar, PeriodIndex
 from .columns import ColumnEvaluator, EvalWindow, TimeColumns
@@ -37,12 +37,14 @@ from .expand import (
     classify_settlement,
     derived_accrual_ordinals,
     expand_item,
+    scatter_add,
     settle_occurrences,
 )
+from .facts import EventFact, FactSet, augmented_items, resolve_facts
 from .fold import compile_cell
 from .formula import Agg, iter_refs
 from .graph import CompiledBook, Component, compile_book
-from .numeric import RoundingPolicy, check_column
+from .numeric import RoundingPolicy, check_column, to_minor
 from .result import RunResult
 
 __all__ = ["Engine", "run"]
@@ -58,6 +60,10 @@ class Engine:
 
     book: Book
     policy: RoundingPolicy = RoundingPolicy.HALF_UP
+    #: The event side of the fact union (PRD §3.2). Supplied by the ledger
+    #: store; the engine never opens one itself, so storage stays swappable.
+    events: tuple[Event, ...] = ()
+    factset: FactSet = field(init=False)
     compiled: CompiledBook = field(init=False)
     periods: PeriodIndex = field(init=False)
     calendar: BusinessCalendar = field(init=False)
@@ -83,6 +89,14 @@ class Engine:
         self.calendar = BusinessCalendar.from_spec(self.book.calendar)
         self.dates = DateOps(periods=self.periods, calendar=self.calendar)
         self.time = TimeColumns.build(self.periods, self.calendar)
+        # The union happens before the graph is built, not after it: synthetic
+        # carriers for unattached events must be visible to `agg()` selectors,
+        # which resolve to concrete ids at graph-build time (PRD §5.4).
+        self.factset = resolve_facts(self.book, self.events)
+        if self.factset.synthetic_items:
+            self.book = self.book.model_copy(
+                update={"items": augmented_items(self.book, self.factset)}
+            )
         self.compiled = compile_book(self.book)
 
     # -- evaluation ------------------------------------------------------- #
@@ -186,6 +200,11 @@ class Engine:
             for diagnostic in expansion.diagnostics:
                 emit(diagnostic)
 
+        # 1b. Ledger facts, unioned into the same columns before any derived
+        #     item is evaluated. Events are never suppressed by cutover: before
+        #     it the ledger is the complete record (ADR-0004).
+        self._apply_event_facts(stale, emit)
+
         # 2. Derived evaluation, component by component in dependency order.
         derived_ords = derived_accrual_ordinals(self.periods)
         all_indices = np.arange(length, dtype=np.int64)
@@ -205,6 +224,7 @@ class Engine:
                 self._evaluate_fold(component, kinds, settlement_kind, emit)
 
         diagnostics: list[Diagnostic] = list(self.compiled.diagnostics)
+        diagnostics.extend(self.factset.diagnostics)
         for item_id in sorted(buckets, key=lambda key: (key is not None, key)):
             diagnostics.extend(buckets[item_id])
 
@@ -218,6 +238,56 @@ class Engine:
                 item_id: item.currency for item_id, item in self.book.items.items()
             },
         )
+
+    def _apply_event_facts(self, stale: set[ItemId], emit) -> None:
+        """Scatter ledger facts into the columns of the items they land in.
+
+        Events sharing a target and a settlement are batched into one array
+        operation, so a five-thousand-row import costs a handful of vector ops
+        rather than five thousand scalar ones. Emits the settlement structure
+        diagnostics of any settlement an event overrides
+        (``CK-E004``/``CK-E005``) and the split's warnings
+        (``CK-W001``/``CK-W002``).
+        """
+        for target, facts in self.factset.by_target().items():
+            if target not in stale or target not in self.accrual:
+                continue
+            for carrier, group in _batch_by_settlement(facts):
+                kind, structural = classify_settlement(carrier)
+                for diagnostic in structural:
+                    emit(diagnostic)
+                ordinals = np.fromiter(
+                    (fact.event.date.toordinal() for fact in group),
+                    dtype=np.int64,
+                    count=len(group),
+                )
+                amounts = np.fromiter(
+                    (to_minor(fact.event.amount) for fact in group),
+                    dtype=np.int64,
+                    count=len(group),
+                )
+                indices = self.periods.index_of_ordinals(ordinals)
+                # An event dated outside the horizon is outside the model, cash
+                # legs included — the same rule generative occurrences follow
+                # (DECISIONS D-P2-03).
+                keep = indices >= 0
+                if not keep.any():
+                    continue
+                ordinals, amounts, indices = ordinals[keep], amounts[keep], indices[keep]
+                scatter_add(self.accrual[target], indices, amounts)
+                for diagnostic in settle_occurrences(
+                    carrier,
+                    kind,
+                    ordinals,
+                    amounts,
+                    indices,
+                    self.cash[target],
+                    self.dates,
+                    self.policy,
+                ):
+                    emit(diagnostic)
+            check_column(self.accrual[target], f"item {target!r} accrual")
+            check_column(self.cash[target], f"item {target!r} cash")
 
     def _column_of(
         self, item_id: ItemId, measure: str, kinds: dict[ItemId, str]
@@ -357,6 +427,26 @@ class Engine:
                         emit(diagnostic)
 
 
+def _batch_by_settlement(
+    facts: list[EventFact],
+) -> list[tuple[Item, list[EventFact]]]:
+    """Group facts sharing a target by the settlement that governs them.
+
+    Order-preserving, so the batching is deterministic. ``Settlement`` holds a
+    list and is therefore unhashable, so the grouping compares by equality — the
+    distinct count per item is one in the common case and tiny otherwise.
+    """
+    batches: list[tuple[Item, list[EventFact]]] = []
+    for fact in facts:
+        for carrier, group in batches:
+            if carrier.settlement == fact.settlement_item.settlement:
+                group.append(fact)
+                break
+        else:
+            batches.append((fact.settlement_item, [fact]))
+    return batches
+
+
 def _zero_division(item_id: ItemId, period_start) -> Diagnostic:
     from cashkit.model.diagnostics import make_diagnostic
 
@@ -365,11 +455,18 @@ def _zero_division(item_id: ItemId, period_start) -> Diagnostic:
     )
 
 
-def run(book: Book, *, policy: RoundingPolicy = RoundingPolicy.HALF_UP) -> RunResult:
+def run(
+    book: Book,
+    *,
+    policy: RoundingPolicy = RoundingPolicy.HALF_UP,
+    events: tuple[Event, ...] | list[Event] = (),
+) -> RunResult:
     """Evaluate ``book`` with the vectorized engine.
 
+    ``events`` is the live ledger — tombstones already excluded, corrections
+    included — unioned with generative expansion before derived evaluation.
     Returns a :class:`~cashkit.engine.result.RunResult` whose columns are int64
     minor units at 4 dp, byte-identical to ``cashkit.reference.run`` on the same
-    book. See :meth:`Engine.run` for the diagnostics produced.
+    book and events. See :meth:`Engine.run` for the diagnostics produced.
     """
-    return Engine(book, policy).run()
+    return Engine(book, policy, tuple(events)).run()

@@ -28,6 +28,7 @@ from __future__ import annotations
 import random
 from datetime import date
 from decimal import Decimal
+from typing import NamedTuple
 
 from cashkit.model import (
     Amount,
@@ -35,6 +36,7 @@ from cashkit.model import (
     CalendarSpec,
     DueTerm,
     Escalation,
+    Event,
     Grain,
     Item,
     PeriodRange,
@@ -43,7 +45,7 @@ from cashkit.model import (
     Settlement,
 )
 
-__all__ = ["build_corpus", "coverage_of", "REQUIRED_COVERAGE"]
+__all__ = ["build_corpus", "coverage_of", "Case", "REQUIRED_COVERAGE"]
 
 START = date(2026, 1, 1)
 END = date(2026, 7, 1)
@@ -1157,19 +1159,228 @@ def _random_settlement(rng: random.Random) -> Settlement | None:
     )
 
 
-def build_corpus() -> list[tuple[str, Book]]:
-    """Return the whole dual-engine corpus as ``(description, book)`` pairs.
+class Case(NamedTuple):
+    """One corpus entry: a book, its ledger, and what it is for.
+
+    ``events`` is the event side of the fact union (Phase 5); most books have
+    none, and the ones that do exist because the two engines must agree on
+    ledger facts exactly as they do on generated ones.
+    """
+
+    description: str
+    book: Book
+    events: tuple[Event, ...] = ()
+
+
+def _case(entry: object) -> Case:
+    if isinstance(entry, Case):
+        return entry
+    description, book = entry  # type: ignore[misc]
+    return Case(description, book)
+
+
+def build_corpus() -> list[Case]:
+    """Return the whole dual-engine corpus as :class:`Case` entries.
 
     Deterministic: the random layer is seeded, so a failure names a book that
     can be rebuilt exactly. Produces no diagnostics itself.
     """
-    return (
+    entries = (
         _focus_books()
         + _anchor_sweep()
         + _settlement_sweep()
         + _grain_sweep()
         + _random_books(14)
     )
+    return [_case(entry) for entry in entries] + _ledger_cases()
+
+
+# --------------------------------------------------------------------------- #
+# Ledger layer (Phase 5): the event side of the fact union
+# --------------------------------------------------------------------------- #
+
+
+def _event(
+    event_id: str,
+    day: date,
+    amount: str,
+    *,
+    status: str = "actual",
+    item: str | None = None,
+    tags: dict[str, str] | None = None,
+    settlement: Settlement | None = None,
+    currency: str = "EUR",
+) -> Event:
+    return Event(
+        id=event_id,
+        date=day,
+        amount=Decimal(amount),
+        status=status,
+        item=item,
+        tags=tags or {},
+        settlement=settlement,
+        currency=currency,
+        source="erp",
+        ext_id=event_id,
+    )
+
+
+def _ledger_cases() -> list[Case]:
+    """Books whose facts come partly from the ledger.
+
+    The union of generative and literal facts happens before derived
+    evaluation, so a divergence here is a divergence in `agg()`, in the cash
+    fold, and in every derived item — which is why these books carry feedback
+    loops and aggregates rather than bare flows.
+    """
+    cases: list[Case] = []
+    monthly = _rec(Grain.MONTH)
+
+    # 1. Actuals reconciling the past, generation resuming at cutover: the
+    #    boundary case, with a 60-day settlement so the pre-cutover legs land
+    #    after it and any double-count shows up in cash rather than accrual.
+    net60 = Settlement(due=[DueTerm(share=Decimal(1), offset="60d")])
+    cases.append(
+        Case(
+            "cutover mid-horizon reconciled by the ledger",
+            _book(
+                "ledger-cutover",
+                [
+                    _flow("fees", [_seg("18000", recurrence=monthly)], settlement=net60),
+                    _flow(
+                        "rent",
+                        [_seg("-4200", recurrence=monthly)],
+                        tags={"cat": "cost"},
+                    ),
+                    _derived(
+                        "revenue_total", 'agg(tag="cat:revenue", measure="accrual")'
+                    ),
+                    CASH,
+                ],
+                cutover=date(2026, 4, 1),
+            ),
+            tuple(
+                _event(f"{name}-{month}", date(2026, month, 1), amount, item=name)
+                for month in (1, 2, 3)
+                for name, amount in (("fees", "17500"), ("rent", "-4200"))
+            ),
+        )
+    )
+
+    # 2. Every settlement shape reached through a ledger row rather than a
+    #    segment: the split arithmetic must not care where the accrual came from.
+    split = Settlement(
+        due=[
+            DueTerm(share=Decimal("0.35"), offset="0d"),
+            DueTerm(share=Decimal("0.65"), offset="45d", adjust="next"),
+        ]
+    )
+    fixed = Settlement(
+        due=[
+            DueTerm(amount=Decimal("5000"), offset="0d"),
+            DueTerm(remainder=True, offset="30d", basis="month_end"),
+        ]
+    )
+    withheld = Settlement(
+        due=[DueTerm(share=Decimal(1), offset="15d", withholding=Decimal("0.2"))]
+    )
+    cases.append(
+        Case(
+            "ledger facts through every settlement shape",
+            _book(
+                "ledger-settlements",
+                [
+                    _flow("split_item", [_seg("9000", recurrence=monthly)], settlement=split),
+                    _flow("fixed_item", [_seg("7000", recurrence=monthly)], settlement=fixed),
+                    _flow(
+                        "withheld_item",
+                        [_seg("3000", recurrence=monthly)],
+                        settlement=withheld,
+                    ),
+                    _flow(
+                        "accrual_only",
+                        [_seg("1500", recurrence=monthly)],
+                        settlement=Settlement(due=[]),
+                    ),
+                    CASH,
+                ],
+            ),
+            (
+                _event("s1", date(2026, 2, 11), "12345.67", item="split_item"),
+                _event("s2", date(2026, 3, 31), "-2500", item="split_item"),
+                _event("f1", date(2026, 2, 20), "3000", item="fixed_item"),
+                _event("f2", date(2026, 4, 2), "-800", item="fixed_item"),
+                _event("w1", date(2026, 3, 3), "1234.56", item="withheld_item"),
+                _event("a1", date(2026, 5, 6), "999.99", item="accrual_only"),
+            ),
+        )
+    )
+
+    # 3. Unattached events: their own dimensions, their own synthetic column,
+    #    visible to `agg()` and therefore to the cash fold.
+    cases.append(
+        Case(
+            "unattached ledger events with their own settlement",
+            _book(
+                "ledger-unattached",
+                [
+                    _flow("subs", [_seg("2400", recurrence=monthly)]),
+                    _derived("revenue_total", 'agg(tag="cat:revenue")'),
+                    CASH,
+                ],
+            ),
+            (
+                _event(
+                    "u1",
+                    date(2026, 2, 4),
+                    "760.25",
+                    tags={"cat": "revenue", "customer": "walkin"},
+                ),
+                _event(
+                    "u2",
+                    date(2026, 3, 4),
+                    "760.25",
+                    tags={"cat": "revenue", "customer": "walkin"},
+                ),
+                _event(
+                    "u3",
+                    date(2026, 3, 18),
+                    "-310.10",
+                    tags={"cat": "cost"},
+                    settlement=Settlement(
+                        due=[DueTerm(share=Decimal(1), offset="1m", adjust="prev")]
+                    ),
+                ),
+                _event("u4", date(2026, 4, 1), "50", tags={"cat": "revenue"}),
+            ),
+        )
+    )
+
+    # 4. Deliberately broken: the engines must agree on which diagnostics a bad
+    #    ledger produces, not only on the numbers in a good one.
+    cases.append(
+        Case(
+            "ledger rows the book cannot accept",
+            _book(
+                "ledger-broken",
+                [
+                    _flow("fees", [_seg("1000", recurrence=monthly)]),
+                    _derived("doubled", 'it("fees") * 2'),
+                    CASH,
+                ],
+                cutover=date(2026, 3, 1),
+            ),
+            (
+                _event("b1", date(2026, 2, 2), "10", item="ghost"),
+                _event("b2", date(2026, 2, 3), "10", item="doubled"),
+                _event("b3", date(2026, 2, 4), "10", item="fees", currency="USD"),
+                _event("b4", date(2026, 4, 4), "10", item="fees"),  # actual >= cutover
+                _event("b5", date(2025, 12, 1), "10", item="fees"),  # before horizon
+            ),
+        )
+    )
+
+    return cases
 
 
 # --------------------------------------------------------------------------- #
@@ -1225,8 +1436,22 @@ REQUIRED_COVERAGE = frozenset(
     }
 )
 
+#: What the Phase 5 gate adds: the event side of the fact union.
+LEDGER_COVERAGE = frozenset(
+    {
+        "event:attached",
+        "event:unattached",
+        "event:settlement_override",
+        "event:mixed_sign",
+        "event:before_cutover",
+        "event:after_cutover_actual",
+        "event:outside_horizon",
+        "event:broken_reference",
+    }
+)
 
-def coverage_of(corpus: list[tuple[str, Book]]) -> set[str]:
+
+def coverage_of(corpus: list["Case"]) -> set[str]:
     """Re-derive which gate features the corpus actually exercises.
 
     Reads the books and their compiled graphs, so the coverage claim tracks the
@@ -1237,7 +1462,9 @@ def coverage_of(corpus: list[tuple[str, Book]]) -> set[str]:
     from cashkit.engine.graph import compile_book
 
     found: set[str] = set()
-    for _, book in corpus:
+    for case in corpus:
+        book = case.book
+        found |= _ledger_coverage(case)
         found.add(f"grain:{book.base_grain.value}")
         if book.cutover > book.horizon.start:
             found.add("cutover_mid_horizon")
@@ -1306,13 +1533,40 @@ def _formula_coverage(book: Book, compiled) -> set[str]:
     return found
 
 
-def _clamping_coverage(corpus: list[tuple[str, Book]]) -> set[str]:
+def _ledger_coverage(case: "Case") -> set[str]:
+    """What the ledger half of a case exercises, read off its events."""
+    found: set[str] = set()
+    book = case.book
+    for event in case.events:
+        if event.item is None:
+            found.add("event:unattached")
+        elif event.item not in book.items or book.items[event.item].kind != "flow":
+            found.add("event:broken_reference")
+        elif event.currency != book.items[event.item].currency:
+            found.add("event:broken_reference")
+        else:
+            found.add("event:attached")
+        if event.settlement is not None:
+            found.add("event:settlement_override")
+        if event.amount < 0:
+            found.add("event:mixed_sign")
+        if not (book.horizon.start <= event.date < book.horizon.end):
+            found.add("event:outside_horizon")
+        elif event.date < book.cutover:
+            found.add("event:before_cutover")
+        elif event.status == "actual":
+            found.add("event:after_cutover_actual")
+    return found
+
+
+def _clamping_coverage(corpus: list["Case"]) -> set[str]:
     """``CK-W001`` is only truly covered if some book actually clamps."""
     import cashkit.engine as engine
 
-    for _, book in corpus:
+    for case in corpus:
         if any(
-            diagnostic.code == "CK-W001" for diagnostic in engine.run(book).diagnostics
+            diagnostic.code == "CK-W001"
+            for diagnostic in engine.run(case.book, events=case.events).diagnostics
         ):
             return {"due:remainder_clamped"}
     return set()

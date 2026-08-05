@@ -64,6 +64,7 @@ from cashkit.engine.expand import (
     classify_settlement,
     escalation_boundary,
 )
+from cashkit.engine.facts import FactSet, augmented_items, resolve_facts
 from cashkit.engine.graph import CompiledBook, CompiledItem, compile_book
 from cashkit.engine.numeric import (
     MAX_ESCALATION_EXPONENT,
@@ -72,7 +73,16 @@ from cashkit.engine.numeric import (
     to_minor,
 )
 from cashkit.engine.result import RunResult
-from cashkit.model import Book, Diagnostic, DueTerm, Item, ItemId, Segment, Settlement
+from cashkit.model import (
+    Book,
+    Diagnostic,
+    DueTerm,
+    Event,
+    Item,
+    ItemId,
+    Segment,
+    Settlement,
+)
 from cashkit.model.diagnostics import make_diagnostic
 
 __all__ = ["run"]
@@ -198,9 +208,20 @@ def _due_date(
 
 
 class _Reference:
-    def __init__(self, book: Book, policy: RoundingPolicy) -> None:
-        self.book = book
+    def __init__(
+        self, book: Book, policy: RoundingPolicy, events: tuple[Event, ...] = ()
+    ) -> None:
         self.policy = policy
+        # The fact union precedes graph construction here for the same reason it
+        # does in the vectorized engine: `agg()` selectors resolve to concrete
+        # ids at graph-build time, so a synthetic carrier that appears later
+        # would be invisible to every aggregate.
+        self.factset: FactSet = resolve_facts(book, events)
+        if self.factset.synthetic_items:
+            book = book.model_copy(
+                update={"items": augmented_items(book, self.factset)}
+            )
+        self.book = book
         self.compiled: CompiledBook = compile_book(book)
         self.periods = PeriodIndex.build(
             book.horizon, book.base_grain, book.calendar.fiscal_year_start_month
@@ -214,6 +235,7 @@ class _Reference:
             item_id: [ZERO] * self.length for item_id in book.items
         }
         self.diagnostics: list[Diagnostic] = list(self.compiled.diagnostics)
+        self.diagnostics.extend(self.factset.diagnostics)
         self._emitted: set[tuple[str, ItemId | None]] = set()
         self._settlement_kind: dict[ItemId, str] = {}
         self._cum_cache: dict[tuple[ItemId, str], list[Decimal]] = {}
@@ -262,6 +284,27 @@ class _Reference:
             kind = self._settlement_of(compiled.item)
             for segment in compiled.item.segments:
                 self._expand_segment(compiled.item, segment, kind)
+        self._apply_event_facts()
+
+    def _apply_event_facts(self) -> None:
+        """Union the ledger's facts into the same columns, one row at a time.
+
+        Events are never suppressed by cutover: before it the ledger is the
+        complete record and its rows are taken as-is (ADR-0004). An event dated
+        outside the horizon is outside the model, cash legs included — the rule
+        generative occurrences already follow (DECISIONS D-P2-03).
+        """
+        for fact in self.factset.facts:
+            index = self.periods.index_of(fact.event.date)
+            if index is None:
+                continue
+            carrier = fact.settlement_item
+            kind, structural = classify_settlement(carrier)
+            for diagnostic in structural:
+                self._emit_built_once(diagnostic)
+            amount = fact.event.amount
+            self.accrual[fact.target][index] += amount
+            self._settle(carrier, amount, fact.event.date, index, kind)
 
     def _expand_segment(self, item: Item, segment: Segment, settlement_kind: str) -> None:
         horizon = self.book.horizon
@@ -682,7 +725,12 @@ def _escalation_steps(anchor: str, every_years: int, segment_start: date, occurr
     return steps
 
 
-def run(book: Book, *, policy: RoundingPolicy = RoundingPolicy.HALF_UP) -> RunResult:
+def run(
+    book: Book,
+    *,
+    policy: RoundingPolicy = RoundingPolicy.HALF_UP,
+    events: tuple[Event, ...] | list[Event] = (),
+) -> RunResult:
     """Evaluate ``book`` the slow, obvious way.
 
     Returns a :class:`~cashkit.engine.result.RunResult` whose columns are int64
@@ -693,7 +741,7 @@ def run(book: Book, *, policy: RoundingPolicy = RoundingPolicy.HALF_UP) -> RunRe
     credit notes on fixed terms (``CK-W002``) and masked division by zero
     (``CK-W005``). Never raises on book content.
     """
-    engine = _Reference(book, policy)
+    engine = _Reference(book, policy, tuple(events))
     engine.expand()
     engine.evaluate()
     return engine.finish()

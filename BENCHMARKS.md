@@ -104,3 +104,52 @@ in every test run:
 | `tests/test_formula_hardening.py` — 320 tests, 262-entry corpus plus 1,600 generated strings | 1.3 s |
 | `tests/test_builtins_vectorized.py` — 32 tests, every §5.4 symbol against a Decimal oracle | 0.4 s |
 | Full suite, all phases (615 tests) | 12.2 s |
+
+## Phase 5 — Ledger and events
+
+### Gate: import idempotency
+
+`uv run pytest tests/test_ledger.py` — a 5,000-row CSV imported three times.
+The second and third imports report 5,000 skips, insert nothing, and leave
+`state_digest()` — a fingerprint over every column of every log entry —
+byte-identical.
+
+| Measure (5,000 rows) | Value |
+|---|---|
+| First import (parse, digest, insert) | 269 ms |
+| Idempotent re-import (all skips) | 152 ms |
+| `facts()` — rehydrate the live ledger | 32 ms |
+| `watermark()` | 11 ms |
+| `state_digest()` | 26 ms |
+
+Payloads are stored as the model's own JSON and identity as a canonical-YAML
+digest held in its own column (DECISIONS D-P5-14). The first cut stored the
+canonical YAML as the payload and re-derived the digest by rehydrating each
+row: `facts()` took **1,258 ms** and a re-import **1,545 ms**, because
+`yaml.safe_load` costs ~250 µs per row against ~7 µs for
+`model_validate_json`. Same exactness — a `Decimal` is a string in both forms —
+at a fortieth of the cost.
+
+### Gate: the cutover boundary
+
+`uv run pytest tests/test_fact_union.py` — the total-sum invariant is checked at
+every cutover position from the horizon start to its end, on both engines, in
+total and cell by cell. 41 tests, 0.6 s.
+
+### Fact union on the hot path
+
+| Path | Budget | Measured (min) | Result |
+|---|---|---|---|
+| Cold run, 50 items × 1826 periods, no ledger | < 50 ms | 15.9 ms | pass |
+| Cold run, same book + 5,000-row ledger | < 50 ms | **28.9 ms** | pass |
+
+The 13 ms difference is the per-event resolution loop in
+`cashkit.engine.facts` (one pass, Python-level) plus one batched scatter; the
+settlement arithmetic itself stays vectorized, because events sharing a target
+and a settlement are collected into one array operation rather than settled row
+by row.
+
+| Measure | Value |
+|---|---|
+| Dual-engine corpus, now 73 books incl. 4 ledger cases | 105 tests |
+| Full suite, all phases (686 tests) | 14.9 s |

@@ -516,3 +516,167 @@ ISO weekday numbering is 1–7 with Sat=6/Sun=7, under which the stated default
 consistent only with Python `date.weekday()` 0-based numbering (Mon=0,
 Sat=5, Sun=6). Implemented as Python `weekday()` indices 0–6, preserving the
 PRD's stated default semantics; the "ISO" label is treated as a misnomer.
+
+## Phase 5 — Ledger and events (Session S3)
+
+### D-P5-01 · The ledger is one append-only log, not a table per concept
+Events, tombstones and corrections all live in `ledger_entries`, discriminated
+by `kind` and ordered by one `AUTOINCREMENT` sequence. The alternative —
+`events` plus a `voids` table — needs two orderings reconciled into one
+watermark, and ADR-0006's `at(ref)` truncation is exactly a statement about a
+single ordering: "the ledger as it stood at seq N". With one log, truncation is
+`seq <= max_rowid` and nothing else, and a void that arrived after a revision is
+invisible to that revision for free. `void_event` appends a `void` entry;
+`correct_event` appends a `void` plus an `event`. There is no `DELETE` and no
+`UPDATE` of an entry anywhere in `stores/ledger.py`, which
+`tests/test_ledger.py` asserts structurally as well as behaviourally.
+
+### D-P5-02 · Import identity is `(source, ext_id)`; the row's own `id` is excluded
+PRD §6.2 keys idempotency on `(source, ext_id)`, but `import_events` takes
+`Event` models, which also carry an `id`. If the id took part in the "identical
+payload" comparison, a source that mints a fresh surrogate id per export would
+turn every re-import into a conflict and abort every batch — the gate would pass
+only for sources that happen to be stable in a field the PRD never made part of
+the key. The payload fingerprint therefore substitutes a fixed placeholder for
+`id` and compares everything else. Consequence: two rows differing only in `id`
+are the same row, which is what `(source, ext_id)` already claimed.
+
+### D-P5-03 · An import row with no `ext_id` aborts the batch (`CK-E017`)
+`UNIQUE(source, ext_id)` is called "the only thing preventing double-counted
+actuals on re-import" (PRD §4.3), and a row without `ext_id` has no key: import
+it twice and it lands twice, silently. Rather than insert it anyway or skip it
+quietly, the batch aborts with a diagnostic pointing at `add_event()`, which is
+the right door for a one-off with no upstream identity. This makes
+`import_events` idempotent by construction rather than by convention.
+
+### D-P5-04 · Phase 5 mints five catalogue codes, `CK-E014`…`CK-E018`
+Phases 2–4 deliberately minted none (D-P2-10), but ADR-0012 §5 explicitly defers
+the referential rules to "codes assigned in Phase 5", and none of the §10.1 codes
+describes them. Assigned: `CK-E014` target not found; `CK-E015` the row is not in
+a state the operation can act on (already void, already corrected, missing note);
+`CK-E016` `void_event` refusing a bare actual, whose `suggested_fix` names
+`correct_event` (ADR-0012 §3); `CK-E017` an import row with no `ext_id`;
+`CK-E018` an event attached to an item that cannot carry it. `CK-E010`'s
+`suggested_fix` was rewritten to name `correct_event` (ADR-0012 §4) — the code
+and its meaning are unchanged, which is what "codes never change meaning"
+protects. `tests/test_diagnostics_catalogue.py` now asserts the catalogue equals
+the PRD set *plus an explicitly enumerated additions set*, so growth stays
+deliberate instead of accidental.
+
+### D-P5-05 · A correcting row inherits `source` but never `ext_id`
+The original row is tombstoned, not deleted, so it keeps occupying
+`(source, ext_id)` in the unique index; a correction carrying the same key could
+not be inserted at all. Giving the correction a mangled key (`<ext_id>~c1`) would
+work but would make a later re-import of the erroneous upstream row insert it
+afresh — a double count. Leaving the correction keyless means re-importing the
+original is still an identical-payload *skip*, and the correction stands
+untouched. `source` is kept for provenance.
+
+### D-P5-06 · Correction ids are derived from the target: `<target>~cN`
+`correct_event` takes a payload, not an id, and the ledger owns ids (D-P1-05).
+Deriving the id makes the audit trail readable (`a1`, `a1~c1`, `a1~c1~c1` is the
+whole story of a row) and deterministic — no counter, no clock, no randomness —
+and the `N` suffix only ever advances because ids are never freed. Any `id` on
+the supplied payload is ignored rather than honoured, since honouring it would
+let a caller collide with an existing row.
+
+### D-P5-07 · "Already corrected" is reported before "already void"
+A corrected row is also a tombstone, so both referential rules fire. The
+corrector check runs first because its message names the row that supersedes the
+target; "already void" leaves the caller looking for it.
+
+### D-P5-08 · Events are never suppressed by cutover
+ADR-0004 suppresses *generation* before cutover and says ledger events in that
+window "are taken as-is, whatever their status". Phase 2 already implemented the
+generative half (D-P2-13), so Phase 5 adds only the event half and applies no
+date filter at all to events: every live row applies, whatever its status and
+whichever side of cutover it sits on. An `actual` dated on/after cutover raises
+`CK-W003` and still counts. Filtering events by cutover here would double-suppress
+the reconciled past and put a hole in the total-sum invariant the gate checks.
+
+### D-P5-09 · An unattached event lands in a synthetic item keyed by its dimensions
+The frame is one row per `(period, item, measure)` and tags live in an item
+dimension table (PRD §5.5), so an event with no `item` has nowhere to be and
+nothing `agg()` can match — which would violate non-negotiable #4 the moment a
+book books bank fees as bare events. Unattached events are therefore grouped by
+their resolved dimensions (tags, currency, settlement, VAT) into synthetic items
+`_event:<sha256-16>`; the id is a function of the dimensions and not of the
+events, so a thousand identical fee rows share one column and the id is stable
+across imports and machines.
+
+**Accepted limitation, flagged for Phase 8:** an *attached* event's own `tags`
+(PRD §4.3: "merged over the item's; event wins on conflict") are row metadata and
+do **not** move `agg()` membership, which stays the item's. Making them move it
+would require the event to be its own dimension row, contradicting §5.5's
+item-dimension design. The frame layer should surface per-event tags on the row
+and `validate()` should warn when an event's tags would change the membership of
+a selector its item does not match.
+
+### D-P5-10 · Synthetic items are built with `model_construct`, keeping `ItemId` strict
+ADR-0005 names synthetic items `_tax:<id>:liability`, and this phase adds
+`_event:<digest>` — ids the `ItemId` grammar (`[a-z][a-z0-9_]*`) cannot
+represent. Widening the grammar was rejected: the *reason* a synthetic id can
+never collide with an authored one is precisely that authored ids cannot start
+with `_`. Widening it to admit synthetics would destroy that guarantee and put
+collision detection on the to-do list. Synthetic items are therefore constructed
+with `Item.model_construct`, which skips validation — safe here because every
+field value comes from an already-validated `Event` or `TaxRegime`. They are
+engine-internal: never in `Book.items` as authored, never serialized.
+
+### D-P5-11 · An event attached to a derived or stock item is `CK-E018`
+A derived item's column is *written* by its formula, so an event added to it
+before derived evaluation is silently overwritten a moment later. Refusing with
+a diagnostic is the only honest option; the alternatives are a wrong number
+(overwrite) or an ordering rule nobody could remember (add after evaluation, so
+the formula does not see its own item's facts).
+
+### D-P5-12 · An event dated outside the horizon is outside the model, cash legs included
+The same rule generative occurrences already follow (D-P2-03). An invoice dated
+before the horizon whose payment lands inside it is a real receivable and this
+loses it; the pre-horizon world is represented by `opening_balance`, as it is for
+generative items. Recorded as a known limitation rather than a decision anyone
+should be happy with: when opening receivables matter, the answer is an opening
+balance sheet, not a horizon that quietly leaks.
+
+### D-P5-13 · The watermark's content hash covers voids, not only events
+PRD §3.3 describes the hash as being "over `(source, ext_id, date, amount)`
+rows". Taken literally, a ledger and the same ledger with a tombstone added hash
+identically, and the cache key `(sha, scenario, engine_version, watermark)` would
+call two materially different runs the same run. The hash therefore covers every
+log entry including voids, with the entry kind in the digest.
+
+### D-P5-14 · Row payloads are stored as model JSON; identity is a stored canonical-YAML digest
+Two different jobs. *Rehydration* wants speed: `facts()` runs on every evaluation
+and rebuilds every live row, and `yaml.safe_load` costs ~250 µs a row against
+~7 µs for `model_validate_json` — 1,258 ms versus 32 ms for a 5,000-row ledger.
+*Identity* wants the audited canonical form: the fingerprint that decides "same
+payload or conflict" is a sha256 over `to_canonical_yaml`, whose escaping,
+Decimal spelling and recorded-`None` handling were gated in Phase 1. Both are
+exact — a `Decimal` is a string in either form. The digest is computed once at
+insert and stored in its own column, so conflict detection never rehydrates a
+row at all.
+
+### D-P5-15 · `ImportReport` and `ChangeReport` live in `cashkit/model/reports.py`
+The PRD gives them no home. They cannot live in `stores/` (Phase 7 returns
+`ChangeReport` from scenario writes, which have no store), and putting them in
+`sdk/` would make `stores/` import from the layer above it. They are frozen
+Pydantic result models carrying `Diagnostic`s, which is exactly what
+`cashkit/model/` already holds, so they go there. `ImportReport` subclasses
+`ChangeReport`: an import *is* a write that reports what it recorded.
+
+### D-P5-16 · The engine takes events as a sequence, never a store
+`run(book, events=...)` and `Engine(book, policy, events)` accept a plain tuple
+of `Event` models. Nothing in `engine/` or `reference/` knows a ledger exists,
+so the storage layer stays swappable (constraint 3 of the ambiguity rule) and
+the dual-engine gate can build ledgers in memory without a database. Assembling
+the sequence — tombstones excluded, corrections included, watermark applied — is
+`LedgerStore.facts()`'s job.
+
+### D-P5-17 · The fact union happens before graph construction, not before evaluation
+S2's handoff says events must enter where `Engine._evaluate` expands generative
+items. That is true for the *numbers*, but synthetic carriers (D-P5-09) have to
+exist earlier still: `agg()` selectors resolve to concrete item ids at
+graph-build time (D-P4-05), so a carrier created after `compile_book` would be
+invisible to every aggregate in the book. Both engines therefore resolve facts
+first, augment the book's item map, and compile that. The numeric union stays
+where the handoff put it — after expansion, before the component loop.

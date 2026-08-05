@@ -30,11 +30,37 @@ PRD_CODES = {
     "CK-I002",
 }
 
+#: Codes added after the PRD's initial table. §10.1 states the set grows and
+#: codes never change meaning, so growth is legal — but it must be deliberate,
+#: which is what listing them here forces. Each names the phase that minted it
+#: and why no existing code covered the condition (see DECISIONS.md).
+ADDED_CODES = {
+    # Phase 5 — ledger mechanics. ADR-0012 §5 requires the referential rules
+    # (target exists, not already corrected, not a tombstone) to be ledger-level
+    # diagnostics with codes assigned in Phase 5.
+    "CK-E014",  # ledger event not found
+    "CK-E015",  # ledger row is not in a state the operation can act on
+    "CK-E016",  # void_event refuses a bare actual — fix names correct_event
+    "CK-E017",  # import row with no ext_id: no idempotency key
+    "CK-E018",  # event attached to an item that cannot carry it
+    # Phase 6 — tax regimes.
+    "CK-E019",  # TaxRegime misconfigured
+}
+
 SEVERITY_BY_LETTER = {"E": "error", "W": "warning", "I": "info"}
 
 
-def test_catalogue_matches_prd_exactly() -> None:
-    assert set(CATALOGUE) == PRD_CODES
+def test_catalogue_contains_every_prd_code() -> None:
+    assert PRD_CODES <= set(CATALOGUE)
+
+
+def test_catalogue_grows_only_deliberately() -> None:
+    """No code appears in the catalogue that no one wrote down here."""
+    assert set(CATALOGUE) == PRD_CODES | ADDED_CODES
+
+
+def test_added_codes_do_not_shadow_prd_codes() -> None:
+    assert not (PRD_CODES & ADDED_CODES)
 
 
 def test_severity_consistent_with_code_letter() -> None:

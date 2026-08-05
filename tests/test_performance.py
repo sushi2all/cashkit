@@ -77,6 +77,44 @@ def test_delta_recompute_is_within_budget() -> None:
 
 
 @pytest.mark.benchmark
+def test_a_five_thousand_row_ledger_stays_inside_the_cold_budget() -> None:
+    """The fact union must not turn the cold path into a per-row loop.
+
+    Events sharing a target and a settlement are batched into array operations
+    (``Engine._apply_event_facts``); if that ever regressed to one scatter per
+    row, an import-sized ledger would blow the PRD §5.2 budget.
+    """
+    from datetime import timedelta
+
+    from cashkit.model import Event
+
+    start = BOOK.horizon.start
+    events = tuple(
+        Event(
+            id=f"row-{index}",
+            date=start + timedelta(days=index % 1800),
+            amount=Decimal("1234.5600"),
+            status="actual",
+            item="gen_000",
+            source="erp",
+            ext_id=f"row-{index}",
+        )
+        for index in range(5000)
+    )
+
+    def once() -> float:
+        started = time.perf_counter()
+        Engine(BOOK, events=events).run()
+        return (time.perf_counter() - started) * 1000
+
+    once()
+    best = _best(once, 5)
+    assert best < COLD_BUDGET_MS, (
+        f"cold run with a 5,000-row ledger {best:.1f} ms exceeds {COLD_BUDGET_MS} ms"
+    )
+
+
+@pytest.mark.benchmark
 def test_delta_touches_only_the_dependency_cone() -> None:
     """The delta budget rests on recomputing a cone, not the book. If the cone
     ever silently became 'everything', the timing would still pass on a small

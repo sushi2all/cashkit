@@ -10,6 +10,7 @@ from .canonical import from_canonical_yaml, to_canonical_yaml
 from .diagnostics import CATALOGUE, DiagnosticSpec, make_diagnostic
 from .event import Event
 from .item import Item, Recurrence, Segment
+from .reports import ChangeReport, EventRef, ImportReport
 from .primitives import (
     Amount,
     CalendarSpec,
@@ -36,6 +37,7 @@ __all__ = [
     "CATALOGUE",
     "CalendarSpec",
     "CashKitModel",
+    "ChangeReport",
     "Diagnostic",
     "DiagnosticSpec",
     "DueTerm",
@@ -44,7 +46,9 @@ __all__ = [
     "Event",
     "EventId",
     "EventOverlay",
+    "EventRef",
     "Grain",
+    "ImportReport",
     "Item",
     "ItemId",
     "ItemOverlay",

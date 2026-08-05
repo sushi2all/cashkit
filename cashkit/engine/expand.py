@@ -64,6 +64,7 @@ __all__ = [
     "expand_item",
     "leg_targets",
     "occurrence_ordinals",
+    "scatter_add",
     "settle_occurrences",
     "split_legs",
 ]
@@ -321,7 +322,7 @@ class Expansion:
     diagnostics: list[Diagnostic] = field(default_factory=list)
 
 
-def _scatter(target: np.ndarray, indices: np.ndarray, values: np.ndarray) -> None:
+def scatter_add(target: np.ndarray, indices: np.ndarray, values: np.ndarray) -> None:
     """Scatter-add with an overflow pre-check — numpy would wrap silently."""
     if values.size == 0:
         return
@@ -482,7 +483,7 @@ def settle_occurrences(
     if kind in (NEVER, INVALID) or amounts.size == 0:
         return []
     if kind == IMMEDIATE:
-        _scatter(cash, accrual_indices, amounts)
+        scatter_add(cash, accrual_indices, amounts)
         return []
 
     assert item.settlement is not None
@@ -490,7 +491,7 @@ def settle_occurrences(
     for term, leg in zip(item.settlement.due, legs):
         target = leg_targets(term, accrual_ords, accrual_indices, dates)
         inside = target >= 0
-        _scatter(cash, target[inside], leg[inside])
+        scatter_add(cash, target[inside], leg[inside])
     return diagnostics
 
 
@@ -586,7 +587,7 @@ def expand_item(
         indices = indices[keep]
         amounts = amounts[keep]
 
-        _scatter(accrual, indices, amounts)
+        scatter_add(accrual, indices, amounts)
         diagnostics.extend(
             settle_occurrences(
                 item, kind, accrual_ords, amounts, indices, cash, dates, policy

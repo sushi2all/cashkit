@@ -125,8 +125,9 @@ CATALOGUE: Mapping[str, DiagnosticSpec] = {
             "Import conflict: ({source}, {ext_id}) exists with a different payload "
             "— batch aborted",
             "The source system rewrote history; review the conflicting rows. "
-            "Amendments must arrive as void_event() plus a new event with a new "
-            "ext_id, never as a changed payload.",
+            "If the stored row is wrong, fix it with correct_event(), which "
+            "tombstones it and appends the correction; if the upstream row is a "
+            "genuine amendment, it must arrive under a new ext_id.",
         ),
         _spec(
             "CK-E011",
@@ -148,6 +149,55 @@ CATALOGUE: Mapping[str, DiagnosticSpec] = {
             "Concurrent writer: lock held by pid {pid} since {since}",
             "Wait for the other writer to finish. If the process is dead, the "
             "stale lock is reclaimed automatically on the next write (CK-W010).",
+        ),
+        _spec(
+            "CK-E014",
+            "error",
+            "Ledger event {event_id} not found",
+            "Check the event id with query_events(). Ledger rows are never "
+            "deleted, so an id that does not resolve was never appended.",
+        ),
+        _spec(
+            "CK-E015",
+            "error",
+            "Ledger event {event_id} cannot be {operation}: {reason}",
+            "The ledger is append-only: a row that is already void or already "
+            "corrected is history. Act on the row that supersedes it — "
+            "query_events() shows the correcting row via its 'corrects' field.",
+        ),
+        _spec(
+            "CK-E016",
+            "error",
+            "void_event refuses event {event_id} with status='actual'",
+            "Voiding an actual destroys the fact instead of correcting the "
+            "record. Use correct_event(book, event_id, corrected_payload, note): "
+            "it tombstones the original and appends the correction, auditably.",
+        ),
+        _spec(
+            "CK-E017",
+            "error",
+            "Import row {position} from source {source!r} has no ext_id — batch "
+            "aborted",
+            "Every imported row needs an idempotency key: UNIQUE(source, ext_id) "
+            "is the only thing preventing double-counted actuals on re-import. "
+            "Use add_event() for a one-off with no upstream key.",
+        ),
+        _spec(
+            "CK-E018",
+            "error",
+            "Event {event_id} cannot attach to item {item_id}: {reason}",
+            "Events are literal facts and attach to generative flow items. "
+            "Point the event at a kind='flow' item, or leave item unset and let "
+            "it carry its own tags.",
+        ),
+        _spec(
+            "CK-E019",
+            "error",
+            "Tax regime {regime_id} is misconfigured: {reason}",
+            "Fix the TaxRegime: give it a periodicity, a payment_offset, an "
+            "accumulates selector that matches at least one item (or leave it "
+            "empty for 'every item carrying a VatSpec'), and an "
+            "annual_adjustment_month when credit_handling='refund_annual'.",
         ),
         _spec(
             "CK-E020",
