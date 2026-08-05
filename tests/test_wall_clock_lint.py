@@ -23,7 +23,10 @@ PACKAGE_ROOT = Path(cashkit.__file__).parent
 #: ``stores`` joins the ban in Phase 5: `cutover` is a stored field and a
 #: ledger entry is ordered by its sequence number, never by a timestamp, so a
 #: ledger replays identically on any machine (DECISIONS D-P5-01).
-LINTED_DIRS = ("engine", "model", "reference", "stores")
+#: ``sdk`` joins in Phase 7: a scenario shifted by "today" would make a
+#: resolved book depend on when it was resolved, which is the same
+#: reproducibility failure by a different door.
+LINTED_DIRS = ("engine", "model", "reference", "sdk", "stores")
 
 BANNED_ATTRIBUTES = {"today", "now", "utcnow"}
 

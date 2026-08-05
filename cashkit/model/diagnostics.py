@@ -208,6 +208,38 @@ CATALOGUE: Mapping[str, DiagnosticSpec] = {
             "multi-currency support.",
         ),
         _spec(
+            "CK-E021",
+            "error",
+            "Unknown scenario {scenario_id}: {reason}",
+            "Scenarios fork from scenarios. Name an existing scenario id — base "
+            "is the one with parent=None — or create it first with fork().",
+        ),
+        _spec(
+            "CK-E022",
+            "error",
+            "Scenario {scenario_id} already exists",
+            "Scenario ids are unique. Pick a different id, or write into the "
+            "existing scenario with set_item() / set_param().",
+        ),
+        _spec(
+            "CK-E023",
+            "error",
+            "Scenario {scenario_id} overrides item {item_id}, which its parent "
+            "chain does not define",
+            "An overlay refines an item that exists. Add the item to the base "
+            "book, put the full Item in the scenario's added set, or drop the "
+            "overlay with unset().",
+        ),
+        _spec(
+            "CK-E024",
+            "error",
+            "Reserved param {key!r} on scenario {scenario_id} is not a valid "
+            "money value: {reason}",
+            "opening_balance overrides a money field, so it must carry at most "
+            "4 decimal places and stay inside the engine ceiling. Set it with a "
+            "Decimal at 4 dp.",
+        ),
+        _spec(
             "CK-W001",
             "warning",
             "Settlement remainder clamped to zero on item {item_id}: fixed terms "

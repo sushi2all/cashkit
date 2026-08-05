@@ -816,3 +816,141 @@ the gate would pass for two engines that agreed on every cash cell while
 disagreeing about which return period a line's VAT fell into: the right bank
 balance and the wrong F24. Every item with a resolvable `VatSpec` reports
 columns, zero or not, so the two engines report the same key set.
+
+## Phase 7 — Scenarios (Session S4)
+
+### D-P7-01 · Scenario resolution lives in `sdk/`, in memory, storage-free
+Resolution is behaviour over models, so it is not `model/`; it never evaluates
+anything, so it is not `engine/`; and it must not depend on where scenarios are
+persisted, so it is not `stores/`. `cashkit/sdk/scenarios.py` holds
+`ScenarioSet` — the authored book plus a dict of `Scenario`s — and every §6.3
+operation is a method on it. Persisting the set is the config store's job
+(Session S5), and nothing here knows a file exists. Consequence the gate rests
+on: the whole phase is testable without a filesystem.
+
+### D-P7-02 · Phase 7 mints four catalogue codes, `CK-E021`…`CK-E024`
+Each is something an agent can plausibly do through the §6.3 surface, so none of
+them may be an exception (PRD §6.5), and no §10.1 code describes a
+scenario-graph or overlay-resolution failure. `CK-E021` an unknown scenario id —
+a fork parent, a write target, or a broken chain link, with the reason naming
+which; `CK-E022` a scenario id already taken, raised by `fork` and `flatten`;
+`CK-E023` an overlay targeting an item its parent chain does not define;
+`CK-E024` the reserved `opening_balance` param carrying a value that is not
+money. `CK-E001`'s message is fixed at "unknown reference at graph build",
+which would misdirect a reader of a scenario problem, so reusing it was
+rejected. `tests/test_diagnostics_catalogue.py` enumerates all four.
+
+### D-P7-03 · `ChangeReport.changed` means "the fields whose *record* moved"
+PRD §6.3 says the report returns "the fields actually recorded as different".
+Read literally: `changed` lists the fields whose record in this scenario changed
+— appeared, disappeared, or changed value — which is empty exactly when nothing
+is written. The alternative reading ("fields whose resolved value moved") breaks
+on one real case: an override that becomes redundant because base was corrected
+to match it. Its resolved value does not move, but dropping the record does
+change behaviour — a later base correction now propagates where it previously
+did not (ADR-0009) — so calling that write empty would be a lie. Under the
+chosen reading the gate case is exact: writing the currently resolved item
+produces `changed=()`, `CK-I002`, and a scenario byte-identical to a freshly
+forked one.
+
+### D-P7-04 · Order inside one scenario: `removed`, then `added`, then `items`
+The three fields can name the same id and the PRD never orders them. Removals
+apply first, so `added` wins over `removed` in the same scenario — you removed
+the parent's version and authored a new one, which is the only reading in which
+both records mean something. An overlay on an id the same scenario removed is
+contradictory and reports `CK-E023` rather than being silently ignored. Through
+the SDK the contradiction cannot arise: `set_item` clears the id from `removed`,
+`remove_item` clears any overlay. This also settles what D-P1-13 deferred — a
+descendant re-`added` an ancestor removed reinstates the item, because
+resolution walks root to leaf and the descendant is nearer.
+
+### D-P7-05 · A book carrying engine-synthesized items is refused with an exception
+`Engine.book` is the *augmented* book: `_event:<digest>` carriers and
+`_tax:<regime>:*` items that no one authored (D-P5-09, D-P5-10). An overlay
+recording one would resurrect a value the next compile recomputes. `ScenarioSet`
+therefore refuses such a book at construction with a `ValueError` naming the ids
+— this is programmer error (the SDK never hands an agent `Engine.book`), not
+something a user did wrong, so it is the one place in this phase that raises
+instead of diagnosing. The check is a regex over the synthetic id grammar, which
+is exactly the grammar authored `ItemId`s cannot express.
+
+### D-P7-06 · `flatten` produces `parent=None` against the authored book
+"Collapse chain to standalone" (PRD §6.3) has to say what the flattened
+scenario resolves *against*. Base's content is the top-level book (ADR-0007), so
+the only substrate any scenario ever has is that book; "standalone" therefore
+means "depends on no other scenario", not "carries a whole book". A flattened
+scenario is shaped exactly like base — `parent=None`, overlays over the authored
+items — which is what keeps it an ordinary scenario that can be forked again
+rather than a second kind of object.
+
+### D-P7-07 · `fork` and `flatten` return `ChangeReport`, not a bare ref
+PRD §6.3 types them `-> ScenarioRef`, but a ref cannot carry `CK-E021`/`CK-E022`
+and the error policy forbids raising for them. Following the precedent S3 set
+with `add_event` (typed `-> EventRef` in §6.2, implemented as `ChangeReport`),
+they return a `ChangeReport` whose `target` and `created` name the new scenario.
+One return type across the whole write surface also means an agent loops on one
+shape.
+
+### D-P7-08 · Macros round authored money at the authoring boundary
+`ScaleItems(factor=0.333)` produces amounts with more than 4 decimal places, and
+`Money` rejects those at the door (D-P1-06). The macro therefore quantizes to
+4 dp itself, half-up by default (matching the engine default, D-P2-01) with a
+`banker` flag for a book running the other policy. The stored amount is then
+exactly what a human would have typed, which is what "post-macro state is
+indistinguishable from typing the items out" requires — and the engine never has
+to round an authored value silently. `probability` and `escalation` are not
+scaled: scaling revenue by 0.8 is a statement about amounts, not about how
+likely they are or how they grow.
+
+### D-P7-09 · `diff()` also covers `opening_balance` and event overrides
+PRD §6.3 says the diff is semantic and computed from resolved books. Params and
+items follow directly. `opening_balance` is included because the reserved param
+moves a Book field, not just a param, and a diff that reported the param but not
+the balance would be reporting the cause and hiding the effect. Event overrides
+are included even though they are not part of the resolved *book*: two scenarios
+differing only in what they override on the ledger are materially different, and
+a diff blind to that would answer "nothing changed" about a changed forecast.
+The comparison is over the chain-resolved overlays, so it needs no ledger.
+
+### D-P7-10 · Event overrides resolve against a ledger sequence, never into it
+`resolve_events(scenario, events)` applies the chain's merged `EventOverlay`s to
+the sequence the ledger hands over and returns a new sequence. Nothing is
+written back: a scenario is a view over the ledger, and the ledger is
+append-only and shared by every scenario. `CK-E006` lives here — the one
+remaining actual-immutability case D-P1-08 left open, an overlay *targeting* a
+row whose ledger status is actual — and the row passes through untouched.
+Fabricating an actual stays unrepresentable at the type level. An overlay naming
+a row the ledger does not hold reports `CK-E014`, the code Phase 5 already
+minted for exactly that.
+
+### D-P7-11 · Pinning a value equal to the parent's is deliberately not expressible
+Recordedness is what decides propagation, so recording `tags` with base's own
+value would pin it against a later base correction. `set_item` records only
+fields that *differ* from the resolved parent (D4, ADR-0009), so that state
+cannot be authored by value — and the by-value pipeline is the whole API. An
+agent that wants a value frozen against upstream change has to make it differ,
+which is honest: a pin that looks identical to the thing it is pinned against is
+invisible in every diff and every review.
+
+### D-P7-12 · Change paths in `ChangeReport.changed`
+Bare Item field names for `set_item` (`"tags"`, `"segments"`); `"params.<key>"`
+for `set_param`; the Scenario field name for a presence change (`"added"`,
+`"removed"`) since that is the record that moved; `"<item_id>.<field>"` for
+`apply_macro`, which spans items and would otherwise report ambiguous names.
+
+### D-P7-13 · The reserved `opening_balance` param is money-checked twice
+PRD §4.1 makes `opening_balance` a param key that overrides the Book field, but
+`params` values are unbounded-precision `FiniteDecimal` while the field is
+`Money` (≤ 4 dp, bounded). `Book.model_copy` does not revalidate, so an invalid
+value would sail into the engine and raise from `to_minor` mid-run. It is
+checked at `set_param` (refusing with `CK-E024` before anything is recorded) and
+again at resolve, because a hand-authored scenario file never passed through
+`set_param`. On failure the authored balance stands and the error is reported,
+per D-P2-08: degrade one value, never the run.
+
+### D-P7-14 · `sdk/` joins the wall-clock and no-float lints
+Neither lint covered `sdk/` because it was empty. A `ShiftItems` macro reading
+the clock would make a resolved book depend on when it was resolved — the same
+reproducibility failure as `date.today()` in the engine, through a different
+door — and macros do arithmetic on authored money. Both lints now cover
+`model/`, `engine/`, `reference/`, `sdk/` and `stores/`.

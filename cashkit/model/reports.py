@@ -11,11 +11,31 @@ the SDK return them and neither may depend on the other.
 
 from __future__ import annotations
 
+from decimal import Decimal
+from typing import Literal
+
 from pydantic import Field
 
-from .primitives import CashKitModel, Diagnostic, EventId
+from .primitives import (
+    CashKitModel,
+    Diagnostic,
+    EventId,
+    FiniteDecimal,
+    ItemId,
+    ParamKey,
+    ScenarioId,
+)
 
-__all__ = ["ChangeReport", "EventRef", "ImportReport"]
+__all__ = [
+    "ChangeReport",
+    "EventRef",
+    "FieldOrigin",
+    "ImportReport",
+    "ItemDiff",
+    "ParamDiff",
+    "Provenance",
+    "ScenarioDiff",
+]
 
 
 class EventRef(CashKitModel):
@@ -71,3 +91,99 @@ class ImportReport(ChangeReport):
     skipped: int = Field(default=0, ge=0)
     conflicted: int = Field(default=0, ge=0)
     aborted: bool = False
+
+
+# --------------------------------------------------------------------------- #
+# Scenario results (PRD §6.3)
+# --------------------------------------------------------------------------- #
+
+
+class FieldOrigin(CashKitModel):
+    """Which level of the chain supplied one field of one item (ADR-0009).
+
+    ``scenario`` is ``None`` when the value comes from the authored book — base's
+    content lives at top level for diff legibility (ADR-0007), so "the book" and
+    "base's overlay" are two distinct sources and both are reportable.
+    """
+
+    field: str
+    scenario: ScenarioId | None = None
+    kind: Literal["book", "added", "overlay"]
+
+
+class Provenance(CashKitModel):
+    """Which ancestor set each field of an item (PRD §6.3).
+
+    ``fields`` is empty when the item does not exist in the resolved scenario;
+    ``removed_by`` then names the scenario that removed it, if one did.
+    """
+
+    scenario: ScenarioId
+    item_id: ItemId
+    exists: bool
+    removed_by: ScenarioId | None = None
+    fields: tuple[FieldOrigin, ...] = ()
+
+    def origin_of(self, field: str) -> FieldOrigin | None:
+        """Return the origin of one field, or ``None`` if it has none.
+
+        Produces no diagnostics.
+        """
+        for origin in self.fields:
+            if origin.field == field:
+                return origin
+        return None
+
+
+class ItemDiff(CashKitModel):
+    """One item's difference between two resolved books.
+
+    ``fields`` is populated for ``status="changed"`` and lists exactly the
+    fields whose resolved values differ.
+    """
+
+    item_id: ItemId
+    status: Literal["added", "removed", "changed"]
+    fields: tuple[str, ...] = ()
+
+
+class ParamDiff(CashKitModel):
+    """One param's difference between two resolved books.
+
+    ``left``/``right`` are ``None`` where the param is absent on that side.
+    """
+
+    key: ParamKey
+    left: FiniteDecimal | None = None
+    right: FiniteDecimal | None = None
+
+
+class ScenarioDiff(CashKitModel):
+    """The semantic difference between two scenarios (PRD §6.3).
+
+    Computed from **resolved books**, never from overlays: two scenarios that
+    reach identical state by different overlay routes diff empty, which is what
+    makes the diff a statement about the model rather than about its storage.
+    """
+
+    left: ScenarioId
+    right: ScenarioId
+    opening_balance: tuple[Decimal, Decimal] | None = None
+    params: tuple[ParamDiff, ...] = ()
+    items: tuple[ItemDiff, ...] = ()
+    #: Event ids whose resolved overlay differs. Overlays are compared, not
+    #: ledger rows: the ledger is shared by every scenario.
+    event_overrides: tuple[EventId, ...] = ()
+
+    @property
+    def empty(self) -> bool:
+        """True when the two resolved books are semantically identical.
+
+        Produces no diagnostics.
+        """
+        return not (
+            self.opening_balance
+            or self.params
+            or self.items
+            or self.event_overrides
+        )

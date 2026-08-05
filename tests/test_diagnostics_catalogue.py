@@ -45,6 +45,13 @@ ADDED_CODES = {
     "CK-E018",  # event attached to an item that cannot carry it
     # Phase 6 — tax regimes.
     "CK-E019",  # TaxRegime misconfigured
+    # Phase 7 — scenarios. Every one is something an agent can plausibly do
+    # through the §6.3 surface, so none of them may be an exception; no §10.1
+    # code describes a scenario-graph or overlay-resolution failure.
+    "CK-E021",  # unknown scenario id (fork parent, write target, chain link)
+    "CK-E022",  # scenario id already exists
+    "CK-E023",  # overlay targets an item the parent chain does not define
+    "CK-E024",  # reserved param opening_balance is not a valid money value
 }
 
 SEVERITY_BY_LETTER = {"E": "error", "W": "warning", "I": "info"}

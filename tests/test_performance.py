@@ -19,10 +19,13 @@ import pytest
 from gate_book import build_benchmark_book
 
 from cashkit.engine.run import Engine
+from cashkit.sdk import ScenarioSet
 
 #: PRD §5.2.
 COLD_BUDGET_MS = 50.0
 DELTA_BUDGET_MS = 5.0
+#: PRD §10 acceptance: a 20-scenario sweep, resolution included (Phase 7).
+SWEEP_BUDGET_MS = 500.0
 
 BOOK = build_benchmark_book(items=50, years=5)
 
@@ -172,3 +175,44 @@ def test_delta_touches_only_the_dependency_cone() -> None:
     cone = engine.compiled.downstream({"gen_000"})
     assert "gen_000" in cone and "cash" in cone
     assert len(cone) < len(BOOK.items) // 2, sorted(cone)
+
+
+@pytest.mark.benchmark
+def test_twenty_scenario_sweep_is_within_budget() -> None:
+    """PRD §10: a 20-scenario sweep under 500 ms, resolution included.
+
+    The sweep is what scenarios are *for*, so the measurement covers the whole
+    path an agent walks — fork, write by value, resolve the chain, recompute —
+    and not just the engine's share of it.
+    """
+    kit = ScenarioSet.new(BOOK)
+    item = BOOK.items["gen_000"]
+    first, second = item.segments
+    ids = []
+    for index in range(20):
+        scenario_id = f"sweep_{index:02d}"
+        kit.fork("base", scenario_id)
+        amount = first.amount.model_copy(update={"constant": Decimal(1000 + index)})
+        kit.set_item(
+            scenario_id,
+            item.model_copy(
+                update={"segments": [first.model_copy(update={"amount": amount}), second]}
+            ),
+        )
+        ids.append(scenario_id)
+
+    engine = Engine(BOOK)
+    engine.run()
+
+    def once() -> float:
+        started = time.perf_counter()
+        for scenario_id in ids:
+            book = kit.resolve(scenario_id)
+            engine.delta({"gen_000": book.items["gen_000"]})
+        return (time.perf_counter() - started) * 1000
+
+    once()
+    best = _best(once, 5)
+    assert best < SWEEP_BUDGET_MS, (
+        f"20-scenario sweep {best:.1f} ms exceeds {SWEEP_BUDGET_MS} ms"
+    )

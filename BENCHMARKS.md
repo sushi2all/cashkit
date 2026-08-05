@@ -210,3 +210,42 @@ from 5.26 to 4.93 ms.
 | Measure | Value |
 |---|---|
 | Full suite, all phases (759 tests) | 18.6 s |
+
+## Phase 7 — Scenarios
+
+### Gate: overlays, chains, propagation, diff
+
+`uv run pytest tests/test_scenarios.py` — **61 tests**, covering the four gate
+properties directly:
+
+- `set_item()` with an unchanged item returns an empty `ChangeReport` carrying
+  `CK-I002` and leaves the scenario byte-identical to a freshly forked one —
+  "writes nothing" asserted against the store, not only against the report.
+- A three-level fork chain (`base -> mid -> leaf`) resolves field by field:
+  leaf's records win, mid's win over base for fields leaf did not touch, and
+  everything nobody recorded falls through to the authored book. Each level
+  records exactly its own fields — `mid` records `{tags}`, `leaf` records
+  `{name, settlement}`.
+- Correcting `tags` in base propagates into a child that overrode a *different*
+  field and does not propagate into one that overrode `tags`. Checked twice:
+  once correcting base's overlay, once correcting the top-level authored book,
+  because ADR-0007 makes those the same operation with different storage.
+- Two scenarios reaching the same state by different routes — two levels with
+  one field each plus a param set and reverted, versus one level with both
+  fields — diff empty while their overlays differ.
+
+### Sweep performance (PRD §10 acceptance)
+
+| Path | Budget | Measured (min / median, 7 reps) |
+|---|---|---|
+| 20-scenario sweep, resolution + delta recompute | < 500 ms | **96.3 / 96.8 ms** |
+| Chain resolution alone, 50-item book | — | 0.48 ms per scenario |
+
+The sweep measures the whole path an agent walks — fork, write by value,
+resolve the chain, recompute — on the PRD §5.2 benchmark book (50 items x 1826
+periods). Resolution is 10% of it; the rest is the engine's delta path, which
+Phase 3 already gated.
+
+| Measure | Value |
+|---|---|
+| Full suite, Phases 1-7 (821 tests) | 18.1 s |
