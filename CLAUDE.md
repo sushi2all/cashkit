@@ -25,6 +25,7 @@ Deterministic cash-flow modelling engine, SDK-only surface, built for LLM agents
 - Remote: `https://github.com/sushi2all/cashkit.git`, branch `main`. Never force-push. Commits never carry `Co-Authored-By` trailers (Claude, Anthropic, or otherwise).
 
 - Rounding order is canonical (PRD §5.3): escalation → probability → settlement split → withholding → VAT. The reference engine and vectorized engine must share it byte-for-byte.
+- Any change under `engine/` that could move a computed number must bump `ENGINE_VERSION` in the same commit; a change that provably cannot must leave it alone. Nothing enforces this mechanically — `at()`/`reproduce()` correctness rests on the discipline (see handoff-s5).
 - All authored amounts are VAT-exclusive (net). No VAT-inclusive mode exists.
 - Formula front-end is built in Phase 2 with the reference engine; Phase 4 hardens it (ADR-0001).
 - When the PRD is ambiguous: pick determinism + exactness, emit a diagnostic over guessing, keep storage swappable, record the choice in an ADR / `DECISIONS.md`, continue.
