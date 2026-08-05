@@ -606,7 +606,7 @@ See §9.5 for how the agent skill must communicate this.
 
 - Monte Carlo / probabilistic horizons (structure supports it: `probability` exists on segments)
 - Multi-currency with full revaluation (rates as params works; revaluation of balances does not yet)
-- Postgres backend (only if concurrent human editing or a hosted UI arrives — Quack's multi-writer support weakens this case)
+- Postgres backend (only if concurrent human editing or a hosted UI arrives — Quack's multi-writer support weakens this case). The UI itself is designed and scheduled as the post-v1 deliverable: interaction model in ADR-0013, delivery strategy in ADR-0014 (single-user local-first, so this Postgres trigger stays un-pulled).
 - Branch-based propose-and-review workflow for agent changes
 
 ---

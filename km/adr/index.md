@@ -16,3 +16,5 @@ Numbered, append-only. Status: accepted unless noted.
 | [0010](0010-determinism-guards.md) | Determinism guards: holiday snapshot, wall-clock lint, writer lock, currency error | 2026-07-19 |
 | [0011](0011-session-based-orchestration.md) | Phase execution via sequenced fresh-context subagent sessions | 2026-07-19 |
 | [0012](0012-actual-corrections-append-only.md) | Actuals are correctable in the ledger, immutably; corrections are append-only | 2026-07-29 |
+| [0013](0013-ui-cell-semantics.md) | UI cell semantics: every cell edit resolves to a model mutation | 2026-08-04 |
+| [0014](0014-ui-delivery-post-v1.md) | UI delivery: post-v1, notebook spike then local web app, single-user local-first | 2026-08-04 |
