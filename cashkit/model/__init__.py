@@ -18,8 +18,10 @@ from .reports import (
     ItemDiff,
     ParamDiff,
     Provenance,
+    RunSummary,
     ScenarioDiff,
 )
+from .table import Table
 from .primitives import (
     Amount,
     CalendarSpec,
@@ -69,11 +71,13 @@ __all__ = [
     "PeriodRef",
     "Provenance",
     "Recurrence",
+    "RunSummary",
     "Scenario",
     "ScenarioDiff",
     "Segment",
     "Settlement",
     "SparseOverlay",
+    "Table",
     "TaxRegime",
     "VatSpec",
     "Watermark",

@@ -249,3 +249,62 @@ Phase 3 already gated.
 | Measure | Value |
 |---|---|
 | Full suite, Phases 1-7 (821 tests) | 18.1 s |
+
+## Phase 8 — Frame store and views
+
+### Gate: aggregation, tag slicing, Parquet
+
+`uv run pytest tests/test_frames.py` — **43 tests**, covering the three gate
+properties directly:
+
+- Aggregating a day-grain frame to **week, month, quarter and year** preserves
+  flow totals with `Decimal` equality, not a tolerance, on both measures.
+- The same aggregation takes **last-in-period** for the stock, asserted cell by
+  cell against the base-grain column *and* asserted to differ from the sum of
+  the levels in the bucket, so the rule cannot pass by coincidence.
+- A **tag-sliced sum equals the sum of the corresponding items** for five
+  selectors including a two-term AND, a flag term and a mixed tag+flag term,
+  with the resolved item set asserted alongside the number.
+- **Parquet round-trips exactly**: 5,840 rows compared row by row, values still
+  `Decimal` and not floats that print the same, on the fixture book and again on
+  a book whose settlement split produces `3333.9999`/`6666.9999`-style values.
+
+### Performance (PRD §5.2 budget, 50 items × 1826 periods = 182,600 fact rows)
+
+| Path | Budget | Measured (min / median) |
+|---|---|---|
+| Materialization into DuckDB | < 200 ms | **116.3 / 117.9 ms** |
+| `frame()` at base grain, 182,600 rows | — | 304 ms |
+| `frame(grain=MONTH)`, 6,000 rows | — | 32 ms |
+| `frame(grain=YEAR)`, 500 rows | — | 16 ms |
+| `frame(where=..., grain=MONTH)` | — | 15 ms |
+| `export(format="parquet")` | — | 46 ms (93 KB) |
+
+The base-grain frame is 182,600 Python tuples, which is what the 304 ms buys;
+it is a file to export, not a query to run. Every aggregated view is under
+35 ms.
+
+Getting materialization inside the budget took two measurements and no
+guessing (D-P8-08). DuckDB's Python parameter binding costs ~0.85 ms per
+*value*: `executemany` over the fact table took **4.7 s** and a single statement
+with 1.3 million placeholders took **3.7 s**. Facts now go in column-wise as
+numpy int64 arrays. That left 130 ms in an unexpected place — the 1,826-row
+period dimension, whose 18,260 `DATE` literals cost DuckDB's *parser* more than
+the whole fact table cost its executor; periods went column-wise too.
+
+| Fact insertion path | 182,600 rows |
+|---|---|
+| `executemany` | 4,700 ms |
+| one statement, 1.3 M placeholders | 3,700 ms |
+| literal SQL | 5,700 ms (extrapolated; 180 ms per 5,840) |
+| numpy `register()` + SQL conversion | **44 ms** |
+
+The int64 → `DECIMAL(18,4)` conversion is done through the decimal string
+rather than by dividing by 10⁴, because DuckDB's decimal division is not exact
+at the top of the type's range (D-P8-07). It is also the faster of the two:
+19 ms against 85 ms for a multiplication by `0.0001`, over 182,600 values, both
+verified exact against `Decimal` including at ±(10¹⁸−1) minor units.
+
+| Measure | Value |
+|---|---|
+| Full suite, Phases 1-8 (866 tests) | 21 s |

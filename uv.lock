@@ -42,6 +42,7 @@ git = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "duckdb" },
     { name = "hypothesis" },
     { name = "pytest" },
 ]
@@ -61,6 +62,7 @@ provides-extras = ["duckdb", "git", "all"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "duckdb", specifier = ">=1.5" },
     { name = "hypothesis", specifier = ">=6.100" },
     { name = "pytest", specifier = ">=8" },
 ]

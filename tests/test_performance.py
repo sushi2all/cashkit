@@ -20,12 +20,15 @@ from gate_book import build_benchmark_book
 
 from cashkit.engine.run import Engine
 from cashkit.sdk import ScenarioSet
+from cashkit.stores.frames import DuckdbFrameStore
 
 #: PRD §5.2.
 COLD_BUDGET_MS = 50.0
 DELTA_BUDGET_MS = 5.0
 #: PRD §10 acceptance: a 20-scenario sweep, resolution included (Phase 7).
 SWEEP_BUDGET_MS = 500.0
+#: PRD §5.2: frame materialization into DuckDB (Phase 8).
+MATERIALIZE_BUDGET_MS = 200.0
 
 BOOK = build_benchmark_book(items=50, years=5)
 
@@ -216,3 +219,39 @@ def test_twenty_scenario_sweep_is_within_budget() -> None:
     assert best < SWEEP_BUDGET_MS, (
         f"20-scenario sweep {best:.1f} ms exceeds {SWEEP_BUDGET_MS} ms"
     )
+
+
+@pytest.mark.benchmark
+def test_frame_materialization_is_within_budget() -> None:
+    """PRD §5.2: the whole frame into DuckDB under 200 ms.
+
+    50 items x 1826 periods x 2 measures is 182,600 fact rows. The budget is
+    only reachable column-wise: DuckDB's per-value parameter binding costs the
+    better part of a millisecond, so the engine's int64 arrays are handed over
+    as numpy and converted to DECIMAL(18,4) inside the database.
+    """
+    result = Engine(BOOK).run()
+
+    def once() -> float:
+        store = DuckdbFrameStore()
+        started = time.perf_counter()
+        store.materialize("bench", result, BOOK)
+        elapsed = (time.perf_counter() - started) * 1000
+        store.close()
+        return elapsed
+
+    once()
+    best = _best(once, 5)
+    assert best < MATERIALIZE_BUDGET_MS, (
+        f"materialization {best:.1f} ms exceeds {MATERIALIZE_BUDGET_MS} ms"
+    )
+
+
+@pytest.mark.benchmark
+def test_the_materialized_frame_is_complete() -> None:
+    """The budget means nothing if the frame is short. 50 items x 1826 periods
+    x 2 measures, and every row present."""
+    result = Engine(BOOK).run()
+    with DuckdbFrameStore() as store:
+        store.materialize("bench", result, BOOK)
+        assert len(store.frame("bench")) == 50 * 1826 * 2

@@ -517,6 +517,18 @@ consistent only with Python `date.weekday()` 0-based numbering (Mon=0,
 Sat=5, Sun=6). Implemented as Python `weekday()` indices 0–6, preserving the
 PRD's stated default semantics; the "ISO" label is treated as a misnomer.
 
+### C-P8-01 · §5.5's frame example shows an inclusive `period_end`; §4.0 makes it exclusive
+The §5.5 sample row is `2026-03-01 | 2026-03-01` for a day-grain period, which
+reads `period_end` as the period's last day. §4.0 defines `PeriodRange` as
+`[start, end)` with "end: date # exclusive", and `PeriodIndex`, `RunResult.rows()`
+and every date computation in the engine follow that. Implemented half-open
+throughout: `period_end` is the first instant *after* the period, so a day-grain
+row spanning 1 March reports `2026-03-01 | 2026-03-02` and a month bucket
+reports `2026-03-01 | 2026-04-01`. Two end conventions in one system is a
+silent-error class — a filter written for one and applied to the other is off by
+exactly one period and looks right — so the §2 reading that keeps one convention
+wins.
+
 ## Phase 5 — Ledger and events (Session S3)
 
 ### D-P5-01 · The ledger is one append-only log, not a table per concept
@@ -954,3 +966,183 @@ the clock would make a resolved book depend on when it was resolved — the same
 reproducibility failure as `date.today()` in the engine, through a different
 door — and macros do arithmetic on authored money. Both lints now cover
 `model/`, `engine/`, `reference/`, `sdk/` and `stores/`.
+
+## Phase 8 — Frame store and views (Session S4)
+
+### D-P8-01 · One module imports duckdb, and the protocol is the swappability guarantee
+`FrameStore` is a `Protocol`; `DuckdbFrameStore` implements it; `duckdb` appears
+in `cashkit/stores/frames.py` and nowhere else in the package, which
+`tests/test_frames.py` asserts by walking every module's imports. This is the
+same shape S3 gave the ledger (`sqlite3` in one file), and it is what PRD §3.4
+means by "the FrameStore protocol must abstract both": Parquet export is the
+stable sharing path, Quack is optional and not load-bearing, and nothing above
+this line may assume either.
+
+### D-P8-02 · `bucket_of` lives in `engine/calendars.py`, not in the store
+Additive change to `engine/`, in its own commit per the session brief. Grain
+buckets are calendar arithmetic and they have to agree with
+`PeriodIndex.is_quarter_end` and the VAT return periods on what a quarter is
+(D-P2-07, D-P6-06). A second statement of the fiscal convention inside the
+frame store is precisely how the two would drift, and the drift would be
+invisible: the frame would just quietly disagree with the F24 schedule about
+which quarter a number belongs to. Putting the function next to the definition
+it must match is the cheapest available guarantee. It also keeps `summary()`
+free of the DuckDB extra (D-P8-11).
+
+### D-P8-03 · Aggregation buckets are calendar-aligned, not horizon-aligned
+`PeriodIndex.build` steps base-grain periods from `horizon.start`, because the
+base grain defines the model's own periods. Aggregating a frame is a different
+job: someone asking for monthly totals wants calendar months, and quarters and
+years follow `fiscal_year_start_month` like everything else in the system.
+Weeks start on Monday, matching the `date.weekday()` numbering (C-P1-01).
+Buckets are **not clipped** to the horizon, so a horizon opening on 15 March
+reports a March bucket running to 1 April: the bucket names a calendar period,
+and a partial one at the edge is information rather than an error. For the
+normal case — a horizon starting on 1 January with a January fiscal year — the
+two schemes coincide, which is asserted rather than assumed.
+
+### D-P8-04 · A stock never sums
+PRD §5.5 states the rule twice and the two statements can disagree: "aggregation
+respects `Item.agg_rule`" and "flows sum, stocks take last-in-period", while
+`agg_rule` defaults to `"sum"` for every item including stocks. Resolved by
+`effective_agg_rule`: a stock left at the default resolves to `last`, because a
+balance added up over thirty-one days is not a quantity anyone has a use for. An
+*explicitly* different rule on a stock is honoured — `mean` on a balance is the
+average balance over the bucket, which is a real thing to want. The effective
+rule is what gets materialized, so a reader of `frame_items` sees the rule that
+was applied and not the one that was authored-by-default.
+
+### D-P8-05 · `mean` is the only aggregation that rounds, and it rounds like the engine
+`sum` over `DECIMAL(18,4)` is exact and stays in SQL. `last` is `arg_max` over
+the period index and is exact. `mean` is a division, so it needs a declared
+rounding policy — and a SQL division's rounding mode is the database's business,
+not ours. The query therefore returns `(sum, count, last)` and the rule is
+applied in one place in Python, with `mean` going through
+`engine.numeric.round_div` in int64 minor units under the store's policy
+(half-up by default, matching D-P2-01). Consequence: aggregation arithmetic is
+identical to the engine's, and swapping the backend cannot change a number.
+
+### D-P8-06 · `status` stays what the run reported; per-cell status needs an engine change
+S3 handed Phase 8 the note that `RunResult.rows()` stamps every row
+`status="forecast"` and that the frame layer should carry the real status. It
+does not, and the reason is worth stating precisely rather than leaving as a
+silence.
+
+A cell is a *sum* of contributions that can have different statuses: post-cutover
+an item's period can hold a generated occurrence and an `actual` event, and a
+pre-cutover actual's settlement leg can land in a post-cutover cash cell
+(D-P5-08, D-P5-12). Splitting the value by status therefore requires knowing
+which legs landed where, which is settlement arithmetic. Two ways to get it:
+have the engine emit per-status columns, or re-derive leg placement inside the
+store. The first is an engine change touching `settle_occurrences`, both engines
+and the byte-equality gate, which is out of this session's scope. The second is
+a second implementation of the arithmetic that the dual-engine gate exists to
+prevent — it would drift, and it would drift silently.
+
+So: the frame's grain already includes `status`, `frame(status=...)` filters the
+column that exists, and the honest answer is that there is one status per run
+until the engine reports more. Flagged for whoever owns the engine next. The
+alternative considered and rejected was deriving status from the cutover
+boundary, which is exact for accrual and wrong for cash — and "wrong only for
+cash" is the worst possible place for it to be wrong.
+
+### D-P8-07 · Minor units reach `DECIMAL(18,4)` through their decimal string, never a division
+The engine hands over int64 minor units at 4 dp and the column is
+`DECIMAL(18,4)`, so something has to divide by 10⁴. DuckDB's decimal division
+does not: `999999999999999999::DECIMAL(38,4) / 10000` returns
+`100000000000000.000000` instead of `99999999999999.9999`. A money column that
+is exact except for large numbers is exactly the failure this project exists to
+prevent, so the conversion is done through the decimal *string*
+(`sign || minor//10000 || '.' || lpad(minor%10000, 4)`), which is exact for
+every int64 and — measured — faster than the multiplication alternative
+(19 ms versus 85 ms for 182,600 rows).
+
+Separately: `Money` permits magnitudes up to 9×10¹⁴ units, which `DECIMAL(18,4)`
+**cannot** hold (its ceiling is ~10¹⁴). There is no conflict in practice because
+`check_column`'s addition-safe ceiling bounds every stored column at
+2.25×10¹⁵ *minor* units — 444× below what `DECIMAL(18,4)` holds. The
+materializer still checks each block and reports `CK-E020` rather than letting
+DuckDB decide, because "unreachable" is a claim and this one is worth a test
+(`test_decimal_18_4_can_hold_every_value_the_engine_can_produce`).
+
+### D-P8-08 · Facts go in column-wise; dimensions go in as literal SQL
+DuckDB's Python parameter binding costs the better part of a millisecond per
+*value*: `executemany` over 182,600 fact rows took 4.7 s, and one statement with
+1.3 million placeholders took 3.7 s — against a 200 ms budget (PRD §5.2). Two
+paths replaced it. The fact table is handed over as numpy int64 arrays through
+`register()` and joined to a tiny ordinal table, so no fact value is ever
+converted in Python. The dimension tables go in as literal SQL, with every
+literal rendered by `_literal` (strings quoted by doubling the quote, Decimals
+unquoted so DuckDB parses fixed-point, no rendering for `float` at all).
+
+One exception was forced by measurement: the *period* dimension is 1,826 rows of
+ten dates, and 18,260 `DATE` literals cost DuckDB's parser 130 ms — more than the
+entire fact table costs its executor. Periods therefore also go through
+`register()`, as `datetime64[s]` arrays cast to `DATE` on the way in
+(`datetime64[D]` is refused by DuckDB outright). Result: 122 ms for the whole
+PRD §5.2 shape, inside the budget.
+
+### D-P8-09 · `Table` is a dependency-free carrier, not a DataFrame
+PRD §6.2 and §6.4 type five methods `-> Table` without defining it. Adding
+pandas or polars to the core install to hand back seven columns would be a
+dependency an agent never asked for and a second money representation to police.
+`Table` is a frozen dataclass of `columns` and `rows` holding already-converted
+Python values — money as `Decimal` — and anyone who wants a DataFrame builds one
+in a line. It lives in `cashkit/model/` for the reason `reports.py` does
+(D-P5-15): both the stores and the SDK return it.
+
+### D-P8-10 · Synthetic items are materialized and flagged, never dropped
+`_tax:<regime>:*` carries real cash and `_event:<digest>` carries real ledger
+rows, so a frame that dropped them would not sum to the model. They are written
+with `synthetic=true` on the item dimension, and `frame(include_synthetic=False)`
+excludes them deliberately. The item dimension is built from
+`set(result.accrual) | set(book.items)` rather than from the book alone: an item
+with a column but no dimension row would be dropped by every join in the module,
+silently. This is the mirror image of D-P7-05 — the *engine's* book is the right
+input here, and the authored book is the right input there.
+
+### D-P8-11 · `summary()` is not behind the DuckDB extra
+PRD §8.2 gates "frame store, aggregation, Parquet export" on `cashkit[duckdb]`.
+"When do we run out of cash" is not any of those, and it is the question the
+system exists to answer, so `summary()` computes from the engine's int64 columns
+in `cashkit/sdk/views.py` with no `duckdb` and no `cashkit.stores` import —
+asserted structurally, because a convenience import would silently make the core
+install unable to answer it.
+
+The auto-derived balance is `opening_balance + cumulative cash over every
+non-stock item`, which is the `net[t]` fold of PRD §5.1 and is well-defined for
+any book; `balance="<item_id>"` reads a designated balance item instead, and the
+two are asserted equal on a book that models the balance with `prev()`. Stated
+plainly in the docstring rather than hidden: the auto derivation counts a derived
+item that re-aggregates settled items and carries its own settlement **twice**,
+because as the book is written that is two cash legs. `balance_source` is on the
+result so no reader has to guess which derivation produced the number.
+
+### D-P8-12 · Min cash and runway are read at base grain, whatever grain is reported
+A trough that opens and closes inside one month is invisible in the month's
+closing balance, and it is exactly the trough that empties an account. `min_cash`
+and `runway_end` are therefore always computed over the base-grain series even
+when `grain=MONTH` is reported; only `breakeven` is grain-relative, because
+"is the business sustainably cash-positive" is genuinely a question about the
+reporting period. The test asserts that the tidy bucket-close answer would have
+been *later* than the reported one for the fixture book, so this is a statement
+about behaviour and not a tautology.
+
+### D-P8-13 · A pivot puts untagged items in an explicit `(untagged)` column
+`pivot(columns="tag:customer")` on a book where some items carry no `customer`
+tag has to do something with them. Dropping them makes the pivot's columns fail
+to sum back to the frame — a quiet way to lose money in a view an agent will
+present as a summary. They go into a column named `(untagged)`, and the test
+asserts the columns reconcile to the frame total.
+
+### D-P8-14 · `compare` reports `None`, not zero, for a period a run does not cover
+Runs with different horizons align on the period, and a period one run never
+evaluated is not a period where it produced zero. Zero would be a number someone
+could sum.
+
+### D-P8-15 · `duckdb` joins the dev dependency group
+The Phase 8 gate is about aggregation, tag slicing and a Parquet round trip;
+none of it is provable with the extra uninstalled, and a gate that skips is not
+a gate. `duckdb` stays an *optional* runtime extra per PRD §8.2 and becomes a
+required *development* one. `pyarrow` was deliberately not added: DuckDB reads
+and writes Parquet natively, so the export path has no second library in it.

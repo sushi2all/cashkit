@@ -11,6 +11,7 @@ the SDK return them and neither may depend on the other.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 
@@ -34,6 +35,7 @@ __all__ = [
     "ItemDiff",
     "ParamDiff",
     "Provenance",
+    "RunSummary",
     "ScenarioDiff",
 ]
 
@@ -96,6 +98,41 @@ class ImportReport(ChangeReport):
 # --------------------------------------------------------------------------- #
 # Scenario results (PRD §6.3)
 # --------------------------------------------------------------------------- #
+
+
+class RunSummary(CashKitModel):
+    """The headline numbers of one run (PRD §6.4).
+
+    Every figure is derived from int64 minor units and returned as an exact
+    ``Decimal`` at 4 dp — the summary is the number a founder reads before
+    deciding whether to keep a company alive, so it is not allowed to be a
+    rounded rendering of something else.
+
+    ``balance_source`` names how the cash balance series was derived, because
+    "when do we run out of cash" has no meaning until that is stated.
+    """
+
+    book_id: str
+    grain: str
+    balance_source: str
+    periods: int = Field(ge=0)
+    opening_balance: Decimal
+    closing_balance: Decimal
+    min_cash: Decimal
+    min_cash_period: date | None = None
+    #: Index and start date of the first period whose closing balance is
+    #: negative — "when do we run out of cash". ``None`` when it never happens
+    #: inside the horizon, which is not the same as "never".
+    runway_periods: int | None = None
+    runway_end: date | None = None
+    #: First period from which net cash flow is non-negative and stays that way
+    #: for the rest of the horizon. ``None`` when no such period exists.
+    breakeven_period: date | None = None
+    total_inflow: Decimal
+    total_outflow: Decimal
+    net_cash: Decimal
+    total_accrual: Decimal
+    diagnostics: tuple[Diagnostic, ...] = ()
 
 
 class FieldOrigin(CashKitModel):
