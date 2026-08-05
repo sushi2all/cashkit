@@ -24,9 +24,11 @@ from cashkit.model import CalendarSpec, Grain, PeriodRange, Recurrence
 
 __all__ = [
     "BusinessCalendar",
+    "GRAIN_COLUMN",
     "PeriodIndex",
     "add_duration",
     "add_months",
+    "bucket_of",
     "month_length",
     "occurrence_dates",
     "parse_duration",
@@ -266,6 +268,60 @@ class PeriodIndex:
         if day.day != month_length(day.year, day.month):
             return False
         return (day.month - self.fiscal_year_start_month) % 3 == 2
+
+
+# --------------------------------------------------------------------------- #
+# Aggregation buckets (Phase 8)
+# --------------------------------------------------------------------------- #
+
+#: Short name of each grain's bucket, used by the frame store's period
+#: dimension. Kept here, next to ``PeriodIndex.is_quarter_end``, because both
+#: state the same fiscal convention and a second statement of it elsewhere is
+#: exactly how the two would drift apart.
+GRAIN_COLUMN = {
+    Grain.DAY: "day",
+    Grain.WEEK: "week",
+    Grain.MONTH: "month",
+    Grain.QUARTER: "quarter",
+    Grain.YEAR: "year",
+}
+
+
+def bucket_of(day: date, grain: Grain, fiscal_year_start_month: int = 1) -> tuple[date, date]:
+    """Return the half-open ``[start, end)`` bucket of ``grain`` containing ``day``.
+
+    Buckets are **calendar-aligned**, not horizon-aligned: a month is a calendar
+    month, and quarters and years follow ``fiscal_year_start_month`` exactly as
+    :meth:`PeriodIndex.is_quarter_end` and the VAT return periods do. Weeks
+    start on Monday, matching the ``date.weekday()`` numbering used throughout
+    (DECISIONS C-P1-01). Buckets are not clipped to the horizon: the bucket
+    identifies the calendar period, and a partial one at either edge is
+    information, not an error.
+
+    This is aggregation of a frame to a coarser grain, which is a different job
+    from :meth:`PeriodIndex.build`'s partitioning of a horizon into base-grain
+    periods — that one steps from the horizon start, because the base grain
+    defines the model's own periods rather than describing a calendar.
+
+    Returns ``(start, end)`` with ``end`` exclusive. Raises ``ValueError`` for an
+    unknown grain (programmer error); produces no diagnostics.
+    """
+    if grain is Grain.DAY:
+        return day, day + timedelta(days=1)
+    if grain is Grain.WEEK:
+        start = day - timedelta(days=day.weekday())
+        return start, start + timedelta(days=7)
+    first_of_month = date(day.year, day.month, 1)
+    if grain is Grain.MONTH:
+        return first_of_month, add_months(first_of_month, 1)
+    offset = (day.month - fiscal_year_start_month) % 12
+    if grain is Grain.QUARTER:
+        start = add_months(first_of_month, -(offset % 3))
+        return start, add_months(start, 3)
+    if grain is Grain.YEAR:
+        start = add_months(first_of_month, -offset)
+        return start, add_months(start, 12)
+    raise ValueError(f"unknown grain {grain!r}")
 
 
 # --------------------------------------------------------------------------- #
