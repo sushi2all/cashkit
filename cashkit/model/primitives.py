@@ -38,6 +38,7 @@ __all__ = [
     "CountryCode",
     "CurrencyCode",
     "Diagnostic",
+    "DiagnosticSubject",
     "Duration",
     "Escalation",
     "EventId",
@@ -68,6 +69,21 @@ IDENT_RE = r"[a-z][a-z0-9_]*"
 FILE_IDENT_RE = r"[a-z][a-z0-9_-]*"
 
 ItemId = Annotated[str, Field(pattern=rf"^{IDENT_RE}$", max_length=64)]
+
+#: Ids the engine synthesizes for items no one authored: a tax regime's
+#: ``_tax:<regime>:liability`` and ``_tax:<regime>:credit`` (ADR-0005) and the
+#: carriers that hold unattached ledger events. Deliberately outside
+#: :data:`ItemId` — an authored id must start with a lowercase letter, so
+#: collision is structurally impossible.
+SYNTHETIC_ID_RE = rf"_{IDENT_RE}(?::[a-z0-9_]+)+"
+
+#: What a ``Diagnostic`` may name. Wider than :data:`ItemId` because a
+#: diagnostic about a synthetic item must be *reportable*: refusing to build it
+#: would raise an exception out of the engine on book content, which the error
+#: policy forbids (PRD §6.5).
+DiagnosticSubject = Annotated[
+    str, Field(pattern=rf"^(?:{IDENT_RE}|{SYNTHETIC_ID_RE})$", max_length=128)
+]
 ParamKey = Annotated[str, Field(pattern=rf"^{IDENT_RE}$", max_length=64)]
 TagKey = Annotated[str, Field(pattern=rf"^{IDENT_RE}$", max_length=64)]
 #: Tag values must contain no whitespace and no ``:`` so that every authored
@@ -338,7 +354,7 @@ class Diagnostic(CashKitModel):
 
     severity: Literal["error", "warning", "info"]
     code: str = Field(pattern=r"^CK-[EWI][0-9]{3}$")
-    item_id: ItemId | None = None
+    item_id: DiagnosticSubject | None = None
     field: str | None = None
     message: str
     suggested_fix: str

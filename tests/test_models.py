@@ -17,6 +17,7 @@ from cashkit.model import (
     Amount,
     Book,
     CalendarSpec,
+    Diagnostic,
     DueTerm,
     Escalation,
     Event,
@@ -29,6 +30,7 @@ from cashkit.model import (
     Settlement,
     VatSpec,
     Watermark,
+    make_diagnostic,
 )
 
 
@@ -260,3 +262,34 @@ class TestStructural:
         downside = Scenario(id="downside", parent="base")
         assert type(base) is type(downside)
         assert base.parent is None
+
+
+class TestDiagnosticSubject:
+    """A diagnostic must be able to name the items the engine synthesizes.
+
+    ``_tax:<regime>:liability`` (ADR-0005) and the carriers holding unattached
+    ledger events sit outside the authored ``ItemId`` grammar on purpose, so
+    that no book can collide with them. A ``Diagnostic`` that refused to name
+    one would raise out of the engine on book content — precisely what the
+    errors-are-data policy forbids (DECISIONS D-P6-08).
+    """
+
+    def test_synthetic_ids_are_nameable(self) -> None:
+        for item_id in (
+            "_tax:vat:liability",
+            "_tax:vat:credit",
+            "_event:0f1e2d3c4b5a6978",
+            "ordinary_item",
+        ):
+            assert make_diagnostic("CK-W004", item_id=item_id).item_id == item_id
+
+    def test_garbage_ids_are_still_refused(self) -> None:
+        for item_id in ("Has Spaces", "UPPER", "_no_colon", "trailing:", "9leading"):
+            with pytest.raises(ValidationError):
+                Diagnostic(
+                    severity="error",
+                    code="CK-E001",
+                    item_id=item_id,
+                    message="m",
+                    suggested_fix="f",
+                )
