@@ -144,6 +144,30 @@ class RunRef:
         """The run's diagnostics. No diagnostics of its own."""
         return self.result.diagnostics
 
+    def trace(self, item: ItemId, period, *, measure: str = "accrual", depth: int = 3):
+        """Explain one cell of this run — see :func:`cashkit.sdk.trace`."""
+        from .introspection import trace as _trace
+
+        return _trace(self, item, period, measure=measure, depth=depth)
+
+    def why_zero(self, item: ItemId, period, *, measure: str = "cash"):
+        """Explain a zero cell — see :func:`cashkit.sdk.why_zero`."""
+        from .introspection import why_zero as _why_zero
+
+        return _why_zero(self, item, period, measure=measure)
+
+    def depends_on(self, item: ItemId, *, depth: int = 0):
+        """What this item reads — see :func:`cashkit.sdk.depends_on`."""
+        from .introspection import depends_on as _depends_on
+
+        return _depends_on(self, item, depth=depth)
+
+    def dependents_of(self, item: ItemId, *, depth: int = 0):
+        """What reads this item — see :func:`cashkit.sdk.dependents_of`."""
+        from .introspection import dependents_of as _dependents_of
+
+        return _dependents_of(self, item, depth=depth)
+
 
 @dataclass
 class CashKit:
@@ -329,6 +353,45 @@ class CashKit:
             engine=engine,
             revision=self.bound_to,
             policy=self.policy,
+        )
+
+    # -- introspection ------------------------------------------------------ #
+
+    def validate(self, scenario_id: ScenarioId = BASE_SCENARIO) -> list[Diagnostic]:
+        """Every diagnostic this book's state produces (PRD §6.1).
+
+        Validates the **resolved** scenario against the ledger sequence that
+        scenario sees, so ``CK-W003`` (an actual dated on or after cutover) and
+        ``CK-E018`` (an event on an item that cannot carry it) are visible —
+        both are statements about the book and the ledger together. Resolution's
+        own diagnostics are folded in, so a broken chain is reported rather than
+        validated around.
+
+        Returns the diagnostics sorted errors-first. See
+        :func:`cashkit.sdk.validate` for the full list of codes.
+        """
+        from .validation import validate as _validate
+
+        resolution = self.scenarios.resolution(scenario_id)
+        events, event_diagnostics = self.events_for(scenario_id)
+        found = list(resolution.diagnostics) + list(event_diagnostics)
+        found.extend(_validate(resolution.book, events=events, policy=self.policy))
+        return found
+
+    def describe_book(self, scenario_id: ScenarioId = BASE_SCENARIO):
+        """Schema, items, measures, params and query vocabulary (PRD §6.5).
+
+        Describes the **resolved** scenario, because that is the book a query
+        would run against. Returns a
+        :class:`~cashkit.model.BookDescription`; produces no diagnostics.
+        """
+        from .introspection import describe_book as _describe
+
+        return _describe(
+            self.scenarios.resolution(scenario_id).book,
+            scenarios=tuple(sorted(self.scenarios.scenarios)),
+            rounding_policy=self.policy.value,
+            schema_version=SCHEMA_VERSION,
         )
 
     # -- version control ---------------------------------------------------- #

@@ -9,6 +9,18 @@ from .book import Book
 from .canonical import from_canonical_yaml, to_canonical_yaml
 from .diagnostics import CATALOGUE, DiagnosticSpec, make_diagnostic
 from .event import Event
+from .introspection import (
+    ArithmeticStep,
+    Binding,
+    BookDescription,
+    DependencyGraph,
+    Explanation,
+    GraphEdge,
+    GraphNode,
+    ItemDescription,
+    PivotVocabulary,
+    Trace,
+)
 from .item import Item, Recurrence, Segment
 from .reports import (
     ChangeReport,
@@ -48,11 +60,15 @@ from .tax import TaxRegime, VatSpec
 
 __all__ = [
     "Amount",
+    "ArithmeticStep",
+    "Binding",
     "Book",
+    "BookDescription",
     "CATALOGUE",
     "CalendarSpec",
     "CashKitModel",
     "ChangeReport",
+    "DependencyGraph",
     "Diagnostic",
     "DiagnosticSpec",
     "DueTerm",
@@ -62,10 +78,14 @@ __all__ = [
     "EventId",
     "EventOverlay",
     "EventRef",
+    "Explanation",
     "FieldOrigin",
     "Grain",
+    "GraphEdge",
+    "GraphNode",
     "ImportReport",
     "Item",
+    "ItemDescription",
     "ItemDiff",
     "ItemId",
     "ItemOverlay",
@@ -74,6 +94,7 @@ __all__ = [
     "ParamDiff",
     "PeriodRange",
     "PeriodRef",
+    "PivotVocabulary",
     "Provenance",
     "Recurrence",
     "Reproduction",
@@ -86,6 +107,7 @@ __all__ = [
     "SparseOverlay",
     "Table",
     "TaxRegime",
+    "Trace",
     "VatSpec",
     "Watermark",
     "WorkingState",

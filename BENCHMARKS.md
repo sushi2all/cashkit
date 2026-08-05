@@ -339,6 +339,45 @@ would report a hand reformat as a change (Phase 9 gate 2). 126 ms to tell an
 agent the truth instead of 1 ms to tell it something misleading is not a
 trade worth revisiting.
 
+## Phase 10 — Introspection and CLI
+
+Same machine and book: M3 Pro, Python 3.13, 50 items x 1,826 day-grain periods.
+Best of five (three for the ones that run the engine).
+
+| Path | Measured |
+|---|---|
+| `trace(depth=3)` on a derived cell | 2.1 ms |
+| `trace(depth=3)` on a generated cell | 0.08 ms |
+| `why_zero()` | 0.01 ms |
+| `depends_on()` over the whole cone | 4.5 ms |
+| `describe_book()` (50 items) | 0.2 ms |
+| `validate()` (runs the engine) | 17 ms |
+| `cashkit doctor --json` (process-internal) | 136 ms |
+| `cashkit run base --json` | 85 ms |
+
+`describe_book()` serializes to **16 KiB** of JSON for a 50-item book — small
+enough to hand a model whole, which is what it is for.
+
+The two numbers worth explaining:
+
+**`validate()` costs a full run (17 ms), and that is the design.** It re-uses
+the engine rather than re-deriving compile-time diagnostics, so a validator that
+disagreed with the run about whether a formula is broken is not a reachable
+state. A hand-written second implementation would be faster and would drift —
+the failure the dual-engine gate exists to prevent, in a place where the drift
+would look like reassurance.
+
+**A derived `trace()` costs 25x a generated one** because it walks the
+expression tree and re-evaluates every node through the engine's own scalar
+kernel, once per node, to report the value the engine actually got. Rendering
+the arithmetic from a cached column would be free and would be a paraphrase.
+2 ms is well inside a UI click budget (ADR-0013 makes this the primary
+interaction primitive), so there is nothing to buy by trading accuracy for it.
+
+The CLI numbers are dominated by process-level work the SDK also pays:
+`doctor` opens the book, reads the revision head and walks the history, so its
+136 ms is 60 ms of YAML parsing plus a `status()` comparison.
+
 | Measure | Value |
 |---|---|
-| Full suite, Phases 1-9 (919 tests) | 22 s |
+| Full suite, Phases 1-10 (1,007 tests) | 31 s |

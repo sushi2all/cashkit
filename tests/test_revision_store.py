@@ -29,7 +29,6 @@ import pytest
 import yaml
 
 import cashkit
-from cashkit.model import Scenario
 from cashkit.sdk.kit import CashKit
 from cashkit.stores import revisions as revisions_module
 from cashkit.stores.config import (

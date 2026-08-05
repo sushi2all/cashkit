@@ -927,15 +927,53 @@ def _sdk_sources() -> list[Path]:
     return paths
 
 
+#: The modules that can write an overlay. Phase 10 added read-only modules that
+#: legitimately walk a segment list — ``trace()`` must be able to explain
+#: "12 000 x 1.03^2 x 0.9" (ADR-0013), and ``validate()`` must be able to check
+#: every authored amount's sign — so the positional-patching guard is scoped to
+#: the write path and paired with
+#: :func:`test_only_the_overlay_writers_can_construct_an_item_overlay`, which
+#: proves that scope is the whole of it.
+_OVERLAY_WRITERS = ("scenarios.py", "macros.py", "kit.py")
+
+
+def _overlay_write_sources() -> list[Path]:
+    paths = [path for path in _sdk_sources() if path.name in _OVERLAY_WRITERS]
+    assert len(paths) == len(_OVERLAY_WRITERS), "overlay-writer discovery is broken"
+    return paths
+
+
+def test_only_the_overlay_writers_can_construct_an_item_overlay() -> None:
+    """The scope of the positional-patching guard is the whole write path.
+
+    If a module outside ``_OVERLAY_WRITERS`` ever builds an ``ItemOverlay``, the
+    guard below stops covering everything it claims to, and this fails first.
+    """
+    builders = []
+    for path in _sdk_sources():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "ItemOverlay"
+            ):
+                builders.append(path.name)
+    assert set(builders) <= set(_OVERLAY_WRITERS), sorted(set(builders))
+
+
 def test_segments_is_never_patched_positionally() -> None:
     """Non-negotiable #8, proved for inputs no test thought of.
 
     An overlay's ``segments`` is recorded whole or not at all. The failure this
     guards is a merge routine that indexes into the parent's list — the exact
-    list-merge semantics PRD D5 says these systems die of.
+    list-merge semantics PRD D5 says these systems die of. Scoped to the modules
+    that can write an overlay: reading a segment list to *explain* it is what
+    ``trace()`` exists for, and banning that would ban the feature ADR-0013
+    requires.
     """
     violations: list[str] = []
-    for path in _sdk_sources():
+    for path in _overlay_write_sources():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Subscript) and _names_segments(node.value):

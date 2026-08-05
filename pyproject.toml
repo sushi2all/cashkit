@@ -14,6 +14,9 @@ dependencies = [
     "holidays>=0.40",
 ]
 
+[project.scripts]
+cashkit = "cashkit.cli:main"
+
 [project.optional-dependencies]
 duckdb = ["duckdb>=1.5"]
 git = ["pygit2>=1.14"]

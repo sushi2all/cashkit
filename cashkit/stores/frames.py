@@ -238,6 +238,17 @@ class DuckdbFrameStore:
         """Close the connection. No diagnostics."""
         self._db.close()
 
+    def serve_quack(
+        self, *, host: str = "127.0.0.1", port: int = 8080, token: str = ""
+    ) -> tuple[bool, str]:
+        """Expose this store read-only over Quack — experimental (PRD §8.6).
+
+        Delegates to :func:`_quack_start`. Returns ``(started, reason)``; a build
+        without Quack support reports why rather than raising, because gating an
+        experimental protocol is only useful if the refusal is legible.
+        """
+        return _quack_start(self.path, host=host, port=port, token=token)
+
     def __enter__(self) -> "DuckdbFrameStore":
         return self
 
@@ -944,3 +955,33 @@ def _literal(value: object) -> str:
 
 def _quote(value: str) -> str:
     return value.replace("'", "''")
+
+
+def _quack_start(
+    database: str | Path, *, host: str, port: int, token: str
+) -> tuple[bool, str]:
+    """Start DuckDB's Quack server over ``database``, read-only (PRD §8.6).
+
+    **Experimental and not load-bearing.** Quack is ``core_nightly`` until
+    DuckDB v2.0 (PRD §3.4), so this reports why it could not start rather than
+    raising, and no workflow in CashKit depends on it — Parquet export is the
+    stable sharing path. Lives here because it is the only module allowed to
+    speak to DuckDB; the CLI calls it and never imports the driver.
+
+    Returns ``(started, reason)``. Produces no diagnostics.
+    """
+    connection = duckdb.connect(str(database), read_only=True)
+    try:
+        connection.execute("INSTALL quack")
+        connection.execute("LOAD quack")
+        connection.execute(
+            "CALL quack_start(host := ?, port := ?, token := ?)", [host, port, token]
+        )
+    except Exception as exc:  # duckdb raises several unrelated types here
+        return False, (
+            f"this DuckDB build ({duckdb.__version__}) cannot serve Quack: {exc}. "
+            "Quack is core_nightly until DuckDB v2.0; export Parquet instead."
+        )
+    finally:
+        connection.close()
+    return True, ""

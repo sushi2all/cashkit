@@ -308,11 +308,11 @@ CATALOGUE: Mapping[str, DiagnosticSpec] = {
         _spec(
             "CK-W004",
             "warning",
-            "Withholding in use but no cat:tax item covers the remittance "
-            "counter-leg",
-            "Withholding reduces one cash leg only. Add a manual item tagged "
-            "cat:tax for the F24 remittance (payer side) or the tax credit "
-            "(payee side).",
+            "Withholding in use but no cat:tax item covers the counter-leg",
+            "Withholding reduces one cash leg only; the engine does not generate "
+            "the other side. Model the counter-leg — the remittance when you "
+            "withhold, the credit when someone withholds from you — as an item "
+            "tagged cat:tax.",
         ),
         _spec(
             "CK-W005",
@@ -350,9 +350,9 @@ CATALOGUE: Mapping[str, DiagnosticSpec] = {
             "CK-I001",
             "info",
             "A TaxRegime is present but no non-VAT cat:tax items exist",
-            "A real entity owes more than VAT (IRES/IRAP advances, INPS, TFR...). "
-            "Model them as manual items tagged cat:tax, per the tax-handling "
-            "checklist, and state coverage explicitly in any forecast summary.",
+            "The engine schedules only what a TaxRegime accumulates. Any other "
+            "obligation is modelled as an ordinary item tagged cat:tax; which "
+            "ones apply is a question about the entity, not about the engine.",
         ),
         _spec(
             "CK-I002",

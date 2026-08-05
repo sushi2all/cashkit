@@ -1370,3 +1370,184 @@ git store, and a gate that skips because an extra is uninstalled is not a gate.
 becomes a required development one. The seam means a book with no revision store
 is still usable — `CashKit` takes `revisions=` — but v1 ships exactly one
 implementation, so the tests must run it.
+
+## Phase 10 — Introspection and CLI (Session S5)
+
+### D-P10-01 · `validate()` runs the engine rather than re-deriving its diagnostics
+An agent is told to run `validate()` after any structural change and before any
+commit (PRD §9.3 rule 3), so it has to say everything a run would say. Two ways:
+re-implement the compile-time and expansion-time checks, or run the engine and
+harvest its diagnostics.
+
+Re-implementation is the drift the dual-engine gate exists to prevent, in the
+worst possible place: a validator that said a formula was fine while the run
+refused it would be reassurance rather than information. So `validate()` runs
+the engine — 17 ms on the 50-item benchmark book — and adds only what a run has
+no reason to check: `CK-E011` (an amount whose sign contradicts `direction`) and
+`CK-E012` (a generative stock). Both are authoring rules the engine is
+deliberately indifferent to, because storage is signed and `direction` is
+display-only, which is exactly why an agent authoring rent as positive/"out"
+silently creates an inflow.
+
+### D-P10-02 · The catalogue is partitioned three ways, and the partition is a test
+A diagnostic nothing emits is a promise nothing keeps. Every §10.1 code is now
+classified as *validate-time* (a property of a book), *operation-time* (an
+outcome of a call — an import conflict, a held lock, an unresolvable ref) or
+*construction-time* (rejected structurally by the model layer, so a constructed
+`Book` cannot carry it — `CK-E007`, `CK-E009`, per D-P1-07). The three sets are
+asserted to be disjoint and to cover the catalogue exactly, so a code cannot
+quietly become unreachable and a new code cannot be added without someone saying
+where it comes from. `OPERATION_TIME_CODES` names the call, not just the fact.
+
+### D-P10-03 · One modelling mistake gets one code
+A `kind="stock"` item carrying segments trips both `CK-E012` ("generative item
+with kind='stock'") and the compiler's `CK-E003` ("a formula-valued kind must
+have no segments"). Both are true; reporting both reads as two mistakes and
+sends a reader looking for a second problem. `validate()` suppresses the
+`CK-E003`-on-`segments` for an item already reported as `CK-E012`. The dedup
+lives in `validate()` and not in the engine, so the engine's contract is
+untouched and the dual-engine comparison still sees what it always saw.
+
+### D-P10-04 · A trace's value is the engine's; the arithmetic is evaluated, not paraphrased
+`Trace.value` is read straight out of the run's int64 column. For a derived cell
+the sub-expressions are evaluated with the engine's own `ColumnEvaluator` over a
+one-period window (`scalar=True`) — the same code path the fold uses — so a
+traced sub-expression cannot disagree with the run about what it computed. It
+costs 2 ms per cell against 0.08 ms for reading a cached column, which is
+nothing against a UI click budget and buys the property that makes the output
+worth reading.
+
+A generative cell has no expression, so its steps *are* a second rendering of
+the canonical rounding order (ADR-0003). That is the one place a second
+implementation exists, so `Trace.reconciles` compares the steps' total back to
+the engine's cell and the gate asserts it holds for 1,100 sampled cells of the
+50-item fixture, both measures. Drift is made visible rather than left to be
+noticed.
+
+### D-P10-05 · Every field of a `Trace` is populated; there is no `None` to interpret
+ADR-0013 makes `trace()` the primary UI interaction primitive and says a gap is
+a Phase 10 defect, not a UI workaround. Optional fields would push that gap onto
+every caller, so every field is non-optional with a meaningful empty value: a
+generative cell reports a *rendering of its generator* rather than a null
+`formula` ("segments[0].amount x (1 + 0.03)^2"), a cell with no bindings reports
+an empty tuple, a trace that hit its depth limit reports `truncated=True` rather
+than looking like a leaf, and `ArithmeticStep.rounding` says `"none (exact)"`
+rather than being blank — "no rounding happened" and "nobody said" must not look
+the same.
+
+`render_expr()` exists for the same reason and is proved to **re-parse to the
+same tree**: a trace that quoted a paraphrase would be lying in the one place a
+reader is entitled to trust.
+
+### D-P10-06 · `why_zero()` answers "not zero", and lists the causes that are also true
+PRD §6.5 names five causes. Two additions, both because the alternative is a
+worse answer:
+
+- A cell that is **not zero** answers `"not_zero"` rather than being forced into
+  one of the five. Inventing a cause for a question that does not apply is the
+  guess this system is built to refuse.
+- Causes that are *also* true go in `also`. A January cell of a contract that
+  starts in March is both pre-cutover and outside every segment; reporting only
+  the first would make the fix look smaller than it is, and the user would fix
+  cutover and still see zero.
+
+Cause order is fixed: cutover suppression first (it overrides everything
+downstream of it), then segment coverage, then probability, then the settlement
+leg, then upstream propagation.
+
+### D-P10-07 · `describe_book()` enumerates rather than describes
+The gate is "a fresh agent, given only that output, writes a working `pivot()`
+call with no invalid field names", which is only checkable if the description
+*lists* the legal values instead of explaining them. `PivotVocabulary` therefore
+carries exactly the `index` / `columns` / `values` arguments
+`FrameStore.pivot()` accepts on **this** book — `tag:<key>` entries exist only
+for tag keys the book actually uses — and the gate is tested in both directions:
+an agent simulator that sees only the serialized JSON builds every call the
+vocabulary licenses and they all run, and every field name outside it is
+rejected by the store. A description that omitted a legal value fails the first;
+one that invented an illegal value fails the second.
+
+Same reasoning for tag values, selector examples (each asserted to match at
+least one item), frame columns, summary fields, measures, grains and statuses.
+16 KiB of JSON for a 50-item book — small enough to hand a model whole.
+
+### D-P10-08 · The CLI emits money as a decimal string, never a JSON number
+`json.dumps` has no float-free default for `Decimal`, and `float(value)` at the
+one boundary where a number leaves the system for a human to read would undo the
+entire no-float discipline in the least visible place. Every money value in
+every `--json` payload is its exact decimal string, asserted by a walk over the
+output of every command looking for a Python `float`. `--json` is on every
+command rather than only on `doctor` (PRD §8.4 requires it there): the human
+rendering is a view of the same structure, never a second story that could
+disagree with it.
+
+### D-P10-09 · `cashkit serve --quack` refuses by default, and the refusal is structured
+PRD §3.4 says Quack is `core_nightly` until DuckDB v2.0 and that no workflow may
+depend on it. The flag (`CASHKIT_ENABLE_QUACK=1` or `--enable-experimental`) is
+off by default and the refusal names the stable alternative — Parquet export —
+in a machine-parseable payload, because a gate on an experimental protocol is
+only useful if the refusal is legible to the caller. With the flag on, the
+refusal comes from DuckDB rather than from the flag, and it is still a report
+rather than a traceback.
+
+The Quack call itself lives in `stores/frames.py`, not in the CLI: exposing a
+frame store over a wire is a frame-store operation, and the CLI importing
+`duckdb` would have broken the "only the frame store imports duckdb" guarantee
+that makes `FrameStore` a real seam (D-P8-01). The import is local to the
+command so `cashkit doctor` still runs with no extras installed — which it must,
+since reporting the extras is half its job.
+
+### D-P10-10 · The positional-segment-patching guard is scoped to the write path
+Phase 7's structural test walked every `sdk/` module for `segments[...]`,
+`zip(segments)` and `enumerate(segments)`. Phase 10 adds two modules that
+legitimately read a segment list: `trace()` must be able to explain
+"12 000 x 1.03² x 0.9" (ADR-0013 requires exactly this), and `validate()` must
+check every authored amount's sign.
+
+The guard's target is a *merge routine*, so it is now scoped to the modules that
+can write an overlay — and paired with a new test proving that scope is the
+whole of it: only `scenarios.py`, `macros.py` and `kit.py` may construct an
+`ItemOverlay`, so a merge cannot be written anywhere the guard does not look.
+Weakening the sweep without that second test would have been a real loss of
+coverage; with it, the guard is the same strength over a smaller, provably
+complete surface.
+
+### D-P10-11 · `cashkit init` resolves the holiday set at creation, in the CLI
+ADR-0010 makes `CalendarSpec.holidays` a resolved, committed list and the
+`holidays` package a seed the runtime never consults. Something has to do the
+seeding, and it cannot be `engine/` or `model/` (both are lint-fenced against
+exactly this kind of environment read). It lives in `cli/main.py`, where book
+creation happens, and resolves only the horizon's own years. An unknown country
+code returns an empty list rather than failing book creation: the absence is
+visible in the committed calendar, and refusing to create a book over a
+holiday-table lookup would be the wrong trade.
+
+### D-P10-12 · Phase 10 ships **no** tax-coverage diagnostics (ADR-0021)
+ADR-0020 specified `CK-I010` … `CK-I015`, one info diagnostic per non-native tax
+mechanic (IRES/IRAP, INPS/INAIL, TFR, acconto IVA, tax credits, instalment
+plans), detected from tags, plus a rendered coverage statement. They were
+implemented and then **removed** before this phase's gate commit, on a scope
+ruling recorded in ADR-0021: all domain *content* — enumerated mechanics,
+jurisdiction checklists, anything Italy-specific — belongs to applications built
+on the SDK, not to the engine. CashKit core is a calculation engine.
+
+What was removed: the six catalogue codes, `COVERAGE_MECHANICS` and the tag
+vocabulary, `tax_coverage()`, `TaxCoverage` / `CoverageLine`,
+`BookDescription.tax_coverage_tags`, `CashKit.tax_coverage()` and
+`cashkit validate --coverage`.
+
+What stayed, and why it is not the same thing: `CK-W004` (withholding in use
+with no `cat:tax` item covering the counter-leg) and `CK-I001` (a `TaxRegime`
+with no non-VAT `cat:tax` items) are §10.1 codes that predate this session, and
+both are statements about the **model** — a settlement term whose other leg the
+engine does not generate; a regime that schedules only what it accumulates —
+rather than about any jurisdiction's rules. Their wording did name Italian
+mechanics (IRES/IRAP/INPS/TFR, "F24"), which was the same content in a different
+place, so both `suggested_fix` strings were rewritten to be jurisdiction-free.
+A test now asserts that no catalogue entry names a jurisdiction mechanic, so the
+boundary is enforced rather than remembered.
+
+The argument ADR-0020 made — that a behavioural instruction to an agent is the
+weakest available mitigation — is not wrong, and it is not answered here. It is
+relocated: the check belongs in the layer that knows which entity, which country
+and which year, and that layer is not the engine.
