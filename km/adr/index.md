@@ -18,3 +18,9 @@ Numbered, append-only. Status: accepted unless noted.
 | [0012](0012-actual-corrections-append-only.md) | Actuals are correctable in the ledger, immutably; corrections are append-only | 2026-07-29 |
 | [0013](0013-ui-cell-semantics.md) | UI cell semantics: every cell edit resolves to a model mutation | 2026-08-04 |
 | [0014](0014-ui-delivery-post-v1.md) | UI delivery: post-v1, notebook spike then local web app, single-user local-first | 2026-08-04 |
+| [0015](0015-agent-is-a-command-interpreter.md) | The agent is a command interpreter over the SDK, not a financial advisor — *narrows PRD §9.3/§9.5/§9.6* | 2026-08-05 |
+| [0016](0016-engine-and-sdk-are-model-free.md) | The engine and SDK never call a model | 2026-08-05 |
+| [0017](0017-local-first-adoption-requirement.md) | Local-first is an adoption requirement: privacy-conscious host and offline mobile | 2026-08-05 |
+| [0018](0018-revision-store-is-an-interface.md) | The revision store is an interface; git is one implementation | 2026-08-05 |
+| [0019](0019-intent-grammar-agent-surface.md) | The agent surface is an enumerated intent grammar, not free-form SDK composition | 2026-08-05 |
+| [0020](0020-tax-coverage-as-diagnostic.md) | Non-native tax coverage is a deterministic diagnostic, not agent behaviour | 2026-08-05 |
