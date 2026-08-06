@@ -62,7 +62,10 @@ OPERATION_TIME_CODES: Mapping[str, str] = {
     "CK-E027": "a revision ref that does not resolve — CashKit.at / diff_revisions",
     "CK-E028": "a reproduction mismatch — CashKit.reproduce",
     "CK-E029": "no book at a path — CashKit.open",
-    "CK-E030": "a write on a revision-bound kit — CashKit.commit / discard",
+    "CK-E030": "a write on a revision-bound kit — CashKit.commit / discard / "
+    "the ledger writes",
+    "CK-E031": "a book already exists at a path — create_book",
+    "CK-E032": "an argument that cannot make a Book — create_book",
     "CK-W010": "a stale writer lock reclaimed — WriterLock.acquire",
     "CK-W011": "an engine-version move — CashKit.reproduce",
     "CK-I002": "a write that recorded nothing — every ChangeReport-returning call",

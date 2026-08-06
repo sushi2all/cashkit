@@ -281,6 +281,22 @@ CATALOGUE: Mapping[str, DiagnosticSpec] = {
             "containing .cashkit/.",
         ),
         _spec(
+            "CK-E031",
+            "error",
+            "A CashKit book already exists at {path}",
+            "PRD §9.6 rule 2: open the existing book instead of creating a "
+            "second one. Creating a book over a book would orphan its history, "
+            "which is the one thing no revision can undo.",
+        ),
+        _spec(
+            "CK-E032",
+            "error",
+            "Book creation refused: {reason}",
+            "Fix the argument the reason names. A book id matches "
+            "[a-z][a-z0-9_-]*, a horizon is [start, end) with start < end, and "
+            "money carries at most 4 decimal places.",
+        ),
+        _spec(
             "CK-W001",
             "warning",
             "Settlement remainder clamped to zero on item {item_id}: fixed terms "

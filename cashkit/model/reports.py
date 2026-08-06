@@ -20,6 +20,7 @@ from pydantic import Field
 from .primitives import (
     CashKitModel,
     Diagnostic,
+    DiagnosticSubject,
     EventId,
     FiniteDecimal,
     ItemId,
@@ -33,9 +34,12 @@ __all__ = [
     "FieldOrigin",
     "ImportReport",
     "ItemDiff",
+    "ItemRef",
     "OutcomeDiff",
     "ParamDiff",
     "Provenance",
+    "ReconciliationLine",
+    "ReconciliationReport",
     "Reproduction",
     "RevisionDiff",
     "RunSummary",
@@ -78,6 +82,24 @@ class ChangeReport(CashKitModel):
     def empty(self) -> bool:
         """True when nothing was recorded or created. No diagnostics."""
         return not self.changed and not self.created
+
+
+class ItemRef(ChangeReport):
+    """What ``add_item()`` / ``add_derived()`` recorded about one item (PRD §6.1).
+
+    PRD §6.1 types both as ``-> ItemRef`` and annotates ``add_item`` "validated;
+    returns diagnostics", so the reference and the diagnostics are one object:
+    an agent that has to fetch the item to discover it was refused has already
+    lost the loop §6.5 exists to enable.
+
+    ``created`` names the item when it was new to the book, ``changed`` the
+    fields whose authored value moved when it was not, and both are empty when
+    the write recorded nothing — either because the item was already exactly
+    this (``CK-I002``) or because it was refused (an error diagnostic). ``ok``
+    tells the two apart: ``ok`` means the book now holds the item as written.
+    """
+
+    item_id: ItemId
 
 
 class ImportReport(ChangeReport):
@@ -228,6 +250,69 @@ class ScenarioDiff(CashKitModel):
             or self.items
             or self.event_overrides
         )
+
+
+# --------------------------------------------------------------------------- #
+# Reconciliation (PRD §6.2)
+# --------------------------------------------------------------------------- #
+
+
+class ReconciliationLine(CashKitModel):
+    """One item's forecast, actual and drift over the reconciliation window.
+
+    ``item_id`` widens to :data:`DiagnosticSubject` because an actual that
+    references no ``Item`` lands on the engine's synthetic ``_event:<digest>``
+    carrier, and a reconciliation that could not name it would report the drift
+    without saying where it came from.
+
+    ``drift`` is ``actual - forecast``: positive means more cash arrived (or
+    less left) than the model generated for the same window.
+    """
+
+    item_id: DiagnosticSubject
+    forecast: Decimal
+    actual: Decimal
+    drift: Decimal
+
+
+class ReconciliationReport(CashKitModel):
+    """Actuals against what was forecast for the same window (PRD §6.2).
+
+    The window is ``[since, until]`` inclusive, with ``since`` defaulting to the
+    book's current ``cutover`` — the boundary from which generation is live and
+    the ledger's actuals apply alongside it (ADR-0004). Both sides are computed
+    by the engine over the same book, so the two numbers are commensurable: the
+    forecast side is a run with **no ledger at all**, the actual side a run over
+    the window's actuals with every generative segment stripped. Neither side is
+    a re-derivation — the canonical rounding order applies to both because both
+    went through the engine.
+
+    ``suggested_cutover`` is the day after ``until``: reconciling through
+    ``until`` means the ledger is the complete record up to and including it, so
+    generation should resume the following day. Feed it to ``set_cutover()``.
+    """
+
+    book_id: str
+    scenario: ScenarioId
+    #: The measure compared. ``"cash"`` — a reconciliation answers "did the bank
+    #: move the way the model said", and the bank moves cash.
+    measure: str = "cash"
+    since: date
+    until: date
+    suggested_cutover: date
+    #: One line per item on which either side is non-zero, item id order.
+    lines: tuple[ReconciliationLine, ...] = ()
+    forecast_total: Decimal = Decimal(0)
+    actual_total: Decimal = Decimal(0)
+    drift_total: Decimal = Decimal(0)
+    #: Ledger rows with ``status="actual"`` dated inside the window.
+    actual_events: int = Field(default=0, ge=0)
+    diagnostics: tuple[Diagnostic, ...] = ()
+
+    @property
+    def reconciled(self) -> bool:
+        """True when no line drifted at all. No diagnostics."""
+        return not any(line.drift for line in self.lines)
 
 
 # --------------------------------------------------------------------------- #

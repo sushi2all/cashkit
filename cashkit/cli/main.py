@@ -38,8 +38,8 @@ from pydantic import BaseModel
 
 import cashkit
 from cashkit.engine import ENGINE_VERSION
-from cashkit.model import Book, CalendarSpec, Diagnostic, Grain, PeriodRange
-from cashkit.sdk import CashKit
+from cashkit.model import CalendarSpec, Diagnostic, Grain, PeriodRange
+from cashkit.sdk import CashKit, create_book, resolve_holidays  # noqa: F401
 from cashkit.stores.config import SCHEMA_VERSION, EngineSettings, is_book_root
 
 __all__ = ["EXIT_DIAGNOSTIC", "EXIT_OK", "EXIT_USAGE", "QUACK_FLAG_ENV", "main"]
@@ -145,32 +145,6 @@ def _parse_money(text: str) -> Decimal:
     return value
 
 
-def resolve_holidays(country: str | None, horizon: PeriodRange) -> list[date]:
-    """Resolve a country's holidays for the whole horizon, once, at creation.
-
-    ADR-0010: ``CalendarSpec.holidays`` is a **resolved and committed** list;
-    the ``holidays`` package is a seed and the runtime never consults it, so a
-    version bump cannot change a historical run. Returns an empty list when no
-    country is given or the package does not know it — an unknown country is not
-    a reason to fail book creation, and the absence is visible in the committed
-    calendar. Produces no diagnostics.
-    """
-    if not country:
-        return []
-    try:
-        import holidays as holidays_package
-    except ImportError:  # pragma: no cover - the package is a core dependency
-        return []
-    years = range(horizon.start.year, horizon.end.year + 1)
-    try:
-        found = holidays_package.country_holidays(country, years=list(years))
-    except (KeyError, NotImplementedError):
-        return []
-    return sorted(
-        day for day in found if horizon.start <= day < horizon.end
-    )
-
-
 def _open(path: str, stream) -> CashKit | None:
     kit, diagnostics = CashKit.open(path)
     if kit is None:
@@ -184,30 +158,32 @@ def _open(path: str, stream) -> CashKit | None:
 
 
 def cmd_init(args: argparse.Namespace, out, err) -> int:
-    """Create the §3.3 layout, a base scenario and (unless refused) a commit."""
+    """Create the §3.3 layout, a base scenario and (unless refused) a commit.
+
+    Every model this command needs is built by ``create_book()`` (PRD §6.1): the
+    CLI is a caller of the SDK like any agent, and a second construction path
+    that happened to agree today is a second one that can stop agreeing.
+    """
     root = Path(args.path)
-    if is_book_root(root):
-        err.write(
-            f"A CashKit book already exists at {root}. §9.6 rule 2: load it, do "
-            "not create a second one.\n"
-        )
-        return EXIT_USAGE
-    book_id = args.id or _slug(root.name)
     horizon: PeriodRange = args.horizon
     cutover = args.cutover or horizon.start
-    book = Book(
-        id=book_id,
-        base_grain=Grain(args.grain),
-        calendar=CalendarSpec(
-            fiscal_year_start_month=args.fiscal_year_start,
-            country=args.calendar,
-            holidays=resolve_holidays(args.calendar, horizon),
-        ),
+    ref = create_book(
+        root,
+        id=args.id or _slug(root.name),
         horizon=horizon,
         opening_balance=args.opening_balance,
+        grain=Grain(args.grain),
+        calendar=CalendarSpec(
+            fiscal_year_start_month=args.fiscal_year_start, country=args.calendar
+        ),
         cutover=cutover,
+        settings=EngineSettings(),
     )
-    kit = CashKit.init(root, book, settings=EngineSettings())
+    if ref.kit is None:
+        _render_diagnostics(err, ref.diagnostics)
+        return EXIT_USAGE
+    kit = ref.kit
+    book = kit.book
     report = None
     if not args.no_commit:
         report = kit.commit(args.message, author=args.author)

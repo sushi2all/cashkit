@@ -749,6 +749,47 @@ class ScenarioSet:
         )
         return ChangeReport(target=new_id, created=(new_id,))
 
+    def set_book(self, **update: object) -> tuple[str, ...]:
+        """Replace fields of the **authored** book, reporting what actually moved.
+
+        The construction surface (PRD §6.1) writes here and nowhere else: base's
+        content is the top-level book (ADR-0007), so ``add_item``, ``set_param``,
+        ``retag``, ``add_tax_regime`` and ``set_cutover`` are all one operation —
+        replace a field of ``self.book`` — while ``set_item(scenario, …)`` writes
+        overlays. One write path, two storage locations, exactly as the §3.3
+        layout splits them.
+
+        Re-applies the two invariants ``model_copy`` skips: no engine-synthesized
+        item may enter the authored book (D-P5-09/D-P5-10), and every key in
+        ``items`` must equal its item's id. Both are programmer error and raise.
+
+        Returns the names of the fields whose value differs from the book's
+        current one — empty when nothing moved, in which case the book is left
+        untouched. Produces no diagnostics; the caller shapes the report.
+        """
+        moved = tuple(
+            sorted(name for name, value in update.items() if getattr(self.book, name) != value)
+        )
+        if not moved:
+            return ()
+        items = update.get("items")
+        if items is not None:
+            assert isinstance(items, dict)
+            synthetic = sorted(item_id for item_id in items if _SYNTHETIC.match(item_id))
+            if synthetic:
+                raise ValueError(
+                    "the authored book may not contain engine-synthesized items "
+                    f"{synthetic}; they are rebuilt on every compile "
+                    "(DECISIONS D-P5-09/D-P5-10)"
+                )
+            mismatched = sorted(key for key, item in items.items() if key != item.id)
+            if mismatched:
+                raise ValueError(
+                    f"items keys {mismatched} do not match their item.id"
+                )
+        self.book = self.book.model_copy(update=dict(update))
+        return moved
+
     def _replace(self, scenario: Scenario, **update: object) -> None:
         self.scenarios[scenario.id] = scenario.model_copy(update=update)
 

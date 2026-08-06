@@ -30,8 +30,10 @@ direction.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 from cashkit.engine import ENGINE_VERSION, Engine, RoundingPolicy, RunResult
 from cashkit.model import (
@@ -39,13 +41,18 @@ from cashkit.model import (
     ChangeReport,
     Diagnostic,
     Event,
+    EventId,
+    Item,
     ItemDiff,
     ItemId,
+    ItemRef,
     OutcomeDiff,
     ParamDiff,
+    ReconciliationReport,
     Reproduction,
     RevisionDiff,
     RunSummary,
+    TaxRegime,
     WorkingState,
 )
 from cashkit.model.diagnostics import make_diagnostic
@@ -262,6 +269,134 @@ class CashKit:
             ),
             problems,
         )
+
+    # -- construction (PRD §6.1) -------------------------------------------- #
+    #
+    # Thin delegates onto :mod:`cashkit.sdk.construction`, which owns the
+    # validation rules and the one write path onto the authored book. They live
+    # here for the same reason ``validate()`` and ``describe_book()`` do: the
+    # kit is the object an agent holds, and a surface split across two import
+    # sites is a surface an agent gets wrong.
+
+    def add_item(self, spec: Item) -> ItemRef:
+        """Add or re-author one item in the book — see :func:`cashkit.sdk.add_item`."""
+        from .construction import add_item as _add_item
+
+        return _add_item(self, spec)
+
+    def add_derived(
+        self, item_id: ItemId, formula: str, tags: Mapping[str, str] | None = None, **kwargs
+    ) -> ItemRef:
+        """Add a derived item, formula parsed and DAG-checked now — see
+        :func:`cashkit.sdk.add_derived`."""
+        from .construction import add_derived as _add_derived
+
+        return _add_derived(self, item_id, formula, tags, **kwargs)
+
+    def set_param(self, key: str, value: Decimal, note: str = "") -> ChangeReport:
+        """Set a named scalar on the book — see :func:`cashkit.sdk.set_param`."""
+        from .construction import set_param as _set_param
+
+        return _set_param(self, key, value, note)
+
+    def retag(self, selector: str, tags: Mapping[str, str]):
+        """Merge tags into every item a selector matches — see
+        :func:`cashkit.sdk.retag`."""
+        from .construction import retag as _retag
+
+        return _retag(self, selector, tags)
+
+    def add_tax_regime(self, regime: TaxRegime) -> ChangeReport:
+        """Add or replace a tax regime — see :func:`cashkit.sdk.add_tax_regime`."""
+        from .construction import add_tax_regime as _add_tax_regime
+
+        return _add_tax_regime(self, regime)
+
+    def set_cutover(self, day: date, note: str = "") -> ChangeReport:
+        """Move the last reconciled boundary — see :func:`cashkit.sdk.set_cutover`."""
+        from .construction import set_cutover as _set_cutover
+
+        return _set_cutover(self, day, note)
+
+    # -- ledger (PRD §6.2) --------------------------------------------------- #
+    #
+    # The store owns append-only-ness and ``UNIQUE(source, ext_id)``; these
+    # exist so a **revision-bound kit refuses to write**. ``at(ref)`` shares the
+    # live ledger object, so a write reached through ``kit.ledger`` would append
+    # to the present while reading the past — the one direction ADR-0006 has no
+    # defence against.
+
+    def add_event(self, event: Event) -> ChangeReport:
+        """Append one event to the ledger (PRD §6.2).
+
+        Returns the store's :class:`~cashkit.model.ChangeReport`. Diagnostics:
+        ``CK-E010`` for a taken ``(source, ext_id)``, ``CK-E015`` for a taken
+        id, ``CK-I002`` for an identical re-add, ``CK-E030`` on a
+        revision-bound kit.
+        """
+        return self._ledger_write("add_event", lambda store: store.add_event(event))
+
+    def import_events(self, rows: Iterable[Event], source: str) -> ChangeReport:
+        """Idempotent batch import keyed on ``(source, ext_id)`` (PRD §6.2).
+
+        Returns the store's :class:`~cashkit.model.ImportReport`; any conflict
+        aborts the whole batch (ADR-0008). Diagnostics: ``CK-E010``,
+        ``CK-E017``, ``CK-E030`` on a revision-bound kit.
+        """
+        return self._ledger_write(
+            source, lambda store: store.import_events(rows, source)
+        )
+
+    def void_event(self, event_id: EventId, note: str) -> ChangeReport:
+        """Tombstone a committed/forecast event (PRD §6.2).
+
+        Diagnostics: ``CK-E014``, ``CK-E015``, ``CK-E016`` (an actual is
+        corrected, never voided — ADR-0012), ``CK-E030``.
+        """
+        return self._ledger_write(
+            event_id, lambda store: store.void_event(event_id, note)
+        )
+
+    def correct_event(
+        self, event_id: EventId, corrected: Event, note: str
+    ) -> ChangeReport:
+        """Tombstone an event and append its correction, atomically (ADR-0012).
+
+        Diagnostics: ``CK-E014``, ``CK-E015``, ``CK-E030``.
+        """
+        return self._ledger_write(
+            event_id, lambda store: store.correct_event(event_id, corrected, note)
+        )
+
+    def _ledger_write(self, target: str, operation) -> ChangeReport:
+        """Run a ledger write, refusing on a revision-bound kit (``CK-E030``)."""
+        if self.bound_to is not None:
+            return ChangeReport(target=target, diagnostics=(_read_only(self.bound_to),))
+        if self.ledger is None:
+            raise ValueError(
+                "this kit has no ledger store; ledger operations need one "
+                "(construct the kit with ledger=..., or open a book root)"
+            )
+        return operation(self.ledger)
+
+    def query_events(
+        self,
+        where: str | None = None,
+        since: date | None = None,
+        until: date | None = None,
+        **kwargs,
+    ):
+        """Filter the ledger into a Table — see :func:`cashkit.sdk.query_events`."""
+        from .events import query_events as _query_events
+
+        return _query_events(self, where, since, until, **kwargs)
+
+    def reconcile(self, until: date, **kwargs) -> ReconciliationReport:
+        """Compare actuals to forecast over a window — see
+        :func:`cashkit.sdk.reconcile`."""
+        from .events import reconcile as _reconcile
+
+        return _reconcile(self, until, **kwargs)
 
     # -- state -------------------------------------------------------------- #
 
