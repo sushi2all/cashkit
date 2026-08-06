@@ -529,6 +529,18 @@ silent-error class — a filter written for one and applied to the other is off 
 exactly one period and looks right — so the §2 reading that keeps one convention
 wins.
 
+### C-S55-01 · §6.1 types `add_tax_regime` as `-> None`; §6.5 requires it to return diagnostics
+"Errors are data, not exceptions. Every fallible operation returns
+`Diagnostic(...)`" (§6.5) cannot hold for an operation whose return type has no
+room for one, and adding a tax regime is fallible in the quietest possible way:
+an `accumulates` selector matching nothing schedules nothing, produces no
+liability item and moves no cash, while raising nothing. Implemented as
+`-> ChangeReport`, the §6.5 reading, following the precedent D-P9-09 set for
+`commit() -> Revision | None`. `None` remains recoverable from the report
+(`ChangeReport.empty`), so nothing §6.1 promised is lost. Recorded as a conflict
+rather than as a plain decision because the two sections give different return
+types for the same call, which C-P8-01's standard makes a conflict.
+
 ## Phase 5 — Ledger and events (Session S3)
 
 ### D-P5-01 · The ledger is one append-only log, not a table per concept
@@ -1551,3 +1563,174 @@ The argument ADR-0020 made — that a behavioural instruction to an agent is the
 weakest available mitigation — is not wrong, and it is not answered here. It is
 relocated: the check belongs in the layer that knows which entity, which country
 and which year, and that layer is not the engine.
+
+## Session S5.5 — The construction surface (PRD §6.1 and the two §6.2 gaps)
+
+### D-S55-01 · A write is refused when it is wrong in isolation, recorded when it is wrong in context
+PRD §6.1 says `add_item` is "validated; returns diagnostics" and `add_derived`
+is "parsed + DAG-checked NOW", without saying whether a failing validation
+*writes*. Both readings are defensible and both fail somewhere:
+
+- **Refuse everything that produces an error.** Clean, and it makes some legal
+  books unconstructible. Two items in a genuine `prev()` feedback set reference
+  each other; whichever is added first names an item that does not exist yet
+  (`CK-E001`) and is refused, so neither can ever be first. The same argument
+  applies to a `TaxRegime` whose `accumulates` selector matches only items the
+  script has not written yet.
+- **Record everything and report.** Also clean, and it means a formula that is
+  not a formula sits in `book.yaml` waiting for someone to ignore a diagnostic.
+
+The line drawn is where the problem *lives*. A write is **refused, recording
+nothing**, when the thing being written is wrong on its own terms and no later
+write could fix it: a formula that does not parse (`CK-E003`, `CK-E007`), a
+settlement term list that cannot mean anything (`CK-E004`/`CK-E005`), an amount
+whose sign contradicts `direction` (`CK-E011`), a generative stock (`CK-E012`), a
+regime asking for an annual refund without naming the month (`CK-E019`). A write
+is **recorded, with its diagnostics**, when the problem is a statement about the
+book as a whole: an unknown reference, a cycle with no `prev()` edge, an unknown
+param, a selector matching nothing, aggregation across currencies. Those resolve
+as the book grows, and `validate()` still refuses to let them past a commit.
+
+Either way the news arrives at call time, which is the part §6.1 is explicit
+about. `ItemRef.ok` is the one-bit answer an agent loops on.
+
+### D-S55-02 · The context half is a compile **delta**, not a compile
+`add_item` and `add_derived` compile the book before and after the write and
+report only the diagnostics the write introduced. Reporting the whole
+post-compile list would blame an add for breakage that was already there —
+building a book bottom-up means every intermediate state has forward references
+— and reporting only diagnostics whose `item_id` is the new item would hide the
+collateral case, where the new item breaks something else (an `agg()` that now
+spans two currencies is reported on the *aggregating* item, which is where the
+mistake now lives). Compilation parses, resolves and condenses but evaluates
+nothing, so two compiles are the cheap half of one run.
+
+### D-S55-03 · The authored book has exactly one writer: `ScenarioSet.set_book`
+ADR-0007 splits the API along the storage split — `add_item(book, …)` writes the
+top-level item files, `set_item(scenario, …)` writes overlays — and the risk in
+implementing the first half last is that it becomes a second, divergent write
+path. It does not: every §6.1 verb funnels through one new method on
+`ScenarioSet`, the object that already owns both the authored book and the
+scenarios. `set_book(**update)` returns the field names that actually moved (so
+an unchanged write is empty by construction, not by a caller remembering to
+check), and re-applies the two invariants `model_copy` skips — no
+engine-synthesized item may enter the authored book (D-P5-09/D-P5-10), and every
+key in `items` must equal its item's id.
+
+### D-S55-04 · Every construction verb saves; the working tree stays the working state
+D-P9-05 makes the tree on disk the working state, and `discard()` already
+writes it back after restoring. Construction follows: each verb calls
+`kit.save()`, so a book half-built by a crashed agent is still a book, and the
+CLI or a human editor sees what the SDK just authored. Exploratory *sweeping*
+stays in memory as §6.7 requires — that is the scenario surface, which does not
+save — so the two costs land where they belong: authoring is durable, sweeping
+is free.
+
+### D-S55-05 · `add_item` re-authors an existing id rather than refusing it
+PRD §6.1 names it `add_item`, which reads as create-only. Re-authoring is the
+better behaviour and matches `set_item`'s by-value idiom: a construction script
+re-run against an existing book converges instead of erroring, and `ItemRef`
+reports the difference — `created` for a new item, `changed` naming the fields
+whose authored value moved, `CK-I002` when the item was already exactly this.
+"Add" that silently duplicated or silently overwrote would be worse; "add" that
+tells you what it changed is the same operation with a receipt. Same rule for
+`add_tax_regime`, keyed on regime id.
+
+### D-S55-06 · `retag` returns an `int` that can carry diagnostics
+PRD §6.1 types `retag(book, selector, tags) -> int` and §6.5 requires every
+fallible operation to return `Diagnostic` objects. A selector *is* fallible, so a
+bare `int` would have to report a malformed selector as `0` — the same answer a
+selector that genuinely matches nothing gives. Two different facts, one number,
+no way to tell them apart: the silent-failure class this project ranks worst.
+
+`AffectedCount` subclasses `int`, so `retag(...) == 3`, `isinstance(…, int)` and
+`affected + 1` all hold and the PRD's annotation is literally true, while
+`.diagnostics` carries `CK-E003` when the selector did not parse. A selector
+matching nothing is `0` with no diagnostics; a typo is `0` with one. The gate
+asserts both.
+
+### D-S55-07 · `add_tax_regime` returns a `ChangeReport`, not `None`
+PRD §6.1 types it `-> None`. §6.5 says every fallible operation returns
+diagnostics, and a regime is fallible in a way that produces a *zero* rather
+than an error — an `accumulates` selector matching nothing schedules nothing at
+all. Returning `None` would make that silent. This is the same reading D-P9-09
+made of `commit() -> Revision | None`: the annotation shows less of the operation
+than §6.5 requires, and §2 settles it in favour of the diagnostic. Recorded
+under `## PRD conflicts` as C-S55-01.
+
+### D-S55-08 · `create_book` takes a root, and mints two codes for its own refusals
+The PRD signature (`create_book(id, grain, horizon, opening_balance, calendar)`)
+describes the model, not its storage, so `root` is added as the first argument
+and `ledger`/`revisions` stay constructor arguments — storage swappable, exactly
+as `CashKit` already has it.
+
+Two failure modes had no code. `CK-E031` is a book already at that path: §9.6
+rule 2 says open it rather than create a second one, and creating a book over a
+book would orphan a history no revision can recover. `CK-E032` is an argument
+that cannot make a `Book` — a malformed id, a horizon that is not `start < end`,
+money past 4 decimal places. Both are things an agent plausibly does, so neither
+may be a `ValidationError` escaping into a caller's face (PRD §6.5 reserves
+exceptions for programmer error). Both are operation-time codes and neither is
+reachable from `validate()`.
+
+### D-S55-09 · Holiday resolution moves from the CLI to the SDK, amending D-P10-11
+D-P10-11 put `resolve_holidays` in `cli/main.py` because book creation happened
+there and `engine/`/`model/` are lint-fenced against environment reads. Book
+creation now happens in `sdk/construction.py`, so that is where it lives; the
+CLI re-exports the name. The reasoning is unchanged and so is the behaviour —
+resolved once for the horizon's own years, committed, never consulted at runtime
+(ADR-0010), and an unknown country code returns an empty list rather than
+refusing a book. `sdk/` is inside the wall-clock lint and this function reads no
+clock: it is a pure function of `(country, horizon)`.
+
+The move is what makes the gate assertion possible — `cashkit init` and
+`create_book` produce books that are **byte-identical** under the canonical
+emitter, holiday set included, because there is one function producing them.
+
+### D-S55-10 · Reconciliation is two engine runs, never a re-derivation
+`reconcile(book, until)` has to compare "what the bank did" with "what the model
+said", and the obvious implementation — sum `Event.amount` over the window and
+compare to forecast cash — compares a net accrual to a gross settled amount and
+calls the difference drift. So both sides go through the engine over the same
+book: the **forecast** side is a run with no ledger at all, the **actual** side a
+run over the window's actuals with every generative segment stripped. Both then
+carry the same canonical rounding order, the same settlement split and the same
+VAT gross-up, and the difference between them is drift by construction rather
+than by argument. Two extra runs cost tens of milliseconds; a wrong
+reconciliation costs a company.
+
+Three consequences worth stating:
+
+- The window `[since, until]` is a whole number of **base periods** — a period is
+  in or out as a unit. Apportioning a month across a boundary would invent a
+  number no measure supports.
+- `since` defaults to `book.cutover`, because that is the boundary from which
+  generation is live and events apply alongside it (ADR-0004). The window
+  reconciled is exactly the window not yet closed.
+- `suggested_cutover` is the day *after* `until`: generation is suppressed for
+  occurrences strictly before `cutover`, so closing through `until` means
+  resuming the next day. It feeds `set_cutover()` directly, which is the whole
+  point of PRD §6.2's "Feeds set_cutover".
+
+An actual referencing no item lands on the engine's `_event:<digest>` carrier and
+is reported under that id. A reconciliation that folded it into an unnamed total
+would report the drift without saying where it came from.
+
+### D-S55-11 · The kit gained the four ledger writes so a revision-bound kit can refuse them
+`add_event`, `import_events`, `void_event` and `correct_event` remain
+`LedgerStore` operations — the store owns append-only-ness and
+`UNIQUE(source, ext_id)`, and moving them would move the idempotency key
+somewhere it can be bypassed. `CashKit` now wraps them anyway, for one reason:
+`at(ref)` returns a kit sharing the **live** ledger object, so a write reached
+through `kit.ledger` on a bound kit would append to the present while reading the
+past. Every other write on a bound kit refuses with `CK-E030` (D-P9-12); these
+now do too. Strictly a hole closed, not a surface widened.
+
+### D-S55-12 · `note` is accepted and not stored, everywhere on this surface
+`set_param(…, note)` and `set_cutover(…, note)` take the note PRD §6.1 gives
+them and do not persist it, exactly as `ScenarioSet.set_item` / `set_param`
+already do. The revision message is where a change's reason lives and travels
+with the history; a note that only ever reached memory would be a promise the
+history does not keep. Stated here because "accepted and ignored" is the kind of
+thing a reader should find written down rather than discover.
+
