@@ -58,6 +58,7 @@ Phases run inside **sessions**: one fresh-context Opus 5 subagent per session, s
 | S3 | 5–6 | Ledger, cutover, fact union; VAT and tax regimes | Facts entering evaluation; first cold-read test of the engine's documentation |
 | S4 | 7–8 | Scenarios; frame store and views | Consumers of the engine, not modifiers of it |
 | S5 | 9–10 | Version control; introspection and CLI | Read-side surfaces over stable internals |
+| S5.5 | — | Construction surface (PRD §6.1, §6.2 gaps) | Closes the seam no phase owned: `create_book` … `reconcile`; added 2026-08-06 after the v1 audit |
 | ~~S6~~ | ~~11~~ | ~~Agent skill package~~ | Removed from core — app-layer per ADR-0021 |
 
 ### Orchestrator protocol
