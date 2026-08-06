@@ -52,6 +52,7 @@ from cashkit.model import (
     Reproduction,
     RevisionDiff,
     RunSummary,
+    Table,
     TaxRegime,
     WorkingState,
 )
@@ -76,6 +77,7 @@ from cashkit.stores.ledger import LedgerStore, SqliteLedger
 from cashkit.stores.lock import WriterLock
 from cashkit.stores.revisions import Revision, RevisionState, RevisionStore, diff_states
 
+from .construction import AffectedCount
 from .scenarios import OVERLAY_FIELDS, ScenarioSet
 from .views import summary as summarize
 
@@ -299,7 +301,7 @@ class CashKit:
 
         return _set_param(self, key, value, note)
 
-    def retag(self, selector: str, tags: Mapping[str, str]):
+    def retag(self, selector: str, tags: Mapping[str, str]) -> AffectedCount:
         """Merge tags into every item a selector matches — see
         :func:`cashkit.sdk.retag`."""
         from .construction import retag as _retag
@@ -385,7 +387,7 @@ class CashKit:
         since: date | None = None,
         until: date | None = None,
         **kwargs,
-    ):
+    ) -> Table:
         """Filter the ledger into a Table — see :func:`cashkit.sdk.query_events`."""
         from .events import query_events as _query_events
 
