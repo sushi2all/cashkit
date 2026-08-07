@@ -20,9 +20,14 @@ doing it.
 
 :class:`~cashkit.sdk.scenarios.ScenarioSet` still reaches into no store — it
 holds the authored book and its scenarios in memory, and
-:class:`~cashkit.sdk.kit.CashKit` is what joins it to persistence. Frame
-materialization, aggregation and Parquet export live in
-:mod:`cashkit.stores.frames`.
+:class:`~cashkit.sdk.kit.CashKit` is what joins it to persistence.
+
+Session S5.6 closes §6.4: ``frame``, ``pivot``, ``compare`` and ``export`` are
+kit methods, taking a ``RunRef`` and materializing it on the way through. The
+arithmetic still lives in :mod:`cashkit.stores.frames` and ``duckdb`` is still
+imported there and nowhere else — these four report ``CK-E033`` on a core
+install rather than raising ``ImportError``, and ``summary()``, ``trace()`` and
+``why_zero()`` never needed the extra at all.
 """
 
 from .construction import (
@@ -38,6 +43,7 @@ from .construction import (
     set_param,
 )
 from .events import query_events, reconcile
+from .execution import ExportReport, compare, export, frame, pivot, read_export
 from .introspection import (
     dependents_of,
     depends_on,
@@ -58,6 +64,7 @@ __all__ = [
     "BookRef",
     "CashKit",
     "CommitReport",
+    "ExportReport",
     "Macro",
     "Resolution",
     "RetagItems",
@@ -69,11 +76,16 @@ __all__ = [
     "add_item",
     "add_tax_regime",
     "balance_series",
+    "compare",
     "create_book",
     "dependents_of",
     "depends_on",
     "describe_book",
+    "export",
+    "frame",
+    "pivot",
     "query_events",
+    "read_export",
     "reconcile",
     "render_expr",
     "resolve_holidays",

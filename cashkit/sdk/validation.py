@@ -16,6 +16,10 @@ On top of the run it adds the checks the engine has no reason to make:
   not care (storage is signed); an agent authoring rent as a positive "out"
   silently creates an inflow, which is the whole reason the code exists.
 * ``CK-E012`` — a generative item with ``kind="stock"``.
+* ``CK-W006`` — a cutover outside the horizon. The engine applies the rule it is
+  given and reports nothing: a cutover past ``horizon.end`` suppresses every
+  generative occurrence there is, and the result is a book that computes cleanly
+  and produces nothing. That is the quietest failure on this surface.
 * ``CK-W004`` / ``CK-I001`` — withholding without a remittance leg, and a tax
   regime with no non-VAT ``cat:tax`` items (Phase 6 already computes both).
 
@@ -29,6 +33,7 @@ nothing emits is a promise nothing keeps.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
@@ -40,6 +45,7 @@ from cashkit.model.diagnostics import make_diagnostic
 __all__ = [
     "CONSTRUCTION_TIME_CODES",
     "OPERATION_TIME_CODES",
+    "cutover_problem",
     "validate",
 ]
 
@@ -69,6 +75,8 @@ OPERATION_TIME_CODES: Mapping[str, str] = {
     "CK-W010": "a stale writer lock reclaimed — WriterLock.acquire",
     "CK-W011": "an engine-version move — CashKit.reproduce",
     "CK-I002": "a write that recorded nothing — every ChangeReport-returning call",
+    "CK-E033": "the duckdb extra is not installed — the §6.4 frame surface "
+    "(cashkit.sdk.execution), which is the only thing that needs it",
 }
 
 #: Codes the **model layer** enforces structurally, so a constructed Book can
@@ -96,7 +104,8 @@ def validate(
     ``CK-W005`` — plus the checks a run has no reason to make: ``CK-E011``
     (sign contradicts direction), ``CK-E012`` (generative stock), and
     ``CK-W004`` / ``CK-I001`` (withholding with no remittance leg, and a tax
-    regime with no non-VAT ``cat:tax`` items).
+    regime with no non-VAT ``cat:tax`` items), and ``CK-W006`` (a cutover
+    outside the horizon).
 
     **No content-bearing code lives here** (ADR-0021, superseding ADR-0020):
     CashKit is a calculation engine, and an enumerated list of jurisdiction
@@ -112,6 +121,9 @@ def validate(
     """
     rows = tuple(events)
     found: list[Diagnostic] = []
+    horizon = cutover_problem(book.cutover, book)
+    if horizon is not None:
+        found.append(horizon)
     found.extend(_authoring_problems(book))
     generative_stocks = {d.item_id for d in found if d.code == "CK-E012"}
 
@@ -131,6 +143,47 @@ def validate(
 
     found.extend(tax_diagnostics(book))
     return _ordered(found)
+
+
+def cutover_problem(day: date, book: Book) -> Diagnostic | None:
+    """``CK-W006`` when ``day`` falls outside ``book.horizon``, else ``None``.
+
+    Lives here rather than inside :func:`validate` because ``set_cutover()`` has
+    to ask the same question at call time — a warning that only surfaces on the
+    next ``validate()`` is a warning the agent that caused it never sees. One
+    function, so the two answers cannot drift.
+
+    **A warning, not an error.** Both directions are things a user can
+    plausibly mean. A cutover before ``horizon.start`` is the natural state of a
+    book that has never been reconciled, and it changes nothing: generation is
+    suppressed strictly *before* the cutover, so there is nothing in the horizon
+    to suppress. A cutover past ``horizon.end`` is the ordering an agent lands
+    in when it closes a window and then extends the horizon to cover the next
+    one — legitimate in the next call, silently total suppression until then.
+    Refusing either would make a legal sequence of writes unconstructible, which
+    is the D-S55-01 test.
+
+    The horizon is half-open, so ``horizon.end`` itself is inside it: a cutover
+    *at* the end suppresses everything too, but it is the boundary the model's
+    own arithmetic reaches and naming it a mistake would be naming the horizon a
+    mistake. Produces no other diagnostics; never raises.
+    """
+    if book.horizon.start <= day <= book.horizon.end:
+        return None
+    effect = (
+        "no occurrence is suppressed and the setting has no effect"
+        if day < book.horizon.start
+        else "every generative occurrence in the horizon is suppressed, so the "
+        "model produces nothing and only ledger rows remain"
+    )
+    return make_diagnostic(
+        "CK-W006",
+        field="cutover",
+        cutover=day.isoformat(),
+        start=book.horizon.start.isoformat(),
+        end=book.horizon.end.isoformat(),
+        effect=effect,
+    )
 
 
 def _authoring_problems(book: Book) -> list[Diagnostic]:

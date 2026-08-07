@@ -17,6 +17,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterator, Sequence
 
+from .primitives import Diagnostic
+
 __all__ = ["Table"]
 
 
@@ -27,10 +29,24 @@ class Table:
     Rows are tuples positionally aligned with ``columns``. Order is whatever the
     producing query declared, and every producer in CashKit declares one — a
     result whose row order depends on the storage engine is not reproducible.
+
+    ``diagnostics`` is the §6.5 channel. PRD §6.4 types ``frame``, ``pivot``
+    and ``compare`` as ``-> Table`` and §6.5 requires every fallible operation
+    to return diagnostics rather than raise; a carrier with no room for one
+    cannot satisfy both, so the room is here. It defaults to empty and every
+    existing producer leaves it that way, so an empty table that reports nothing
+    still means "the query matched nothing" — the distinction between a miss and
+    a refusal, which the whole catalogue exists to keep.
     """
 
     columns: tuple[str, ...]
     rows: tuple[tuple[Any, ...], ...] = ()
+    diagnostics: tuple[Diagnostic, ...] = ()
+
+    @property
+    def ok(self) -> bool:
+        """True when no error-severity diagnostic was produced. No diagnostics."""
+        return not any(d.severity == "error" for d in self.diagnostics)
 
     def __len__(self) -> int:
         return len(self.rows)

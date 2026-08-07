@@ -63,6 +63,7 @@ VALIDATE_TIME_CODES = {
     "CK-W003",
     "CK-W004",
     "CK-W005",
+    "CK-W006",
     "CK-I001",
 }
 

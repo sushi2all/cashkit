@@ -63,7 +63,7 @@ from cashkit.model.diagnostics import make_diagnostic
 from cashkit.model.primitives import ScenarioId
 
 from .macros import RetagItems, resolve_selector
-from .validation import _sign_conflict
+from .validation import _sign_conflict, cutover_problem
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle: kit imports this module
     from cashkit.stores.config import EngineSettings
@@ -703,13 +703,24 @@ def set_cutover(book: "CashKit", day: date, note: str = "") -> ChangeReport:
     ``note`` is accepted for signature parity and not stored; the revision
     message carries the reason.
 
+    A cutover outside the horizon is **recorded and warned about**, never
+    refused: ``CK-W006`` names which direction and what it does to the model —
+    past ``horizon.end`` suppresses every occurrence there is, before
+    ``horizon.start`` suppresses none. Both are states an agent can plausibly
+    mean and neither is legible from the numbers afterwards, which is why the
+    warning exists at all. The same check runs in ``validate()``, from the same
+    function, so a book already in that state is not silent either.
+
     Returns a :class:`~cashkit.model.ChangeReport` whose ``changed`` is
     ``("cutover",)``, or ``CK-I002`` when the cutover was already this day.
     """
+    problem = cutover_problem(day, book.book)
+    warnings = () if problem is None else (problem,)
     if book.book.cutover == day:
         return ChangeReport(
-            target="cutover", diagnostics=(make_diagnostic("CK-I002", field="cutover"),)
+            target="cutover",
+            diagnostics=(make_diagnostic("CK-I002", field="cutover"), *warnings),
         )
     book.scenarios.set_book(cutover=day)
     book.save()
-    return ChangeReport(target="cutover", changed=("cutover",))
+    return ChangeReport(target="cutover", changed=("cutover",), diagnostics=warnings)

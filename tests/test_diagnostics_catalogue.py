@@ -68,6 +68,12 @@ ADDED_CODES = {
     # either of its two refusals.
     "CK-E031",  # a book already exists at this path (§9.6 rule 2: open it)
     "CK-E032",  # an argument cannot make a Book — reported, never raised
+    # Session S5.6 — the §6.4 execution surface and the cutover guard. Both
+    # name a condition that is otherwise entirely silent: a cutover outside the
+    # horizon computes cleanly and produces nothing, and a core install without
+    # the duckdb extra could only report a frame as an ImportError.
+    "CK-W006",  # cutover outside the horizon — warned, never refused
+    "CK-E033",  # the frame store is unavailable (optional extra not installed)
 }
 
 SEVERITY_BY_LETTER = {"E": "error", "W": "warning", "I": "info"}

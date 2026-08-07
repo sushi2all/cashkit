@@ -378,6 +378,25 @@ CATALOGUE: Mapping[str, DiagnosticSpec] = {
             "overlay entry was created; report this to the user rather than "
             "claiming a change.",
         ),
+        _spec(
+            "CK-W006",
+            "warning",
+            "Cutover {cutover} is outside the horizon [{start}, {end}): {effect}",
+            "Generation is suppressed for occurrences strictly before cutover, so "
+            "a cutover past the horizon's end suppresses the entire model and one "
+            "before its start suppresses nothing. Set the cutover inside the "
+            "horizon — reconcile() returns the day to advance it to — or extend "
+            "the horizon to cover it.",
+        ),
+        _spec(
+            "CK-E033",
+            "error",
+            "The frame store is unavailable: {reason}",
+            "frame(), pivot(), compare() and export() are backed by DuckDB, which "
+            "is an optional extra. Install it with 'pip install cashkit[duckdb]'. "
+            "summary(), trace() and why_zero() need no extra and work on a core "
+            "install.",
+        ),
     ]
 }
 

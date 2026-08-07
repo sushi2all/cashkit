@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Iterable, Mapping, Sequence
 
 from cashkit.engine import ENGINE_VERSION, Engine, RoundingPolicy, RunResult
 from cashkit.model import (
@@ -78,10 +78,14 @@ from cashkit.stores.lock import WriterLock
 from cashkit.stores.revisions import Revision, RevisionState, RevisionStore, diff_states
 
 from .construction import AffectedCount
+from .execution import ExportReport
 from .scenarios import OVERLAY_FIELDS, ScenarioSet
 from .views import summary as summarize
 
-__all__ = ["BASE_SCENARIO", "CashKit", "CommitReport", "RunRef"]
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from cashkit.stores.frames import FrameStore
+
+__all__ = ["BASE_SCENARIO", "CashKit", "CommitReport", "ExportReport", "RunRef"]
 
 #: The scenario every book starts with. Base is a scenario with ``parent=None``;
 #: it is privileged in storage only (ADR-0007).
@@ -202,6 +206,11 @@ class CashKit:
     #: the ledger is truncated to that revision's watermark (ADR-0006).
     bound_to: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
+    #: The §6.4 frame store, opened on first use and never before: ``duckdb`` is
+    #: an optional extra, so a core install must be able to hold a kit. Typed
+    #: through ``TYPE_CHECKING`` for the same reason — the annotation is a
+    #: string under ``from __future__ import annotations`` and imports nothing.
+    frames: "FrameStore | None" = None
 
     # -- construction ------------------------------------------------------- #
 
@@ -491,6 +500,45 @@ class CashKit:
             revision=self.bound_to,
             policy=self.policy,
         )
+
+    # -- execution: the frame surface (PRD §6.4) ----------------------------- #
+    #
+    # Thin delegates onto :mod:`cashkit.sdk.execution`, which owns run
+    # materialization and the lazy, diagnostic-reporting import of the frame
+    # store. They live here for the reason the §6.1 delegates do: the kit is the
+    # object an agent holds. ``summary()`` is on ``RunRef`` and needs no store.
+
+    def frame(self, run: RunRef, **kwargs) -> Table:
+        """The run's tidy/long frame — see :func:`cashkit.sdk.frame`."""
+        from .execution import frame as _frame
+
+        return _frame(self, run, **kwargs)
+
+    def pivot(self, run: RunRef, **kwargs) -> Table:
+        """A wide view of one measure — see :func:`cashkit.sdk.pivot`."""
+        from .execution import pivot as _pivot
+
+        return _pivot(self, run, **kwargs)
+
+    def compare(self, runs: Sequence[RunRef], **kwargs) -> Table:
+        """One column per run of the same metric — see
+        :func:`cashkit.sdk.compare`."""
+        from .execution import compare as _compare
+
+        return _compare(self, runs, **kwargs)
+
+    def export(self, run: RunRef, path: str | Path, **kwargs) -> ExportReport:
+        """Write the frame to Parquet or CSV — see :func:`cashkit.sdk.export`."""
+        from .execution import export as _export
+
+        return _export(self, run, path, **kwargs)
+
+    def read_export(self, path: str | Path) -> Table:
+        """Read an export back in the types it was written in — see
+        :func:`cashkit.sdk.read_export`."""
+        from .execution import read_export as _read_export
+
+        return _read_export(self, path)
 
     # -- introspection ------------------------------------------------------ #
 
