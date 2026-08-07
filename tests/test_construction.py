@@ -952,3 +952,133 @@ class TestARevisionBoundKitRefusesToWrite:
         ):
             assert codes(report) == {"CK-E030"}
         assert len(query_events(drifting)) == 2, "the live ledger is untouched"
+
+    # -- Session S5.6 addendum ------------------------------------------- #
+    #
+    # S5.5 closed this for the ledger and left the authored book open. The hole
+    # was worse than the one it mirrored: `at(ref)` shares the live `root`, so a
+    # §6.1 verb on a bound kit mutated the *past* book and saved it over the
+    # **present** working tree, while the live in-memory kit went on reporting
+    # `status().clean is True`. A write that reads history and lands in the
+    # present, invisible from the object that owns the present.
+
+    @pytest.fixture()
+    def past(self, kit: CashKit) -> CashKit:
+        """A kit bound to a committed revision, over a book with one item."""
+        assert add_item(kit, flow("rent", "-3000", direction="out", tags={"cat": "opex"})).ok
+        report = kit.commit("one item")
+        assert report.revision is not None
+        bound, problems = kit.at(report.revision.id)
+        assert bound is not None and problems == ()
+        return bound
+
+    @pytest.mark.parametrize(
+        "verb, call",
+        [
+            ("add_item", lambda k: add_item(k, flow("new", "1", direction="in"))),
+            ("add_derived", lambda k: add_derived(k, "total", 'it("rent")')),
+            ("set_param", lambda k: set_param(k, "inflation", Decimal("0.03"))),
+            ("retag", lambda k: retag(k, "cat:opex", {"cat": "fixed"})),
+            (
+                "add_tax_regime",
+                lambda k: add_tax_regime(
+                    k,
+                    TaxRegime(
+                        id="iva",
+                        accumulates="",
+                        periodicity="quarterly",
+                        payment_offset="16d",
+                    ),
+                ),
+            ),
+            ("set_cutover", lambda k: set_cutover(k, date(2026, 3, 1))),
+        ],
+    )
+    def test_every_authored_write_refuses(
+        self, kit: CashKit, past: CashKit, verb: str, call
+    ) -> None:
+        """The reproduction from the S5.6 handoff, inverted, verb by verb.
+
+        Four assertions, because the defect had four visible faces: the caller
+        was told nothing, the file moved, the live kit disagreed with the disk,
+        and a reopened kit saw the change.
+        """
+        book_yaml = kit.root / "book.yaml"
+        before = book_yaml.read_bytes()
+
+        report = call(past)
+        assert codes(report) == {"CK-E030"}, verb
+        recorded = (
+            report != 0
+            if isinstance(report, AffectedCount)
+            else not report.empty
+        )
+        assert not recorded, f"{verb} recorded something on a read-only kit"
+
+        assert book_yaml.read_bytes() == before, f"{verb} wrote the live book.yaml"
+        assert kit.status().clean, f"{verb} dirtied the live tree"
+        reopened, problems = CashKit.open(kit.root)
+        assert reopened is not None and problems == ()
+        assert reopened.status().clean, f"{verb} is visible to a reopened kit"
+
+    def test_the_refusal_comes_before_any_opinion_about_the_argument(
+        self, past: CashKit
+    ) -> None:
+        """A kit that will not record the item has nothing to say about it.
+
+        `add_derived` parses the formula before writing, and an unparseable one
+        is normally `CK-E003`. On a bound kit the answer must be `CK-E030` alone
+        — reporting a validation verdict would imply the write would otherwise
+        have happened.
+        """
+        assert codes(add_derived(past, "broken", "it(")) == {"CK-E030"}
+        assert codes(add_item(past, flow("bad", "3000", direction="out"))) == {
+            "CK-E030"
+        }
+
+    def test_reads_on_the_bound_kit_still_work(self, past: CashKit) -> None:
+        """The guard is on writes. `at(ref)` exists to be read."""
+        assert "rent" in past.book.items
+        assert past.run().summary().net_cash == Decimal("-9000.0000")
+        assert past.describe_book().items
+
+    def test_every_verb_that_saves_is_behind_the_guard(self) -> None:
+        """Structural, so it holds for verbs nobody has written yet.
+
+        `__all__` drives the list rather than a hand-kept copy of it: a §6.1 verb
+        added later is guarded or this fails. `create_book` is exempt because it
+        creates the kit it writes to — there is no revision to be bound to — and
+        `resolve_holidays` is a pure function.
+        """
+        import ast
+
+        from cashkit.sdk import construction
+
+        source = Path(construction.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        bodies = {
+            node.name: ast.unparse(node)
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        exempt = {"create_book", "resolve_holidays"}
+        verbs = {
+            name
+            for name in construction.__all__
+            if name in bodies and name not in exempt
+        }
+        assert verbs == {
+            "add_derived",
+            "add_item",
+            "add_tax_regime",
+            "retag",
+            "set_cutover",
+            "set_param",
+        }, "the §6.1 verb set moved; check the new one is guarded"
+        unguarded = sorted(
+            name for name in verbs if "_authored_write" not in bodies[name]
+        )
+        assert not unguarded, (
+            "§6.1 verbs that write the authored book without checking "
+            f"_authored_write(): {unguarded}"
+        )

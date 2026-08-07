@@ -1,7 +1,8 @@
 # Handoff — Session S5.6 (§6.4 wiring, cutover guard, coverage gate)
 
 **Date** 2026-08-07 · **Status** gate passed, committed, not pushed.
-**Suite** 1,054 → **1,105** passing (~21 s). `ENGINE_VERSION` **unchanged**
+**Suite** 1,054 → **1,114** passing (~21 s), including the addendum below.
+`ENGINE_VERSION` **unchanged**
 (`"1"`) — `git diff --stat 32eb48e..HEAD -- cashkit/engine/` is empty.
 
 The closure session for the SDK surface. Three items from `handoff-s5-5`'s open
@@ -206,24 +207,6 @@ a real `CK-E028` into a shrugged `CK-W011`. The check to re-run is
 
 Carried forward from S5.5, plus what this session found.
 
-**Found here, not closed — read this one first:**
-
-- **A revision-bound kit's §6.1 writes are not refused.** S5.5 closed this for
-  the four ledger verbs (`CK-E030`, D-S55-11) and for `commit`/`discard`. The
-  construction verbs — `add_item`, `add_derived`, `set_param`, `retag`,
-  `add_tax_regime`, `set_cutover` — have no such guard: they mutate the bound
-  kit's in-memory book and call `kit.save()`, which writes the **live** working
-  tree at the shared `root`. Reproduced: on a committed book,
-  `kit.at(ref).set_param("b", 2)` returns `changed=('params.b',)` with no
-  diagnostic, the param lands in `book.yaml` on disk, and the live in-memory kit
-  still reports `status().clean is True` while a reopened kit reports
-  `clean is False`. It is the same hole S5.5 named for the ledger — "a write
-  reached through a bound kit appends to the present while reading the past" —
-  in the one place it was not looked for. The fix is an `_authored_write` guard
-  mirroring `_ledger_write`, and it wants its own gate; left alone here because
-  the session scope was three items and a write-path change in a closure session
-  is exactly what gates exist to stop.
-
 **Carried from S5.5, still open:**
 
 - **`ItemSpec` is not a thing.** §6.1 types `add_item(book, spec: ItemSpec)`;
@@ -254,3 +237,68 @@ Carried forward from S5.5, plus what this session found.
 `km/notes/architecture-deck.html` (pre-existing) and `QUICKSTART.md`, which
 appeared in the working tree at 23:31 on 2026-08-07 from outside this session.
 Neither was staged; explicit paths were used for every `git add`.
+
+---
+
+## Addendum — `fix(s5.6)`: a revision-bound kit refuses authored writes
+
+Added after the orchestrator ruled the hole flagged above in scope: it is a
+correctness defect in the S5.5 surface, and the §6 closure this session exists
+for is not real while `kit.at(ref).set_param("b", 2)` writes the live
+`book.yaml`. The open item it closes has been removed from the list above.
+
+### What was wrong
+
+`at(ref)` shares this kit's `root`. Every §6.1 verb mutated the bound kit's
+in-memory book and called `save()`, which writes the **live** working tree. S5.5
+wrapped the four *ledger* verbs for precisely this reason (D-S55-11) and the
+same sentence was true of the authored book unremarked. The authored case was
+the worse of the two: the live in-memory kit went on reporting
+`status().clean is True` while the tree on disk no longer matched it, so the
+object that owns the present could not see that the present had moved.
+
+### The fix
+
+`CashKit._authored_write()` — named for the `_ledger_write` it mirrors —
+returns `CK-E030` on a bound kit and `None` on a live one. It returns the
+diagnostic rather than wrapping the operation because the six verbs return three
+report types (`ItemRef`, `AffectedCount`, `ChangeReport`) and each shapes its own
+refusal; a refused `retag` is `0` carrying the code, the shape a malformed
+selector already produces.
+
+**`CK-E030` reused, no new code.** "This kit is bound to revision {ref} and is
+read-only", fixed by "make the change on the live kit and commit it", describes
+an authored write as exactly as a ledger one. The catalogue partition test is
+untouched. Guarded: `add_item`, `add_derived`, `set_param`, `retag`,
+`add_tax_regime`, `set_cutover`. Exempt: `create_book` (it creates the kit it
+writes to) and `resolve_holidays` (a pure function). The §6.3 scenario verbs
+need no guard — they reach no store, and `commit()` / `discard()` already refuse.
+
+The guard runs **first**, before any opinion about the argument: `add_derived`
+on a bound kit with an unparseable formula reports `CK-E030` alone rather than
+`CK-E003`, because a kit that will not record the item has nothing to say about
+it. See D-S56-12.
+
+### What the addendum gate proved
+
+The reproduction from this handoff, inverted, parameterized over all six verbs —
+one assertion per visible face of the defect:
+
+- the caller is told: `codes(report) == {"CK-E030"}`;
+- nothing is recorded (`report.empty`, or `== 0` for `AffectedCount`);
+- `book.yaml` is **byte-identical** before and after;
+- the live kit's `status().clean` stays `True`;
+- a **reopened** kit agrees it is clean.
+
+Before the fix the same script gave `changed=('params.b',)`, no diagnostic, the
+param on disk, and live `clean=True` against reopened `clean=False`.
+
+Plus: `CK-E030` alone for an unparseable formula and an invalid item on a bound
+kit; reads still work on the bound kit (`book`, `run().summary()`,
+`describe_book()`); and a structural test that drives the verb list from
+`construction.__all__` rather than a hand-kept copy, so a §6.1 verb added later
+is guarded or the suite fails.
+
+**Suite: 1,105 → 1,114 passed.** Coverage gate re-run: `exit 0`, 96.59%,
+1,105 passed / 9 deselected. `ENGINE_VERSION` still `"1"`; nothing under
+`cashkit/engine/` touched.

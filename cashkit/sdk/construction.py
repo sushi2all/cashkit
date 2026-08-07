@@ -450,8 +450,12 @@ def add_item(book: "CashKit", spec: Item) -> ItemRef:
     each of them a statement about the book as a whole, which a later write can
     settle.
 
-    Returns an :class:`~cashkit.model.ItemRef`.
+    Returns an :class:`~cashkit.model.ItemRef`. On a revision-bound kit the
+    write is refused with ``CK-E030`` and nothing is recorded.
     """
+    refusal = book._authored_write()
+    if refusal is not None:
+        return ItemRef(target=spec.id, item_id=spec.id, diagnostics=(refusal,))
     return _admit(book, spec)
 
 
@@ -483,8 +487,13 @@ def add_derived(
     key inside one. Writes and reports: ``CK-E001``, ``CK-E002``, ``CK-E008``,
     ``CK-E020``.
 
-    Returns an :class:`~cashkit.model.ItemRef`.
+    Returns an :class:`~cashkit.model.ItemRef`. On a revision-bound kit the
+    write is refused with ``CK-E030``, before the formula is even parsed: a kit
+    that will not record the item has no opinion to offer about it.
     """
+    refusal = book._authored_write()
+    if refusal is not None:
+        return ItemRef(target=id, item_id=id, diagnostics=(refusal,))
     try:
         item = Item(
             id=id,
@@ -529,13 +538,16 @@ def set_param(
     address as ``p.<key>``, ``CK-E024`` when the reserved ``opening_balance`` key
     is not valid money (the diagnostic names the book, because the authored
     book's params *are* base's — ADR-0007), ``CK-I002`` when the value was
-    already this.
+    already this, ``CK-E030`` on a revision-bound kit.
     """
     from cashkit.model.primitives import _require_money
 
     from .scenarios import OPENING_BALANCE_PARAM
 
     target = f"params.{key}"
+    refusal = book._authored_write()
+    if refusal is not None:
+        return ChangeReport(target=target, diagnostics=(refusal,))
     if key == OPENING_BALANCE_PARAM:
         try:
             _require_money(value)
@@ -599,8 +611,12 @@ def retag(
     :class:`AffectedCount`, which is that integer and also carries diagnostics.
     A selector matching nothing is ``0`` and no error. A malformed selector is
     ``0`` carrying ``CK-E003``, because "you typed the selector wrong" and
-    "nothing matched" must not be the same answer.
+    "nothing matched" must not be the same answer. A revision-bound kit is ``0``
+    carrying ``CK-E030``.
     """
+    refusal = book._authored_write()
+    if refusal is not None:
+        return AffectedCount(0, (refusal,))
     matched, problem = resolve_selector(selector, dict(book.book.items))
     if problem is not None:
         return AffectedCount(0, (problem,))
@@ -639,11 +655,14 @@ def add_tax_regime(book: "CashKit", regime: TaxRegime) -> ChangeReport:
     no item in this book yet, which a later ``add_item`` can settle.
 
     Returns a :class:`~cashkit.model.ChangeReport` whose ``created`` names the
-    regime when it is new.
+    regime when it is new. ``CK-E030`` on a revision-bound kit.
     """
     from cashkit.engine.tax import _configuration_problem
 
     target = f"tax_regimes.{regime.id}"
+    refusal = book._authored_write()
+    if refusal is not None:
+        return ChangeReport(target=target, diagnostics=(refusal,))
     problem = _configuration_problem(regime)
     if problem is None:
         parsed, reason = _parse_accumulates(regime)
@@ -713,7 +732,11 @@ def set_cutover(book: "CashKit", day: date, note: str = "") -> ChangeReport:
 
     Returns a :class:`~cashkit.model.ChangeReport` whose ``changed`` is
     ``("cutover",)``, or ``CK-I002`` when the cutover was already this day.
+    ``CK-E030`` on a revision-bound kit.
     """
+    refusal = book._authored_write()
+    if refusal is not None:
+        return ChangeReport(target="cutover", diagnostics=(refusal,))
     problem = cutover_problem(day, book.book)
     warnings = () if problem is None else (problem,)
     if book.book.cutover == day:

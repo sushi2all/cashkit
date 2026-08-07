@@ -1937,3 +1937,51 @@ exist, that `fail_under >= 90` with `show_missing`, that `addopts` carries no
 unmarked timing test would run instrumented and fail for a reason unrelated to
 the engine, which is the kind of failure that gets a budget loosened rather than
 a cause found.
+
+### D-S56-12 · A revision-bound kit refuses authored writes too — `CK-E030`, reusing the code
+S5.5 wrapped the four ledger verbs on `CashKit` for exactly one reason
+(D-S55-11): `at(ref)` shares the live ledger object, so a write reached through
+a bound kit would append to the present while reading the past. The same
+sentence was true of the authored book and nobody said it. `at(ref)` also shares
+the kit's **`root`**, so every §6.1 verb mutated the bound kit's in-memory book
+and called `save()`, which writes the *live* working tree.
+
+Reproduced before the fix: on a committed book, `kit.at(ref).set_param("b", 2)`
+returned `changed=('params.b',)` with no diagnostic, the param landed in
+`book.yaml`, and the live in-memory kit went on reporting `status().clean is
+True` while a reopened kit reported `False`. That last part is what makes it
+worse than the ledger case it mirrors — the object that owns the present cannot
+see that the present moved.
+
+`CashKit._authored_write()` is the guard, named for the `_ledger_write` it
+mirrors. It **returns the diagnostic** rather than wrapping the operation,
+because the six verbs return three different report types (`ItemRef`,
+`AffectedCount`, `ChangeReport`) and each has to shape its own refusal — an
+`AffectedCount` refusal is `0` carrying the code, the same shape a malformed
+selector already produces.
+
+Three choices worth stating:
+
+- **`CK-E030` is reused, not extended.** "This kit is bound to revision {ref}
+  and is read-only", fixed by "make the change on the live kit and commit it",
+  describes an authored write as exactly as it describes a ledger one. A second
+  code would split one condition across two identifiers and make an agent match
+  on both to ask one question. The catalogue partition test is untouched.
+- **The guard runs first, before any opinion about the argument.** `add_derived`
+  on a bound kit with an unparseable formula reports `CK-E030` alone, not
+  `CK-E003`: a kit that will not record the item has nothing to say about it,
+  and returning a validation verdict would imply the write would otherwise have
+  happened. It also keeps D-S55-01's rule intact at the kit level — a refused
+  write records nothing, so nothing is computed on the way to refusing.
+- **`create_book` is exempt** because it creates the kit it writes to, and
+  `resolve_holidays` is a pure function. The §6.3 scenario verbs need no guard:
+  they reach no store, mutating only the bound kit's own in-memory `ScenarioSet`,
+  and the two operations that would persist them — `commit()` and `discard()` —
+  already refuse (D-P9-12).
+
+The gate is the reproduction inverted, parameterized over all six verbs, with
+one assertion per visible face of the defect: the caller is told (`CK-E030`),
+nothing is recorded, `book.yaml` is byte-identical, the live kit's
+`status().clean` stays `True`, and a **reopened** kit agrees. A structural test
+drives the verb list from `construction.__all__` rather than a hand-kept copy,
+so a §6.1 verb added later is guarded or the suite fails.

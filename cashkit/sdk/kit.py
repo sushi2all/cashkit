@@ -379,6 +379,28 @@ class CashKit:
             event_id, lambda store: store.correct_event(event_id, corrected, note)
         )
 
+    def _authored_write(self) -> Diagnostic | None:
+        """The refusal a revision-bound kit owes an **authored** write, or ``None``.
+
+        The authored-book twin of :meth:`_ledger_write`, and it exists for the
+        same reason. ``at(ref)`` shares this kit's ``root``, so a §6.1 verb on a
+        bound kit would mutate the *past* book and then ``save()`` it over the
+        **live** working tree — a write that reads history and lands in the
+        present, which is the exact direction ADR-0006 has no defence against.
+        Worse than the ledger case it mirrors: the live in-memory kit goes on
+        reporting ``status().clean`` while the tree on disk no longer matches it.
+
+        It returns the diagnostic rather than wrapping the operation because the
+        §6.1 verbs return three different report types (``ItemRef``,
+        ``AffectedCount``, ``ChangeReport``) and each has to shape its own
+        refusal. Every caller checks it **before** touching the book, so a
+        refused write records nothing — D-S55-01's rule, applied to the kit
+        rather than to the item.
+
+        Returns ``CK-E030`` naming the bound revision, or ``None`` on a live kit.
+        """
+        return None if self.bound_to is None else _read_only(self.bound_to)
+
     def _ledger_write(self, target: str, operation) -> ChangeReport:
         """Run a ledger write, refusing on a revision-bound kit (``CK-E030``)."""
         if self.bound_to is not None:
