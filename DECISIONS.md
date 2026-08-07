@@ -1734,3 +1734,206 @@ with the history; a note that only ever reached memory would be a promise the
 history does not keep. Stated here because "accepted and ignored" is the kind of
 thing a reader should find written down rather than discover.
 
+
+## Session S5.6 — The §6.4 execution surface, the cutover guard, the coverage gate
+
+### D-S56-01 · `frame` / `pivot` / `compare` / `export` are kit methods; the arithmetic stays in the store
+The four verbs existed and were unreachable from PRD §6: they lived on
+`DuckdbFrameStore`, below the SDK line, reached by importing a module the §6
+surface never names. An agent following §6 could evaluate a book and could not
+tabulate it.
+
+The wiring adds **no arithmetic**. Aggregation rules, the selector join, the
+`DECIMAL(18,4)` path and the Parquet `COPY` all stay in `stores/frames.py`, and
+`tests/test_execution.py` asserts each kit result equal — as a whole `Table`,
+not summed and compared — to the same query run directly against a separately
+materialized store. What the SDK layer adds is the three things a store cannot
+do for itself: materialize the run it is handed, keep `duckdb` optional, and
+validate the strings an agent composes.
+
+### D-S56-02 · The kit's frame store is in memory, not `frames.duckdb`
+PRD §3.3 lists `frames.duckdb` in the layout and the kit does not open it.
+Three reasons, in order of weight:
+
+- **`at(ref)` shares this kit's `root`.** A live kit and every revision-bound
+  kit derived from it would all want the same file, in the same process, at the
+  same time — and each has its own `RoundingPolicy` from its own committed
+  settings, which the store takes at construction. One file cannot serve two
+  policies correctly.
+- **`cashkit serve` opens that file read-only over Quack (§8.6).** A kit holding
+  it would be a live writer against a path another command legitimately reads.
+- **Persistence buys no correctness here.** Every call re-materializes the run
+  before reading it (D-S56-03), so the store is a scratch space, and PRD §5.2
+  makes recomputation the cheap option — materializing the 50-item 5-year
+  benchmark is inside a 200 ms budget.
+
+Nothing was removed: `DuckdbFrameStore(root / "frames.duckdb")` is unchanged and
+available to anyone who wants the on-disk store, and the `FrameStore` protocol
+is still what the SDK codes against, so a kit backed by a different store is a
+constructor argument.
+
+### D-S56-03 · The run key is §6.6's four-tuple plus the effective cutover, and every call re-materializes
+`(revision, scenario, engine_version, ledger_watermark)` is the PRD's own cache
+key. The effective `cutover` joins it because a `cutover_override` run is the
+same four-tuple as the run without it, and §6.4 calls the override "a deliberate
+query, not a property of the model" — letting it overwrite the model's own frame
+would make the deliberate query destructive.
+
+A live kit has no revision, so its key says `working`. That is honest rather
+than unique: two different working trees share a key. The resolution is not a
+content hash — hashing a book to serve a cache would be spending the cost the
+cache was meant to save — but **re-materializing on every call**. The key exists
+to keep distinct runs apart *inside* one store, not to skip work. `compare()`
+therefore disambiguates two runs that produce the same key with a `#n` suffix
+instead of collapsing them: the caller asked for two columns.
+
+### D-S56-04 · `Table` gains a `diagnostics` channel; `export` returns an `ExportReport`
+§6.4 types `frame`, `pivot` and `compare` as `-> Table` and §6.5 requires every
+fallible operation to return diagnostics rather than raise. A carrier with no
+room for a diagnostic cannot satisfy both, so the room is on `Table` — one
+optional field defaulting to empty, which every existing producer leaves empty.
+The signature §6.4 states is preserved exactly, and the distinction the whole
+catalogue exists to keep survives: an empty table reporting nothing means "the
+query matched nothing", an empty table reporting `CK-E033` means "the query did
+not run".
+
+`export` is typed `-> Path`, which has no such room, so it follows the precedent
+D-P9-09 set for `commit() -> Revision | None` and C-S55-01 for `add_tax_regime`:
+`ExportReport(ChangeReport)` carrying `path: Path | None`. `None` exactly when
+nothing was written.
+
+### D-S56-05 · `CK-E033`: the duckdb extra's absence is a diagnostic, not an `ImportError`
+`duckdb` is an optional extra and `stores/frames.py` is the only module that
+imports it (`tests/test_frames.py` lints this). The §6.4 verbs import that module
+**lazily**, and a failed import becomes `CK-E033` naming the extra to install.
+An agent can loop on a structured diagnostic; it cannot loop on a traceback
+raised three frames below the surface it is coding against, and "install
+`cashkit[duckdb]`" is exactly the kind of suggested fix §10.1 exists for.
+
+The absence is tested by evicting `cashkit.stores.frames` from `sys.modules` and
+setting `sys.modules["duckdb"] = None`, which makes `import duckdb` raise
+`ImportError` without uninstalling anything; `monkeypatch` restores both. A
+subprocess test additionally proves the SDK does not reach the extra
+*transitively* — importing `cashkit.sdk` loads neither `duckdb` nor the frame
+store.
+
+`summary()`, `trace()` and `why_zero()` are unaffected and deliberately so: "when
+do we run out of cash" is the question the system exists to answer and it works
+on a core install, straight off the engine's int64 columns.
+
+### D-S56-06 · Selectors are validated by the SDK; a closed vocabulary still raises
+`stores/frames.py` says in its own docstring that its `ValueError`s are
+"programmer error at this layer; selectors an agent authors are validated by the
+SDK first". This session is that layer. `where=` goes through the one §5.4
+grammar via `resolve_selector` and comes back as `CK-E003`, so a typo and an
+honest miss stay distinguishable — the same rule `retag` follows (D-S55-01's
+gate 4).
+
+Everything else keeps raising: an unknown measure, pivot index, column spec or
+export format is a **closed set `describe_book()` enumerates**, which is PRD
+§6.5's own definition of programmer error ("bad types, missing store"). The line
+is composition: a selector is assembled from tags that vary per book, a measure
+name is not. Minting a diagnostic for `measures=["revenue"]` would say that
+CashKit expects callers to guess its vocabulary at runtime.
+
+### D-S56-07 · A relative export path lands under `exports/`; an absolute one is honoured
+PRD §3.3 puts `exports/` at the book root, git-ignored, because an export is a
+copy of what a revision already reproduces. A relative `path` resolves there. An
+absolute path is written where it says: "produce this file over there for
+somebody else" is the reason the verb exists, and silently relocating an
+absolute path would be worse than either choice taken outright.
+
+`read_export()` is on the kit alongside it — six lines onto the store's existing
+reader — because an SDK that can write a file it cannot read back is an SDK
+whose round-trip nobody can check without dropping below the §6 surface, which
+is the SDK-only non-negotiable in miniature.
+
+### D-S56-08 · A revision-bound kit frames and exports; it still refuses to commit
+`at(ref)` is read-only (D-P9-12, D-S55-11) and a frame is a read. The run key
+carries the revision, so the past and the present cannot collide inside one
+store, and `kit.at(ref).frame(kit.at(ref).run())` tabulates that revision's
+numbers.
+
+`export()` is included even though it writes a *file*: the file is a copy of
+what the revision already reproduces, it lands in git-ignored `exports/`, and
+refusing it would make a past revision the one thing an agent cannot hand to
+anybody. `commit()`, `discard()` and the four ledger writes still refuse with
+`CK-E030`.
+
+### D-S56-09 · `CK-W006` is a warning, and one code covers both directions
+The question the code had to answer was whether an out-of-horizon cutover is
+ever legitimate. Both directions are:
+
+- **Before `horizon.start`** is the natural state of a book that has never been
+  reconciled, and it changes nothing — generation is suppressed strictly
+  *before* the cutover, so there is nothing in the horizon to suppress.
+- **Past `horizon.end`** is the ordering an agent lands in when it closes a
+  window and then extends the horizon to cover the next one. Legitimate on the
+  next call; total suppression until then.
+
+Refusing either would make a legal sequence of writes unconstructible, which is
+exactly the test D-S55-01 sets. So: **recorded, and warned about.** The warning
+carries which direction and what it does to the model, because the state is
+otherwise entirely silent — the book compiles, the run succeeds, and every
+number is zero with nothing anywhere saying why. That is the quietest failure
+mode on this surface, and CLAUDE.md names silent numerical error as the worst
+one there is.
+
+One code, not two: it is one condition (a cutover the horizon does not contain)
+whose consequence differs by direction, and the consequence is in the message
+via an `effect` placeholder. Two codes would make an agent match on two things
+to ask one question.
+
+The horizon is half-open, so `horizon.end` **itself is inside it**: a cutover at
+the end suppresses everything too, but it is the boundary the model's own
+arithmetic reaches, and naming it a mistake would be naming the horizon a
+mistake. The predicate is `horizon.start <= day <= horizon.end`.
+
+### D-S56-10 · The check lives in `validation.py` and `set_cutover` calls it
+`cutover_problem(day, book)` is one function with two callers: `set_cutover()`,
+so the agent that caused the state is the agent told about it, and `validate()`,
+so a book opened from disk already in that state is not silent either. A warning
+that only surfaced on the next `validate()` is a warning the caller never sees;
+two implementations of the same predicate is the drift the dual-engine gate
+exists to prevent, in miniature.
+
+`create_book(cutover=…)` is deliberately **not** a third caller. The session
+scope named two doors, `validate()` covers the created book from its next call
+onward, and a third emission point is surface added under a gate rather than
+through one.
+
+`CK-W006` is a validate-time code and joins `VALIDATE_TIME_CODES`; `CK-E033` is
+an operation-time code and names its origin in `OPERATION_TIME_CODES`. The
+three-way partition test still covers the catalogue exactly.
+
+### D-S56-11 · The coverage gate is two commands, and the threshold lives in `pyproject.toml`
+```
+uv run pytest                            # everything, uninstrumented
+uv run pytest -m "not benchmark" --cov   # the gate, fails below 90%
+```
+
+`[tool.coverage.run] source` is exactly `cashkit/engine` and `cashkit/model` —
+the two packages where a silent numerical error can hide — and
+`[tool.coverage.report] fail_under = 90` is what makes the run exit non-zero.
+The threshold lives in the file rather than on the command line so no invocation
+can quietly lower it. Measured: **96.56%**; proven to fail by setting
+`fail_under = 99.9` and observing exit code 1, then restoring.
+
+`addopts` deliberately does **not** carry `--cov`. S5 verified the §5.2
+benchmarks fail under coverage tracing and this session re-verified it: delta
+recompute goes from ~5 ms to 12.54 ms against a 5 ms budget. A default run that
+instruments `engine/` is a default run whose performance assertions measure
+coverage.py. The nine timing tests already carry `@pytest.mark.benchmark`, which
+is what `-m "not benchmark"` deselects.
+
+`tests/test_coverage_gate.py` asserts the configuration rather than re-measuring
+the percentage: running the suite inside the suite would double the wall clock
+to re-derive a number the gate command already prints, while what can silently
+break is the config. It checks that `pytest-cov` is a declared dev dependency
+(not a remembered `--with` flag), that `source` is the two packages and both
+exist, that `fail_under >= 90` with `show_missing`, that `addopts` carries no
+`--cov`, and — structurally, so it holds for tests nobody has written yet — that
+**every function reading `perf_counter` carries the benchmark marker**. An
+unmarked timing test would run instrumented and fail for a reason unrelated to
+the engine, which is the kind of failure that gets a budget loosened rather than
+a cause found.
