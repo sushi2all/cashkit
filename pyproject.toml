@@ -25,6 +25,7 @@ all = ["cashkit[duckdb,git]"]
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "pytest-cov>=5",
     "hypothesis>=6.100",
     "duckdb>=1.5",
     "pygit2>=1.14",
@@ -43,3 +44,25 @@ addopts = "-q"
 markers = [
     "benchmark: asserts a PRD §5.2 performance budget; timing-sensitive, deselect with -m 'not benchmark'",
 ]
+
+# The coverage gate. Two invocations, deliberately:
+#
+#   uv run pytest                              — the default. No instrumentation,
+#                                                so the §5.2 benchmarks measure
+#                                                the engine and not coverage.py's
+#                                                trace hook (they fail under it).
+#   uv run pytest -m "not benchmark" --cov     — the gate. Fails below 90%.
+#
+# `addopts` deliberately does NOT carry `--cov`: a default run that instruments
+# `engine/` is a default run whose performance assertions are meaningless.
+# `--cov` with no value reads `source` below, and `fail_under` is what makes the
+# run exit non-zero — the threshold lives here so neither invocation nor CI can
+# quietly lower it. `tests/test_coverage_gate.py` asserts this block is intact.
+[tool.coverage.run]
+source = ["cashkit/engine", "cashkit/model"]
+branch = false
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true

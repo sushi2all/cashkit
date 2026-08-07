@@ -796,6 +796,58 @@ class TestBookLevelWrites:
         again = set_cutover(kit, date(2026, 2, 1))
         assert again.empty and codes(again) == {"CK-I002"}
 
+    def test_a_cutover_past_the_horizon_is_recorded_and_warned_about(
+        self, kit: CashKit
+    ) -> None:
+        """Session S5.6: the quietest failure on this surface.
+
+        A cutover past ``horizon.end`` suppresses every generative occurrence
+        there is. The book still compiles, the run still succeeds, and every
+        number is zero — nothing anywhere says why. ``CK-W006`` is that
+        sentence.
+        """
+        report = set_cutover(kit, date(2026, 5, 1))
+        assert report.changed == ("cutover",), "warned, never refused"
+        assert codes(report) == {"CK-W006"}
+        assert kit.book.cutover == date(2026, 5, 1)
+
+        (warning,) = report.diagnostics
+        assert warning.severity == "warning" and warning.field == "cutover"
+        assert "2026-04-01" in warning.message, "the horizon it is outside"
+        assert "suppressed" in warning.message
+        assert warning.suggested_fix
+
+        # And the numbers back the message up: nothing is generated at all.
+        add_item(kit, flow("rent", "-3000", direction="out"))
+        assert kit.run().summary().net_cash == Decimal(0)
+
+    def test_a_cutover_before_the_horizon_is_warned_about_as_a_no_op(
+        self, kit: CashKit
+    ) -> None:
+        report = set_cutover(kit, date(2025, 12, 1))
+        assert report.changed == ("cutover",)
+        assert codes(report) == {"CK-W006"}
+        assert "no effect" in report.diagnostics[0].message
+
+    @pytest.mark.parametrize("day", [date(2026, 1, 1), date(2026, 2, 1), date(2026, 4, 1)])
+    def test_a_cutover_inside_the_horizon_says_nothing_new(
+        self, kit: CashKit, day: date
+    ) -> None:
+        """The horizon is half-open, so its own ``end`` is the last legal day:
+        the boundary the model's arithmetic reaches is not a mistake."""
+        assert codes(set_cutover(kit, day)) <= {"CK-I002"}
+
+    def test_validate_reports_a_book_already_in_that_state(self, kit: CashKit) -> None:
+        """The warning must not depend on having watched the write happen — a
+        book opened from disk carries the condition, not the call."""
+        set_cutover(kit, date(2026, 6, 1))
+        reopened, problems = CashKit.open(kit.root)
+        assert reopened is not None and problems == ()
+        assert "CK-W006" in {d.code for d in reopened.validate()}
+
+        assert set_cutover(reopened, date(2026, 3, 1)).changed == ("cutover",)
+        assert "CK-W006" not in {d.code for d in reopened.validate()}
+
     def test_a_regime_that_cannot_work_on_its_own_terms_is_refused(
         self, kit: CashKit
     ) -> None:

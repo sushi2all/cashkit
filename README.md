@@ -33,8 +33,16 @@ the phase plan and `PRD-cashkit.md` for the full specification.
 
 ```bash
 uv sync --group dev
-uv run pytest
+uv run pytest                            # everything, uninstrumented
+uv run pytest -m "not benchmark" --cov   # the coverage gate
 ```
+
+Two commands, deliberately. The default run carries no coverage instrumentation
+because the §5.2 performance budgets measure the engine, and under coverage.py's
+trace hook they measure the trace hook instead. The gate run deselects those
+budgets and fails below **90%** on `cashkit/engine` + `cashkit/model`; the
+threshold and the covered packages live in `pyproject.toml`, and
+`tests/test_coverage_gate.py` fails if either is quietly changed.
 
 Key invariants (full list in `PROMPT-fable5-implementation.md`):
 
