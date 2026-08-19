@@ -1,0 +1,17 @@
+{
+  "version": "2.17",
+  "children": [
+    {
+      "type": "text",
+      "id": "d0bPdK",
+      "x": 0,
+      "y": 0,
+      "fill": "#000000",
+      "content": "147960",
+      "fontFamily": "Inter",
+      "fontSize": 12,
+      "fontWeight": "normal"
+    }
+  ],
+  "fileToken": "7d29b3ac-c160-4ef5-a353-7b3aad4014c3"
+}
