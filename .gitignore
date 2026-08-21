@@ -12,3 +12,4 @@ build/
 .hypothesis/
 .pytest_cache/
 .coverage
+.netlify
