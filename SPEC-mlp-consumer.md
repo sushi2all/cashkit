@@ -33,7 +33,7 @@ apps/client   (one Expo codebase → iOS/Android app + web app via react-native-
 apps/service  (FastAPI, Python ≥3.11, EU region)
       ├─ cashkit SDK in-process (one book dir per user, existing file stores)
       ├─ agent layer (OpenRouter, flash-class, staged harness per ADR-0030)
-      └─ Postgres (users, sessions, turns, proposals, alerts — never book content)
+      └─ Postgres (users, sessions, turns, proposals — never book content)
 ```
 
 - **Shared**: everything the user sees is one codebase (`apps/client`); all business logic, the agent layer, and all computation live in `apps/service`. **The client never computes a money number.** It renders Decimal strings the service produced, verbatim.
