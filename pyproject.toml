@@ -23,6 +23,12 @@ git = ["pygit2>=1.14"]
 all = ["cashkit[duckdb,git]"]
 
 [dependency-groups]
+proto = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "openpyxl>=3.1",
+    "python-multipart>=0.0.9",
+]
 dev = [
     "pytest>=8",
     "pytest-cov>=5",

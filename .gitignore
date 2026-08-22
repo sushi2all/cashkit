@@ -13,3 +13,6 @@ build/
 .pytest_cache/
 .coverage
 .netlify
+proto/books/
+proto/usage_log.jsonl
+.playwright-mcp/

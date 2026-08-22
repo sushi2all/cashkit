@@ -1,0 +1,150 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CashKit proto</title>
+<style>
+  :root { --line:#ddd; --dim:#777; --bad:#b3261e; --ok:#1a7f37; }
+  * { box-sizing:border-box; }
+  body { font:14px/1.4 -apple-system, sans-serif; margin:0; display:flex; height:100vh; }
+  #left { width:420px; min-width:320px; border-right:1px solid var(--line); display:flex; flex-direction:column; }
+  #right { flex:1; overflow:auto; padding:12px; }
+  #log { flex:1; overflow:auto; padding:12px; }
+  .msg { margin:0 0 10px; }
+  .msg.user { font-weight:600; }
+  .msg .ops { color:var(--dim); font-size:12px; }
+  .msg .diag { color:var(--bad); font-size:12px; white-space:pre-wrap; }
+  #bar { display:flex; gap:6px; padding:10px; border-top:1px solid var(--line); }
+  #inp { flex:1; padding:8px; }
+  #controls { padding:8px 12px; border-bottom:1px solid var(--line); display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  table { border-collapse:collapse; font-size:12px; margin-top:10px; }
+  th, td { border:1px solid var(--line); padding:3px 6px; text-align:right; white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  td.neg { color:var(--bad); }
+  tr.closing td { font-weight:700; border-top:2px solid #999; }
+  #summary { margin-top:8px; color:var(--dim); }
+  #usage { margin-left:auto; color:var(--dim); font-size:12px; }
+  details { margin-top:4px; }
+  pre { font-size:11px; overflow:auto; background:#f6f6f6; padding:6px; }
+  .spin::after { content:" …working"; color:var(--dim); }
+</style>
+</head>
+<body>
+<div id="left">
+  <div id="controls">
+    <select id="model">
+      <option value="lite">gemini-2.5-flash-lite</option>
+      <option value="flash">gemini-3.7-flash</option>
+      <option value="sonnet">claude-sonnet-5</option>
+      <option value="opus">claude-opus-5</option>
+    </select>
+    <button onclick="resetBook()">Reset</button>
+    <input type="file" id="file" accept=".xlsx" style="display:none" onchange="uploadFile()">
+    <button onclick="document.getElementById('file').click()">Upload xlsx</button>
+    <span id="usage"></span>
+  </div>
+  <div id="log"></div>
+  <div id="bar">
+    <input id="inp" placeholder="e.g. New budget for 2026, opening balance 150 EUR…"
+           onkeydown="if(event.key==='Enter')send()">
+    <button onclick="send()">Send</button>
+  </div>
+</div>
+<div id="right">
+  <div id="controls">
+    <label>Export:</label>
+    <button onclick="dl('ledger')">Ledger</button>
+    <button onclick="dl('budget')">Budget</button>
+    <select id="win"><option>6</option><option selected>12</option></select><span>months from</span>
+    <input id="from" type="month" style="width:140px">
+  </div>
+  <div id="summary"></div>
+  <div id="grid"></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+let history = [];
+
+function addMsg(cls, html) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls;
+  d.innerHTML = html;
+  $('log').appendChild(d);
+  $('log').scrollTop = 1e9;
+  return d;
+}
+const esc = s => (s ?? '').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+async function send() {
+  const text = $('inp').value.trim();
+  if (!text) return;
+  $('inp').value = '';
+  addMsg('user', esc(text));
+  const w = addMsg('bot spin', '');
+  const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({message:text, model:$('model').value, history})});
+  const out = await r.json();
+  w.classList.remove('spin');
+  render(w, out);
+  history.push({role:'user', content:text}, {role:'assistant', content: out.reply || ''});
+  refresh();
+}
+
+function render(node, out) {
+  let html = esc(out.reply || '(no reply)');
+  for (const round of out.rounds || []) {
+    const nOps = (round.ops || []).length;
+    const errs = (round.reports || []).flatMap(r => r.diagnostics.filter(d => d.severity === 'error'))
+                 .concat(round.run_errors || []);
+    html += `<div class="ops">${nOps} op(s)` + (round.error ? ` — ${esc(round.error)}` : '') + `</div>`;
+    if (errs.length) html += `<div class="diag">${esc(errs.map(e => e.code + ' ' + e.message).join('\n'))}</div>`;
+    html += `<details><summary style="font-size:11px;color:#999">ops json</summary><pre>${esc(JSON.stringify(round.ops, null, 1))}</pre></details>`;
+  }
+  node.innerHTML = html;
+}
+
+async function refresh() {
+  const s = await (await fetch('/api/state')).json();
+  if (!s.book) { $('grid').innerHTML = '<p style="color:#777">No book yet.</p>'; $('summary').textContent = ''; return; }
+  const cells = v => v.map(x => `<td class="${+x<0?'neg':''}">${(+x).toFixed(2)}</td>`).join('');
+  let h = '<table><tr><th>Item</th>' + s.months.map(m => `<th>${m}</th>`).join('') + '</tr>';
+  for (const it of s.items) {
+    const vals = it.kind === 'stock' ? it.value : it.cash;
+    h += `<tr><td>${esc(it.name)}${it.kind !== 'flow' ? ' <span style="color:#999">(' + it.kind + ')</span>' : ''}</td>${cells(vals)}</tr>`;
+  }
+  h += `<tr class="closing"><td>Closing balance</td>${cells(s.closing)}</tr></table>`;
+  $('grid').innerHTML = h;
+  const su = s.summary;
+  $('summary').textContent =
+    `closing ${su.closing_balance} | min ${su.min_cash} @ ${su.min_cash_period}` +
+    ` | in ${su.total_inflow} | out ${su.total_outflow}` + (su.runway_end ? ` | runway ends ${su.runway_end}` : '');
+  if (s.diagnostics.length) $('summary').textContent += ' | ⚠ ' + s.diagnostics.map(d => d.code).join(',');
+  const u = await (await fetch('/api/usage')).json();
+  $('usage').textContent = `$${u.cost} spent, $${u.limit_remaining ?? '?'} left`;
+}
+
+async function resetBook() { await fetch('/api/reset', {method:'POST'}); history = []; $('log').innerHTML=''; refresh(); }
+
+async function uploadFile() {
+  const f = $('file').files[0];
+  if (!f) return;
+  addMsg('user', 'uploaded ' + esc(f.name));
+  const w = addMsg('bot spin', '');
+  const fd = new FormData();
+  fd.append('file', f);
+  fd.append('model', $('model').value);
+  const out = await (await fetch('/api/upload', {method:'POST', body:fd})).json();
+  w.classList.remove('spin');
+  render(w, out);
+  refresh();
+  $('file').value = '';
+}
+
+function dl(mode) {
+  const from = $('from').value;
+  location.href = `/api/export?mode=${mode}&months=${$('win').value}` + (from ? `&start=${from}` : '');
+}
+refresh();
+</script>
+</body>
+</html>
