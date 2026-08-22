@@ -179,3 +179,12 @@ Not applied. Each entry needs approval before editing the target file.
 **Description:** ADR-0019's scoring exercise gains two measured data points from the proto trials.
 
 > Scoring evidence (2026-08-22, proto/TESTLOG.md): a flash-lite-class model fills slots, windows, schedules and settlement correctly but fails formula CONSTRUCTION and free numeric Q&A silently; a flash-class model passes both. The schema keeps small models viable only if every reportable question is a single intent (rule 1) and no intent requires the model to construct formulas. Add a formula-construction class and a reconciliation-loop class to the scoring set.
+
+## From SPEC-mlp-consumer.md (2026-08-22): host-side execution extensions
+
+### 20. km/notes/intent-schema-draft.md — new "Host-side extensions (MLP)" section
+
+**Change type:** addition
+**Description:** The MLP spec extends the executable surface beyond the 21 model intents; the schema note must record them so the schema and the spec agree (see DECISIONS.md D-MLP-03).
+
+> **Host-side extensions (MLP, SPEC-mlp-consumer.md §2.5/§5-F5).** Never exposed to the model: `set_horizon`, `set_opening_balance`, `remove_event` (refused on actuals), `edit_schedule_date`, and the M5 record-actual channel — M5 maps to `add_event(status="actual")` iff the turn carries `context:"actuals_record"` AND date ≤ as_of; otherwise forecast; ambiguity → clarification. Read side: the Q&A loop tool surface is R1–R12 plus a host `query_ledger` tool (wraps `query_events`). Stale reference fix: R10's "(ADR-0020)" pointer should read ADR-0021 — `validate()` model-consistency diagnostics only.

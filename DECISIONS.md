@@ -1985,3 +1985,14 @@ nothing is recorded, `book.yaml` is byte-identical, the live kit's
 `status().clean` stays `True`, and a **reopened** kit agrees. A structural test
 drives the verb list from `construction.__all__` rather than a hand-kept copy,
 so a §6.1 verb added later is guarded or the suite fails.
+
+---
+
+## App track (MLP consumer) — 2026-08-22
+
+Decisions made while authoring `SPEC-mlp-consumer.md`; they amend or defer accepted ADRs and are recorded here per the repo convention.
+
+- **D-MLP-01 — Storage deferral.** The hosted MLP ships the existing file stores, one directory per book on a volume, behind the service API. The Postgres revision store ADR-0027 anticipated is deferred behind the ADR-0018 seam; build trigger: >2,000 active books or a second service node. Rationale: single-writer-per-book makes file stores safe at validation scale; a new store implementation buys nothing the MLP measures.
+- **D-MLP-02 — Domain-coverage duty deferred.** ADR-0021 §5 assigns the domain-coverage check (tax mechanics) to any app layer that presents forecasts. The consumer MLP defers it: the consumer persona models no tax mechanics. The B2B/SME track owns it. R10 in the MLP renders `validate()` model-consistency diagnostics only.
+- **D-MLP-03 — Host ops extend the intent surface.** The UI needs typed operations no v0 intent covers (set_horizon, set_opening_balance, remove_event, edit_schedule_date, M5's record-actual channel). They are host-authored proposal operations, never exposed to the model, mirroring the R5/R6 host-composition precedent (SPEC §2.5). The intent-schema note gains a matching section via km/adr/pending-spec-updates.md §20.
+- **D-MLP-04 — Alert defaults are placeholders.** MLP ships two fixed rule kinds (min_cash_below, negative_month) seeded with thresholds Luca sets before beta (SPEC §13). User-editable rules are post-MLP.
