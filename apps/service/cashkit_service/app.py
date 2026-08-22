@@ -21,6 +21,8 @@ from .middleware import RequestIdMiddleware, ResponseInvariantMiddleware
 from .routers import auth as auth_router
 from .routers import book_read
 from .routers import books as books_router
+from .routers import export as export_router
+from .routers import scenarios as scenarios_router
 from .routers import me as me_router
 
 TITLE = "CashKit MLP service"
@@ -66,6 +68,8 @@ def create_app(
     app.include_router(me_router.router)
     app.include_router(books_router.router)
     app.include_router(book_read.router)
+    app.include_router(scenarios_router.router)
+    app.include_router(export_router.router)
     return app
 
 

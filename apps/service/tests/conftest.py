@@ -186,3 +186,96 @@ async def book_client(auth_client: AsyncClient) -> AsyncClient:
     )
     assert response.status_code == 201, response.text
     return auth_client
+
+
+def seed_book(book_dir) -> None:
+    """Author a book with content worth checking, straight through the SDK.
+
+    This is a test fixture building a world, not a service path: it never goes
+    through the app, so it neither uses nor bypasses the proposal pipeline. The
+    numbers are deliberately awkward — a settlement lag, an escalation, an
+    explicit schedule, a recorded actual and a one-off big enough to push the
+    balance negative — so a serializer that quietly rounds has somewhere to go
+    wrong.
+    """
+    from datetime import date as _date
+    from decimal import Decimal
+
+    from cashkit.model import (
+        Amount, Escalation, Event, Grain, Item, Recurrence, Segment, Settlement,
+    )
+    from cashkit.sdk import CashKit, ScaleItems
+
+    kit, _diagnostics = CashKit.open(book_dir)
+    assert kit is not None
+    kit.add_item(
+        Item(
+            id="salary", name="Salary", kind="flow", direction="in", tags={"cat": "income"},
+            segments=[Segment(
+                start=_date(2026, 1, 1),
+                recurrence=Recurrence(every=1, unit=Grain.MONTH),
+                amount=Amount(constant=Decimal("2617.33")),
+            )],
+            settlement=Settlement.net(30),
+        )
+    )
+    kit.add_item(
+        Item(
+            id="rent", name="Rent", kind="flow", direction="out", tags={"cat": "housing"},
+            segments=[Segment(
+                start=_date(2026, 1, 1),
+                recurrence=Recurrence(every=1, unit=Grain.MONTH),
+                amount=Amount(constant=Decimal("-912.50")),
+                escalation=Escalation(rate=Decimal("0.037"), every_years=1),
+            )],
+            settlement=Settlement.immediate(),
+        )
+    )
+    kit.add_item(
+        Item(
+            id="insurance", name="Insurance", kind="flow", direction="out", tags={"cat": "housing"},
+            segments=[Segment(
+                start=_date(2026, 1, 1),
+                recurrence=Recurrence(every=1, unit=Grain.MONTH),
+                amount=Amount(schedule=[
+                    (_date(2026, 2, 1), Decimal("-207.77")),
+                    (_date(2026, 8, 1), Decimal("-207.77")),
+                ]),
+            )],
+            settlement=Settlement.immediate(),
+        )
+    )
+    kit.add_event(Event(
+        id="ev-actual-feb", date=_date(2026, 2, 10), amount=Decimal("-134.09"),
+        status="actual", item="rent", note="recorded from the bank line",
+    ))
+    kit.add_event(Event(
+        id="ev-oneoff-june", date=_date(2026, 6, 15), amount=Decimal("-14431.11"),
+        status="forecast", note="deposit on the new place",
+    ))
+    # A fork, so scenario comparison and the WHAT-IF stamp have something real
+    # to work on.
+    kit.scenarios.fork("base", "downside", note="salary cut")
+    kit.scenarios.apply_macro(
+        "downside", ScaleItems(selector="cat:income", factor=Decimal("0.8"))
+    )
+    kit.save()
+    kit.commit("seed")
+    if kit.ledger is not None:
+        kit.ledger.close()
+
+
+@pytest_asyncio.fixture
+async def seeded_client(book_client: AsyncClient, app, books_root: Path) -> AsyncClient:
+    """A book with content, and a service that has not cached a stale kit."""
+    import uuid as _uuid
+
+    book_dir = next(p for p in books_root.iterdir() if p.is_dir())
+    seed_book(book_dir)
+    await app.state.books.forget(_uuid.UUID(book_dir.name))
+    return book_client
+
+
+@pytest.fixture
+def book_dir(books_root: Path) -> Path:
+    return next(p for p in books_root.iterdir() if p.is_dir())
