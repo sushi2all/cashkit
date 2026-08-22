@@ -167,3 +167,22 @@ async def auth_client(client: AsyncClient, mailer: CapturingMailer) -> AsyncClie
     response = await client.post("/auth/verify", json={"token": link.token, "platform": "web"})
     client.headers["Authorization"] = f"Bearer {response.json()['token']}"
     return client
+
+
+@pytest_asyncio.fixture
+async def book_client(auth_client: AsyncClient) -> AsyncClient:
+    """A client whose account owns an empty book over 2026.
+
+    The horizon brackets :data:`FROZEN_NOW`, so ``as_of`` always falls inside
+    it and "today" means something in every assertion.
+    """
+    response = await auth_client.post(
+        "/books",
+        json={
+            "horizon_start": "2026-01-01",
+            "horizon_end": "2027-01-01",
+            "opening_balance": "2500.00",
+        },
+    )
+    assert response.status_code == 201, response.text
+    return auth_client
