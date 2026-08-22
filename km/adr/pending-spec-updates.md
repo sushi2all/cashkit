@@ -137,3 +137,45 @@ Not applied. Each entry needs approval before editing the target file.
 **Description:** The existing final sentence describes CK-I001 as supporting the agent checklist. Restate it as the mechanism.
 
 > `validate()` implements this: CK-I001 for the generic case, CK-I010 … CK-I015 per mechanic. Severity is info throughout, because a book that does not model a real legal entity legitimately has none of them.
+
+---
+
+# Pending Spec Updates — 2026-08-22
+
+Generated: 2026-08-22 · Source: /process-discussions run (ADR-0022 … ADR-0030)
+
+Not applied. Each entry needs approval before editing the target file.
+
+## From ADR-0023: design.pen is the design source of truth
+
+### 16. CLAUDE.md — Working conventions
+
+**Change type:** addition
+**Description:** The nine mobile screens were rebuilt into `design.pen` and committed; a hosted canvas artifact of the same screens still exists and can diverge.
+
+> - `design.pen` at the repo root is the design source of truth for the mobile app screens. Edits land there; hosted canvas artifacts are throwaway iterations.
+
+## From ADR-0026: pilot ingestion and GDPR posture
+
+### 17. ERP-pilot-guide.md — data ingestion section
+
+**Change type:** addition
+**Description:** Record the settled ingestion route and the agreement clause where the pilot team will look for it.
+
+> Actuals enter via CSV/CAMT.053 file import or the customer's own Qonto API key — no aggregator (ADR-0026). The pilot agreement states the customer is data controller; CashKit processes nothing server-side. Any future aggregator goes through a new ADR and the agent-of-aggregator path.
+
+## From ADR-0028/0029/0030: agent execution model
+
+### 18. km/notes/intent-schema-draft.md — new "Execution model" section
+
+**Change type:** addition
+**Description:** The staged harness and its guards are decisions about how the intent schema executes; the draft is their app-layer home.
+
+> **Execution model (ADR-0028/0029/0030).** Authoring turns: one flash-class call emits the full op batch; diagnostics feed one repair round. Formula-bearing turns add one bounded verification call over trace() receipts. Question turns run a read-only tool loop (run/trace/why_zero/query_events + single-call reporting intents); mutations arriving on a question turn are held for confirmation, never auto-applied. Spreadsheet import is the only full agentic loop, reconciling against the sheet's own subtotals. Hosts fill as_of; read and write toolsets are separate.
+
+### 19. km/notes/intent-schema-draft.md — scoring note
+
+**Change type:** addition
+**Description:** ADR-0019's scoring exercise gains two measured data points from the proto trials.
+
+> Scoring evidence (2026-08-22, proto/TESTLOG.md): a flash-lite-class model fills slots, windows, schedules and settlement correctly but fails formula CONSTRUCTION and free numeric Q&A silently; a flash-class model passes both. The schema keeps small models viable only if every reportable question is a single intent (rule 1) and no intent requires the model to construct formulas. Add a formula-construction class and a reconciliation-loop class to the scoring set.

@@ -25,3 +25,12 @@ Numbered, append-only. Status: accepted unless noted.
 | [0019](0019-intent-grammar-agent-surface.md) | The agent surface is an enumerated intent grammar, not free-form SDK composition | 2026-08-05 |
 | [0020](0020-tax-coverage-as-diagnostic.md) | Non-native tax coverage is a deterministic diagnostic, not agent behaviour — *superseded by 0021* | 2026-08-05 |
 | [0021](0021-engine-is-content-free.md) | The engine is content-free: domain knowledge and the agent are app-layer | 2026-08-05 |
+| [0022](0022-mobile-mlp-five-features.md) | The mobile MLP is five features over the 21-intent grammar | 2026-08-19 |
+| [0023](0023-computed-receipt-design-language.md) | Visual identity: Calm-fintech with a computed-receipt language | 2026-08-19 |
+| [0024](0024-whatif-state-separation.md) | Hypothetical figures stamped; book state separate until Apply | 2026-08-19 |
+| [0025](0025-positioning-nl-authoring.md) | Positioning: natural-language authoring on deterministic math | 2026-08-21 |
+| [0026](0026-pilot-ingestion-no-aggregator.md) | Pilot ingestion avoids aggregators; pure-vendor GDPR posture | 2026-08-21 |
+| [0027](0027-consumer-first-validation.md) | Consumer web app first, B2B tiers later; single user per book | 2026-08-22 |
+| [0028](0028-flash-class-model-no-preroute.md) | Agent surface runs flash-class; no pre-interpretation routing | 2026-08-22 |
+| [0029](0029-question-turns-never-write.md) | Question turns never write; hosts confirm mutations | 2026-08-22 |
+| [0030](0030-staged-agent-harness.md) | The agent harness is staged over the intent grammar | 2026-08-22 |
