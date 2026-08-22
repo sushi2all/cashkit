@@ -1,0 +1,26 @@
+# Development and test Postgres for the CashKit MLP service.
+#
+#   docker compose -f apps/service/docker-compose.dev.yml up -d --wait
+#
+# Port 55432, not 5432, so it never collides with a Postgres already running on
+# the host. The test fixture starts this file itself when the database is not
+# reachable, so `uv run pytest apps/service/tests` is a single command.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: cashkit-mlp-postgres
+    environment:
+      POSTGRES_USER: cashkit
+      POSTGRES_PASSWORD: cashkit
+      POSTGRES_DB: cashkit
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cashkit -d cashkit"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    tmpfs:
+      # The dev/test database is disposable; keeping it in memory makes the
+      # per-test schema reset fast and leaves nothing behind on the host.
+      - /var/lib/postgresql/data

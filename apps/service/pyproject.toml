@@ -1,0 +1,48 @@
+[project]
+name = "cashkit-service"
+version = "0.1.0"
+description = "CashKit MLP consumer service — FastAPI over the cashkit SDK."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Luca Sorgiacomo" }]
+dependencies = [
+    "cashkit",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "pydantic>=2",
+    "email-validator>=2",
+    "pydantic-settings>=2.4",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "asyncpg>=0.29",
+    "python-multipart>=0.0.9",
+    "openpyxl>=3.1",
+    # `compare()`, `frame()` and `pivot()` live behind the engine's duckdb
+    # extra; without it they answer CK-E033 instead of a payload, and
+    # GET /book/compare is a SPEC §3 endpoint (D-MLP-10).
+    "duckdb>=1.5",
+    "pygit2>=1.14",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cashkit_service"]
+
+[tool.uv.sources]
+cashkit = { workspace = true }
+
+# App tests are explicit: `uv run pytest apps/service/tests`. The root
+# pyproject keeps `testpaths = ["tests"]` so a bare `uv run pytest` still runs
+# the engine suite and only the engine suite.
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

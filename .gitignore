@@ -17,3 +17,6 @@ build/
 proto/books/
 proto/usage_log.jsonl
 .playwright-mcp/
+
+# Service test artifacts
+apps/service/.pytest_cache/

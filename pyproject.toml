@@ -44,6 +44,14 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["cashkit"]
 
+# The app track (SPEC-mlp-consumer.md) lives in a uv workspace member. The
+# engine package and its test configuration below are untouched by it:
+# `uv run pytest` still runs `testpaths = ["tests"]`, the engine suite only.
+# App tests are explicit — `uv run pytest apps/service/tests` — and resolve
+# their own config from `apps/service/pyproject.toml`.
+[tool.uv.workspace]
+members = ["apps/service"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
