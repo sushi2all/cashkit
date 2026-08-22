@@ -107,7 +107,8 @@ Response invariants: every payload that carries a computed number also carries `
 - `users(id, email, created_at, deleted_at)`
 - `sessions(id, user_id, token_hash, expires_at)`
 - `books(id, user_id UNIQUE, storage_path, active_scenario, created_at)` — UNIQUE enforces one book per user
-- `turns(id, user_id, book_id NOT NULL, input_text, kind, context, intents jsonb, model, prompt_tokens, completion_tokens, cost, latency_ms, outcome, diagnostics jsonb, created_at)`
+- `turns(id, user_id, book_id NOT NULL, request_id, input_text, kind, context, intents jsonb, model, prompt_tokens, completion_tokens, cost, latency_ms, outcome, diagnostics jsonb, created_at)` — per-turn aggregates
+- `llm_calls(id, turn_id, seq, purpose interpret|repair|verify|qa|import, request jsonb, response jsonb, prompt_tokens, completion_tokens, cost, latency_ms, error, created_at)` — one row per model call; `request`/`response` carry the raw payloads and are **purged after 30 days** (they contain user financial data, §9); the numeric columns are kept. `DELETE /me` cascades through both tables.
 - `proposals(id, turn_id NULLABLE, origin, ops jsonb, deltas jsonb, base_revision, overlay_fingerprint, status pending|accepted|discarded|expired|superseded, expires_at)` — see §2.5 for origins, host ops, and staleness rules
 - `alert_rules(id, book_id, kind min_cash_below|negative_month, threshold, enabled)` — MLP ships the two fixed kinds only, seeded with defaults Luca sets before beta (§13); user-editable rules are post-MLP; S15 shows a read-only list
 - `import_jobs(id, book_id, status, report jsonb)`
@@ -190,7 +191,7 @@ Empty/loading/error states are required for every screen; empty states carry one
 
 ## 9. Compliance gate (ADR-0026 rule 4 — blocks launch)
 
-Before ANY external user: DPA template; subprocessor list published on the privacy page (hosting provider, Postgres host if managed, OpenRouter, Google — model, email provider, **and the speech-recognition path**: prefer on-device recognition where the platform offers it; any server-side speech provider joins the list or dictation ships disabled on that platform); privacy policy + ToS; account deletion (`DELETE /me` erases Postgres rows AND the book directory and its backups within 30 days) and data export; EU-region hosting and storage; zero-retention model routing verified; encryption at rest for volume and backups. One hour with an Italian fintech lawyer is flagged (ADR-0026) — before public launch, not before beta.
+Before ANY external user: DPA template; subprocessor list published on the privacy page (hosting provider, Postgres host if managed, OpenRouter, Google — model, email provider, **and the speech-recognition path**: prefer on-device recognition where the platform offers it; any server-side speech provider joins the list or dictation ships disabled on that platform); privacy policy + ToS; account deletion (`DELETE /me` erases Postgres rows AND the book directory and its backups within 30 days) and data export; EU-region hosting and storage; zero-retention model routing verified; encryption at rest for volume and backups; **log retention stated in the privacy policy**: raw model request/response payloads purge after 30 days (§4 `llm_calls`), request logs after 90, and account deletion cascades through all of it. One hour with an Italian fintech lawyer is flagged (ADR-0026) — before public launch, not before beta.
 
 ## 10. Testing and gates
 
@@ -202,7 +203,11 @@ Before ANY external user: DPA template; subprocessor list published on the priva
 
 ## 11. Observability
 
-Turn log (§4) is the primary instrument: every turn's intents, tokens, cost, latency, outcome, diagnostics. Dashboards (simple SQL views are fine for MLP): turns/day, proposal accept rate, clarification rate, repair-round rate, p50/p95 latency, cost/user/day, import success rate, reconciliation mismatch rate. Errors to Sentry (or equivalent). The proposal accept rate is the MLP's core product metric: it measures whether interpretation is trusted.
+Three layers, one correlation chain: `request_id → turn_id → llm_calls.seq → proposal_id` appears in every log line and payload envelope, so one user report is traceable end to end.
+
+- **Product** — the turn log (§4) is the primary instrument. Dashboards (simple SQL views are fine for MLP): turns/day, proposal accept rate, clarification rate, repair-round rate, p50/p95 turn latency, cost/user/day, import success rate, reconciliation mismatch rate. The proposal accept rate is the MLP's core product metric: it measures whether interpretation is trusted.
+- **LLM** — `llm_calls` (§4) records every model call individually: purpose, tokens, cost, latency, error, and (for 30 days) the raw request/response for misinterpretation debugging. Alarms: global daily spend above a configured ceiling, and repair-round rate above 20% over 24h (the prompt is regressing or the provider changed something — rerun the trial suite).
+- **API and infra** — structured JSON request logs (request_id, route, status, duration); per-endpoint p50/p95 and error-rate metrics compared against the §8 budgets, scraped or exported (a `/metrics` endpoint is enough); external uptime check on `/healthz`; alarms on book-volume disk usage (>80%) and failed nightly backups; unhandled exceptions to Sentry (or equivalent) with the request_id attached.
 
 ## 12. Deployment
 
