@@ -84,7 +84,7 @@ Auth: email magic link. `POST /auth/link {email}` → mail with deep link; `POST
 | `GET /me` / `DELETE /me` | Profile; full account deletion (books + rows, §9) |
 | `GET /me/export` | Everything the user owns, one archive (GDPR) |
 | `POST /books` | Create the (single) book: horizon, opening balance, currency=EUR, grain=month |
-| `GET /book/state?scenario=` | Items, params, summary, months, per-item series, dirty flag, revision id, as_of |
+| `GET /book/state?scenario=` | Items, params, summary, months, per-item series, dirty flag, revision id, as_of, and server-computed `warnings` (projected negative months with depth; projected min cash + month) |
 | `GET /book/forecast?scenario=&grain=&window=` | Grid payload for F3 |
 | `GET /book/trace?item=&period=&measure=` | `trace()` for the tap-to-explain screen (R7) |
 | `GET /book/why_zero?item=&period=` | R8 |
@@ -96,7 +96,6 @@ Auth: email magic link. `POST /auth/link {email}` → mail with deep link; `POST
 | `POST /book/save {message}` / `POST /book/discard` | M9 / revert working overlay |
 | `GET /book/scenarios` · `POST /book/scenarios` · `POST /book/scenarios/{id}/activate` | F4 |
 | `GET /book/compare?scenarios=a,b&metric=cash` | R9 payload |
-| `GET /book/alerts` | Service-evaluated alert rules over engine figures; payload separates rule alerts from engine `validate()` diagnostics |
 | `POST /import` (xlsx, multipart) → `GET /imports/{id}/stream` (SSE) | §7; progress + reconciliation report |
 | `GET /export?mode=ledger\|budget&months=&start=` | xlsx, as in the proto |
 
@@ -110,7 +109,6 @@ Response invariants: every payload that carries a computed number also carries `
 - `turns(id, user_id, book_id NOT NULL, request_id, input_text, kind, context, intents jsonb, model, prompt_tokens, completion_tokens, cost, latency_ms, outcome, diagnostics jsonb, created_at)` — per-turn aggregates
 - `llm_calls(id, turn_id, seq, purpose interpret|repair|verify|qa|import, request jsonb, response jsonb, prompt_tokens, completion_tokens, cost, latency_ms, error, created_at)` — one row per model call; `request`/`response` carry the raw payloads and are **purged after 30 days** (they contain user financial data, §9); the numeric columns are kept. `DELETE /me` cascades through both tables.
 - `proposals(id, turn_id NULLABLE, origin, ops jsonb, deltas jsonb, base_revision, overlay_fingerprint, status pending|accepted|discarded|expired|superseded, expires_at)` — see §2.5 for origins, host ops, and staleness rules
-- `alert_rules(id, book_id, kind min_cash_below|negative_month, threshold, enabled)` — MLP ships the two fixed kinds only, seeded with defaults Luca sets before beta (§13); user-editable rules are post-MLP; S15 shows a read-only list
 - `import_jobs(id, book_id, status, report jsonb)`
 
 ## 5. Feature specifications
@@ -120,10 +118,12 @@ Response invariants: every payload that carries a computed number also carries `
 - Read turns answer inline as a receipt: the number(s), the as-of stamp, scenario, and a "how" affordance that deep-links to trace where applicable (R7).
 - The model must quote engine numbers only (ADR-0030 stage 3). Acceptance: the T11-class trials pass through the service (§10).
 - Clarification turns (`kind: clarification`) render the model's question; no state changes.
+- **Voice rule for refusals and clarifications** (Luca, 2026-08-23): helpful and explanatory, but succinct — say what happened and what is needed, at most two short sentences; no apology boilerplate, no hedging.
 
 ### F2 — Say what changed (confirmation card)
 - Every mutation turn returns a proposal. The card lists: each intent in typed, human-readable form ("Add expense · Rent · 900/month from 2026-03-01"); the dry-run deltas (closing balance, min cash, runway before → after); affected items; diagnostics if any.
 - Actions, one vocabulary everywhere (card, API, tests): **Apply** (= API `accept`), **Discard** (= API `discard`), **Edit** (= a new turn quoting the proposal; the old proposal becomes superseded).
+- **Crossing flags, computed in the dry-run** (decided 2026-08-23, supersedes threshold alerts): the deltas block marks every month the change turns negative and the min-cash movement (before → after). Warnings are structural and always on — there are no configurable thresholds in the MLP; nothing waits for a background job, every update checks immediately.
 - Acceptance: no path exists where a model output mutates a book without a stored, user-accepted proposal (ADR-0029). This is a hard invariant test, not a UX nicety.
 
 ### F3 — Forecast + trace
@@ -153,9 +153,9 @@ Shared inventory rules: every screen with computed figures shows the **as-of sta
 
 **Design reference**: `design.pen` at revision `9bdb617` (self-contained; ten top-level screens, inventoried 2026-08-22). They cover **S1–S11** below — S4's proposal card exists as the "Pending Card" nested inside the Home screen, and the three item variants are separate screens. **S12–S15 have no design.pen screens**; for them the element inventories in this section are normative-enough to build — the ADR-0023 styling pass is a separate, non-blocking workstream for all fifteen. The web app reuses the same structures with a sidebar in place of the tab bar and wider table layouts.
 
-One adaptation: the designed `ON-DEVICE` chip on Home assumed ADR-0017 config B; the hosted MLP replaces it with a truthful trust chip (copy is Luca's call, §13 — candidates: region badge, "deterministic math" badge).
+One adaptation: the designed `ON-DEVICE` chip on Home assumed ADR-0017 config B; the hosted MLP **drops the chip entirely** (decided 2026-08-23) — the eyebrow keeps book · scenario · as-of only. Security/trust badging returns with the public-launch trust work.
 
-1. **Home / Chat** *(design.pen "Home - Chat")* — eyebrow stamp (book name · scenario · as-of) + trust chip; **alert banner element** (renders firing `GET /book/alerts` rule alerts; hidden when none fire); balance row (big committed figure + "today"); horizon sparkline with low-point dot and labels (`NEXT 6 MONTHS`, `LOW <amount> · <date>`); divider; chat stack — user quote row, **answer card** (verdict line; leader-dot rows for the key figures; footer stamp `WHAT-IF · INCLUDES PENDING <x>` when hypothetical, ADR-0024; `TRACE ›` link), **proposal card** (see S4); ask input row (text + mic).
+1. **Home / Chat** *(design.pen "Home - Chat")* — eyebrow stamp (book name · scenario · as-of); **warnings banner element** (renders the state payload's standing `warnings` — projected negative months, min cash — hidden when clear); balance row (big committed figure + "today"); horizon sparkline with low-point dot and labels (`NEXT 6 MONTHS`, `LOW <amount> · <date>`); divider; chat stack — user quote row, **answer card** (verdict line; leader-dot rows for the key figures; footer stamp `WHAT-IF · INCLUDES PENDING <x>` when hypothetical, ADR-0024; `TRACE ›` link), **proposal card** (see S4); ask input row (text + mic).
 2. **Alert / negative what-if** *(design.pen "Alert - Negative What-if"; a Home state variant, not a separate route)* — same shell; answer card with negative verdict, negative figures, footer stamp carrying the engine diagnostic code verbatim (e.g. `WHAT-IF · CK-… · NEGATIVE CASH`); actions **Discard / Keep as scenario** instead of Edit/Apply. "Keep as scenario" composes host-side, with NO new model call: one proposal containing M7 (fork) plus the host-derived M-intents equivalent to the R1 hypothetical delta (e.g. M5 with the delta amount/date), dry-run on the fork, confirmed through the normal card.
 3. **Forecast** *(design.pen "Forecast")* — header (title + scenario chip); subline stamp (window · as-of); **chart card**: recorded band, cutover line, computed area, min drop + dot, `RECORDED` / `COMPUTED · CUTOVER <date>` labels; **table card**: MONTH / IN / OUT / END rows with inline notes on notable months (min, applied one-offs); footer note `ALL FIGURES COMPUTED · TAP A ROW FOR THE TRACE` + mic. Tap a row → Trace scoped to that month. (An item-level grid is a web-only later enhancement; the designed monthly table is the MLP forecast.)
 4. **Proposal card** *(design.pen "Pending Card", componentized; used on Home, onboarding, import)* — label `PENDING · <OPERATION>`; leader-dot rows describing the change (name, kind, date, tags, amount); dry-run deltas block (closing, min cash, runway before → after); diagnostics if any; **Apply / Edit / Discard** actions (§5-F2 vocabulary; the design shows Edit/Apply — Discard is an added required action); resolved state renders an applied/discarded/superseded badge; expiry note.
@@ -169,7 +169,7 @@ One adaptation: the designed `ON-DEVICE` chip on Home assumed ADR-0017 config B;
 12. **Auth** *(no design.pen reference)* — email field, send-link button, "check your mail" state, deep-link/verify handler, expired-link error state.
 13. **Onboarding (first book)** *(no design.pen reference)* — 3 steps: (a) horizon + opening balance → `POST /books` creates the (empty) book immediately; (b) optional "describe your money in a few sentences" free text = a normal `POST /turns` against that book, yielding a normal proposal card (S4) with the derived items; (c) apply → book **populated** → Home. Skip path after (a): empty book. `turns.book_id` is therefore always NOT NULL.
 14. **Import / Export** *(no design.pen reference; web-primary)* — dropzone/file pick; progress stream (stage, section, reconciliation checks passing/failing live); final reconciliation report (per sheet row: matched / mismatched + delta / skipped, with the 1-cent parity label where applicable); accept-into-book = one proposal card; export controls (mode, window, start) + download. Mobile: export via share sheet; import points to the web app in the MLP.
-15. **Settings + History** *(no design.pen reference)* — account (email, delete account with confirmation phrase, export-my-data); book settings (horizon, opening balance via `set_horizon`/`set_opening_balance` host ops, cutover via M8 — every edit a proposal through `POST /book/edits`); alert rules (read-only list of the two seeded kinds with current thresholds and enabled state); privacy page (subprocessor list); about (engine version, current revision); revision history list (R12: message, author, timestamp, id — read-only).
+15. **Settings + History** *(no design.pen reference)* — account (email, delete account with confirmation phrase, export-my-data); book settings (horizon, opening balance via `set_horizon`/`set_opening_balance` host ops, cutover via M8 — every edit a proposal through `POST /book/edits`); privacy page (subprocessor list); about (engine version, current revision); revision history list (R12: message, author, timestamp, id — read-only).
 
 Empty/loading/error states are required for every screen; empty states carry one example ask ("try: can I afford …").
 
@@ -216,10 +216,10 @@ Hetzner Cloud, EU region: one VM, Docker Compose (Caddy TLS → service; Postgre
 
 ## 13. Open items the implementing agent must NOT decide alone
 
-1. Copy/tone of refusals and clarifications (positioning is ADR-0025's domain; Luca reviews).
-2. Alert rule defaults (which thresholds ship on).
-3. Anything that would relax an invariant in §5-F2, §6, or §9.
-4. Any change under `cashkit/` — engine repo rules apply unchanged (CLAUDE.md, incl. ENGINE_VERSION discipline).
+1. Anything that would relax an invariant in §5-F2, §6, or §9.
+2. Any change under `cashkit/` — engine repo rules apply unchanged (CLAUDE.md, incl. ENGINE_VERSION discipline).
+
+Resolved 2026-08-23 (see DECISIONS.md D-MLP-05): the Home trust chip is dropped for the MLP; warnings are structural update-time checks with no thresholds; refusal/clarification copy follows the voice rule in §5-F1. Final copy review before beta stays with Luca (ADR-0025).
 
 ## 14. Known gaps, host-side extensions, and their owners
 
@@ -227,4 +227,4 @@ Hetzner Cloud, EU region: one VM, Docker Compose (Caddy TLS → service; Postgre
 - **Host-side extensions of the v0 intent schema** (all §2.5; never exposed to the model; the schema note gains a matching section via `km/adr/pending-spec-updates.md`): the M5 record-actual channel (§5-F5 discriminator), `set_horizon`, `set_opening_balance`, `remove_event`, `edit_schedule_date`, and the `query_ledger` read tool.
 - **ADR-0021 app-layer domain-coverage duty**: deferred for the consumer MLP (no tax-mechanics scope for the consumer persona); the B2B/SME track owns it. Recorded in `DECISIONS.md`.
 - Postgres revision store: deferred with trigger (§2.2), ADR-0018 owns the seam; recorded in `DECISIONS.md`.
-- Push notifications, multi-book, VAT, formula authoring, offline mobile, user-editable alert rules: all post-MLP; do not scaffold for them (YAGNI — the seams above are the only sanctioned ones).
+- Push notifications, multi-book, VAT, formula authoring, offline mobile, configurable warning thresholds: all post-MLP; do not scaffold for them (YAGNI — the seams above are the only sanctioned ones).
