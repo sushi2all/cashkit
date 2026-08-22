@@ -90,25 +90,28 @@ Auth: email magic link. `POST /auth/link {email}` → mail with deep link; `POST
 | `GET /book/why_zero?item=&period=` | R8 |
 | `GET /book/events?where=&since=&until=` | Ledger view (F5) |
 | `GET /book/reconcile?until=&scenario=` | Per-item forecast/actual/drift + settle status + `suggested_cutover` (F5, S8) |
+| `GET /book/validate?scenario=` | R10: `validate()` model-consistency diagnostics, verbatim (F5, S7) |
+| `GET /book/history?limit=` | R12: the read-only revision list (S15) |
 | `POST /turns {text, scenario?, context?}` | The chat turn; `context: "actuals_record"` marks the record-actual channel (§5-F5); returns `{kind: answer\|proposal\|clarification, reply, receipts[], proposal?}` |
 | `POST /book/edits {ops[], origin}` | UI-origin proposals (cell edits, settings, onboarding accept-step, "+ Add a date"); same dry-run pipeline, no model call |
 | `POST /proposals/{id} {action: accept\|discard}` | ADR-0029 confirmation; accept re-checks the §2.5 staleness fingerprint, then returns fresh state + receipts, or a refreshed proposal on mismatch |
 | `POST /book/save {message}` / `POST /book/discard` | M9 / revert working overlay |
-| `GET /book/scenarios` · `POST /book/scenarios` · `POST /book/scenarios/{id}/activate` | F4 |
+| `GET /book/scenarios` · `POST /book/scenarios` · `POST /book/scenarios/{id}/activate` | F4. `POST /book/scenarios` returns a **proposal** carrying M7, not a scenario — ADR-0029 has no exception for a change that looks harmless. Activation is app state, not book content, and supersedes every pending proposal (§2.5) |
 | `GET /book/compare?scenarios=a,b&metric=cash` | R9 payload |
 | `POST /import` (xlsx, multipart) → `GET /imports/{id}/stream` (SSE) | §7; progress + reconciliation report |
 | `GET /export?mode=ledger\|budget&months=&start=` | xlsx, as in the proto |
 
-Response invariants: every payload that carries a computed number also carries `as_of`, `scenario`, `revision`, `engine_version`, and the `what_if` field of §2.4 (absent or `{stamped:false}` only for base committed figures). Money is Decimal strings, 2dp for display, never floats. Diagnostics are passed through verbatim (code, severity, message, suggested_fix) — the service never rewrites or suppresses them (ADR-0015).
+Response invariants: every payload that carries a computed number also carries `as_of`, `scenario`, `revision`, `engine_version`, and the `what_if` field of §2.4 (absent or `{stamped:false}` only for base committed figures). Money is Decimal strings, never floats: one canonical serializer ships every figure as `{exact, display}` — `exact` is the engine's lossless 4dp value, `display` the 2dp string for rendering, rounded the way the engine rounds. Sending only 2dp would truncate an engine number; sending only 4dp would make the client round one. Both invariants hold with both forms on the wire (D-MLP-06). Diagnostics are passed through verbatim (code, severity, message, suggested_fix) — the service never rewrites or suppresses them (ADR-0015).
 
 ## 4. Data model (Postgres — app data only, never book content)
 
 - `users(id, email, created_at, deleted_at)`
-- `sessions(id, user_id, token_hash, expires_at)`
+- `sessions(id, user_id, token_hash, platform, expires_at, created_at, last_seen_at)`
+- `login_tokens(id, email, token_hash, expires_at, consumed_at, created_at)` — magic-link tokens; §3's single-use rule is not enforceable without a row to burn (D-MLP-07)
 - `books(id, user_id UNIQUE, storage_path, active_scenario, created_at)` — UNIQUE enforces one book per user
 - `turns(id, user_id, book_id NOT NULL, request_id, input_text, kind, context, intents jsonb, model, prompt_tokens, completion_tokens, cost, latency_ms, outcome, diagnostics jsonb, created_at)` — per-turn aggregates
 - `llm_calls(id, turn_id, seq, purpose interpret|repair|verify|qa|import, request jsonb, response jsonb, prompt_tokens, completion_tokens, cost, latency_ms, error, created_at)` — one row per model call; `request`/`response` carry the raw payloads and are **purged after 30 days** (they contain user financial data, §9); the numeric columns are kept. `DELETE /me` cascades through both tables.
-- `proposals(id, turn_id NULLABLE, origin, ops jsonb, deltas jsonb, base_revision, overlay_fingerprint, status pending|accepted|discarded|expired|superseded, expires_at)` — see §2.5 for origins, host ops, and staleness rules
+- `proposals(id, book_id NOT NULL, turn_id NULLABLE, origin, context, scenario, ops jsonb, deltas jsonb, base_revision, overlay_fingerprint, status pending|accepted|discarded|expired|superseded, supersedes NULLABLE, expires_at, created_at, resolved_at)` — see §2.5 for origins, host ops, and staleness rules. `book_id` because supersession is per book; `context` carries the §5-F5 record-actual marker; `supersedes` links a refreshed card to the stale one it replaced (D-MLP-08)
 - `import_jobs(id, book_id, status, report jsonb)`
 
 ## 5. Feature specifications
