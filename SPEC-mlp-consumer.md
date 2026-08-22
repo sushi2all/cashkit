@@ -77,7 +77,7 @@ Every turn is logged (§11) with intents, model, tokens, cost, latency, and outc
 
 ## 3. Service API (v1 sketch — the implementing agent owns the exact OpenAPI)
 
-Auth: email magic link. `POST /auth/link {email}` → mail with deep link; `POST /auth/verify {token}` → bearer session. Web may exchange for an httpOnly cookie; mobile stores the bearer in SecureStore. Policy: link tokens are single-use, TTL 15 minutes; sessions 30 days (mobile) / 7 days (web) with sliding renewal; a new session does not revoke others; `DELETE /me` revokes all sessions.
+Auth: email magic link. `POST /auth/link {email}` → mail with deep link; `POST /auth/verify {token}` → bearer session. Deep-link mechanics: a custom URL scheme in development builds (the associated-domains entitlement needs the paid Apple Developer account); universal links arrive with the TestFlight track. The web app uses a plain HTTPS link throughout. Web may exchange for an httpOnly cookie; mobile stores the bearer in SecureStore. Policy: link tokens are single-use, TTL 15 minutes; sessions 30 days (mobile) / 7 days (web) with sliding renewal; a new session does not revoke others; `DELETE /me` revokes all sessions.
 
 | Endpoint | Purpose |
 |---|---|
