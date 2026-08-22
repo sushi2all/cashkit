@@ -201,7 +201,7 @@ def overlay_fingerprint(kit: CashKit) -> str:
     record, so a reformat that changes nothing semantic does not invalidate a
     proposal. The ledger half is the row digest above.
     """
-    from cashkit.stores.revisions import build_state
+    from cashkit.stores.config import build_state
 
     config = build_state(kit.config_state()).digest()
     return hashlib.sha256(f"{config}:{ledger_digest(kit)}".encode("utf-8")).hexdigest()

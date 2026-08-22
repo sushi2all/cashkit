@@ -6,10 +6,10 @@ from datetime import date
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..db import books
-from ..deps import BookDep, ClockDep, ConnDep
+from ..deps import BookDep, ClockDep, ConnDep, SettingsDep
 from ..envelope import BASE_SCENARIO, Envelope, envelope
 from ..errors import bad_request, not_found
 from ..money import Money, money_or_none, to_decimal
@@ -131,3 +131,36 @@ async def compare_scenarios(
             periods=periods,
             diagnostics=diagnostics_out(table.diagnostics),
         )
+
+
+class CreateScenario(BaseModel):
+    name: str = Field(min_length=1)
+    parent: str | None = None
+    note: str = ""
+
+
+@router.post("/book/scenarios", status_code=201)
+async def create_scenario(
+    body: CreateScenario,
+    request: Request,
+    book: BookDep,
+    clock: ClockDep,
+    conn: ConnDep,
+    settings: SettingsDep,
+):
+    """Create a fork — as a proposal, like every other write.
+
+    SPEC §5-F4 has fork creation as "M7 via turn or button". The button path is
+    this endpoint, and it produces a confirmation card rather than a scenario:
+    ADR-0029 admits no exception for a change that merely looks harmless
+    (D-MLP-14).
+    """
+    from ..routers.book_edits import EditsRequest, create_edit_proposal
+
+    return await create_edit_proposal(
+        EditsRequest(
+            ops=[{"op": "fork_scenario", "name": body.name, "parent": body.parent, "note": body.note}],
+            origin="button",
+        ),
+        request, book, clock, conn, settings,
+    )

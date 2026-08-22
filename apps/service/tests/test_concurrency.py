@@ -37,6 +37,31 @@ async def test_parallel_reads_never_hit_a_cross_thread_error(book_client):
     assert len({b["summary"]["closing_balance"]["exact"] for b in bodies}) == 1
 
 
+async def test_parallel_reads_and_writes_serialize_per_book(seeded_client):
+    """Reads and a mutating flow interleave without corrupting either."""
+    async def edit(index: int):
+        return await seeded_client.post(
+            "/book/edits",
+            json={
+                "origin": "cell_edit",
+                "ops": [
+                    {
+                        "op": "add_event",
+                        "date": "2026-05-1{}".format(index % 10),
+                        "amount": "-10.00",
+                        "direction": "out",
+                        "note": f"parallel {index}",
+                    }
+                ],
+            },
+        )
+
+    reads = [seeded_client.get("/book/state") for _ in range(8)]
+    writes = [edit(i) for i in range(8)]
+    results = await asyncio.gather(*reads, *writes)
+    assert all(r.status_code in (200, 201) for r in results), [r.status_code for r in results]
+
+
 async def test_every_route_is_async(app):
     """A ``def`` handler would be run in a threadpool and break confinement."""
     offenders = [
