@@ -64,12 +64,14 @@ async def test_parallel_reads_and_writes_serialize_per_book(seeded_client):
 
 async def test_every_route_is_async(app):
     """A ``def`` handler would be run in a threadpool and break confinement."""
+    from conftest import iter_routes
+
+    routes = [r for r in iter_routes(app) if not r.path.startswith(("/openapi", "/docs", "/redoc"))]
+    assert len(routes) > 10, "the walker found no routes, so this proves nothing"
     offenders = [
-        f"{route.methods} {route.path} -> {route.endpoint.__name__}"
-        for route in app.routes
-        if getattr(route, "endpoint", None) is not None
-        and not inspect.iscoroutinefunction(route.endpoint)
-        and not route.path.startswith(("/openapi", "/docs", "/redoc"))
+        f"{sorted(route.methods)} {route.path} -> {route.endpoint.__name__}"
+        for route in routes
+        if not inspect.iscoroutinefunction(route.endpoint)
     ]
     assert offenders == [], offenders
 

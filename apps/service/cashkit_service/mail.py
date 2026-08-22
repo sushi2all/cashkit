@@ -2,8 +2,8 @@
 
 The link token leaves the service through the mailer and nowhere else. No
 endpoint ever returns it, in any mode — a debug flag that puts a login token in
-an HTTP response is a bypass, and this service has none. Tests install
-:class:`CapturingMailer` and read the link from there.
+an HTTP response would defeat the whole flow, and this service has no such
+mode. Tests install :class:`CapturingMailer` and read the link from there.
 
 The real provider is S6's (SPEC §12 secrets, §9 subprocessor list).
 """

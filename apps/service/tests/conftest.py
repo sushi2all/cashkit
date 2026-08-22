@@ -279,3 +279,28 @@ async def seeded_client(book_client: AsyncClient, app, books_root: Path) -> Asyn
 @pytest.fixture
 def book_dir(books_root: Path) -> Path:
     return next(p for p in books_root.iterdir() if p.is_dir())
+
+
+def iter_routes(app):
+    """Every concrete route, walking nested routers.
+
+    ``app.routes`` keeps included routers as container objects in this FastAPI
+    version, so a flat scan silently finds nothing — and a test that silently
+    finds nothing passes. This walks them.
+    """
+    seen = []
+
+    def walk(container) -> None:
+        # An included router is wrapped; the real one is `original_router`.
+        inner = getattr(container, "original_router", None)
+        if inner is not None:
+            walk(inner)
+            return
+        for route in getattr(container, "routes", []):
+            if getattr(route, "path", None) and getattr(route, "methods", None):
+                seen.append(route)
+            else:
+                walk(route)
+
+    walk(app)
+    return seen

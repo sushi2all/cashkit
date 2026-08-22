@@ -1,0 +1,5067 @@
+{
+  "components": {
+    "schemas": {
+      "AcceptResponse": {
+        "description": "The answer to a confirmation.\n\n``applied`` when the change landed, ``refreshed`` when the ground had moved\nand the service re-ran the dry-run \u2014 the old card is superseded and the new\none needs confirming again (SPEC \u00a72.5). ``discarded`` speaks for itself.",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "diagnostics": {
+            "default": [],
+            "items": {},
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "applied",
+              "refreshed",
+              "discarded"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "proposal": {
+            "$ref": "#/components/schemas/ProposalOut"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "superseded": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Superseded",
+            "type": "array"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "kind",
+          "proposal"
+        ],
+        "title": "AcceptResponse",
+        "type": "object"
+      },
+      "ActivateResponse": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "string"
+          },
+          "superseded_proposals": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Superseded Proposals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "active",
+          "superseded_proposals"
+        ],
+        "title": "ActivateResponse",
+        "type": "object"
+      },
+      "AddEvent": {
+        "additionalProperties": false,
+        "description": "M5 \u2014 ``add_event``.\n\nStatus is NOT a slot. The model never chooses whether something happened:\nthe record-actual discriminator decides it host-side (SPEC \u00a75-F5).",
+        "properties": {
+          "amount": {
+            "examples": [
+              "-912.50"
+            ],
+            "title": "Amount",
+            "type": "string"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "in",
+                  "out"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "item": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "op": {
+            "const": "add_event",
+            "default": "add_event",
+            "title": "Op",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "AddEvent",
+        "type": "object"
+      },
+      "AddItem": {
+        "additionalProperties": false,
+        "description": "M1 \u2014 ``add_item``.",
+        "properties": {
+          "amount": {
+            "examples": [
+              "-912.50"
+            ],
+            "title": "Amount",
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "in",
+              "out"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "op": {
+            "const": "add_item",
+            "default": "add_item",
+            "title": "Op",
+            "type": "string"
+          },
+          "recurrence": {
+            "default": "1m",
+            "examples": [
+              "1m",
+              "3m",
+              "1y"
+            ],
+            "title": "Recurrence",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          },
+          "settlement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "immediate",
+              "net30"
+            ],
+            "title": "Settlement"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "tags": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "direction",
+          "amount",
+          "start"
+        ],
+        "title": "AddItem",
+        "type": "object"
+      },
+      "BindingOut": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/Money"
+          }
+        },
+        "required": [
+          "symbol",
+          "kind",
+          "value",
+          "source",
+          "target",
+          "detail"
+        ],
+        "title": "BindingOut",
+        "type": "object"
+      },
+      "BookCreated": {
+        "properties": {
+          "active_scenario": {
+            "title": "Active Scenario",
+            "type": "string"
+          },
+          "book_id": {
+            "title": "Book Id",
+            "type": "string"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticOut"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          }
+        },
+        "required": [
+          "book_id",
+          "active_scenario",
+          "revision",
+          "diagnostics"
+        ],
+        "title": "BookCreated",
+        "type": "object"
+      },
+      "BookParams": {
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "cutover": {
+            "format": "date",
+            "title": "Cutover",
+            "type": "string"
+          },
+          "grain": {
+            "title": "Grain",
+            "type": "string"
+          },
+          "horizon_end": {
+            "format": "date",
+            "title": "Horizon End",
+            "type": "string"
+          },
+          "horizon_start": {
+            "format": "date",
+            "title": "Horizon Start",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "opening_balance": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "grain",
+          "currency",
+          "horizon_start",
+          "horizon_end",
+          "cutover",
+          "opening_balance",
+          "params"
+        ],
+        "title": "BookParams",
+        "type": "object"
+      },
+      "BookState": {
+        "description": "``GET /book/state`` \u2014 SPEC \u00a73.\n\nItems, params, summary, months, per-item series, dirty flag, revision id,\nas_of, and server-computed ``warnings``.",
+        "properties": {
+          "active_scenario": {
+            "title": "Active Scenario",
+            "type": "string"
+          },
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "book": {
+            "$ref": "#/components/schemas/BookParams"
+          },
+          "closing": {
+            "items": {
+              "$ref": "#/components/schemas/Money"
+            },
+            "title": "Closing",
+            "type": "array"
+          },
+          "diagnostics": {
+            "items": {},
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "dirty": {
+            "title": "Dirty",
+            "type": "boolean"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ItemSeries"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "months": {
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "title": "Months",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "scenarios": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scenarios",
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/SummaryOut"
+          },
+          "warnings": {
+            "$ref": "#/components/schemas/Warnings"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "dirty",
+          "active_scenario",
+          "scenarios",
+          "book",
+          "months",
+          "closing",
+          "items",
+          "summary",
+          "warnings",
+          "diagnostics"
+        ],
+        "title": "BookState",
+        "type": "object"
+      },
+      "ComparePeriod": {
+        "description": "One period of a scenario comparison.\n\n``values`` maps scenario id to figure, and a scenario absent from a period\nis ``null`` \u2014 never ``0``. The engine keeps that distinction and so does\nthis payload (SPEC \u00a75-F4).",
+        "properties": {
+          "delta": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "period_start": {
+            "format": "date",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Money"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "period_start",
+          "values"
+        ],
+        "title": "ComparePeriod",
+        "type": "object"
+      },
+      "CompareResponse": {
+        "description": "``GET /book/compare`` \u2014 the R9 payload.\n\nA scenario absent from a period is ``null``, never ``0``; the engine keeps\nabsent and zero apart and so does this payload (SPEC \u00a75-F4).",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "diagnostics": {
+            "items": {},
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "metric": {
+            "title": "Metric",
+            "type": "string"
+          },
+          "periods": {
+            "items": {
+              "$ref": "#/components/schemas/ComparePeriod"
+            },
+            "title": "Periods",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "scenarios": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scenarios",
+            "type": "array"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "metric",
+          "scenarios",
+          "periods",
+          "diagnostics"
+        ],
+        "title": "CompareResponse",
+        "type": "object"
+      },
+      "CorrectActual": {
+        "additionalProperties": false,
+        "description": "M6 \u2014 ``correct_actual``. The note is mandatory (ADR-0012).",
+        "properties": {
+          "amount": {
+            "examples": [
+              "-912.50"
+            ],
+            "title": "Amount",
+            "type": "string"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "note": {
+            "minLength": 1,
+            "title": "Note",
+            "type": "string"
+          },
+          "op": {
+            "const": "correct_actual",
+            "default": "correct_actual",
+            "title": "Op",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          }
+        },
+        "required": [
+          "event",
+          "amount",
+          "note"
+        ],
+        "title": "CorrectActual",
+        "type": "object"
+      },
+      "CreateBook": {
+        "description": "Onboarding step (a): horizon and opening balance, nothing else.\n\nCurrency is EUR and grain is month for the whole MLP (SPEC \u00a71, \u00a73); they\nare fixed here rather than offered, because an option nothing supports is a\nway to build an unusable book.",
+        "properties": {
+          "calendar": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "IT"
+            ],
+            "title": "Calendar"
+          },
+          "currency": {
+            "const": "EUR",
+            "default": "EUR",
+            "title": "Currency",
+            "type": "string"
+          },
+          "cutover": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cutover"
+          },
+          "grain": {
+            "const": "month",
+            "default": "month",
+            "title": "Grain",
+            "type": "string"
+          },
+          "horizon_end": {
+            "format": "date",
+            "title": "Horizon End",
+            "type": "string"
+          },
+          "horizon_start": {
+            "format": "date",
+            "title": "Horizon Start",
+            "type": "string"
+          },
+          "opening_balance": {
+            "examples": [
+              "2500.00"
+            ],
+            "title": "Opening Balance",
+            "type": "string"
+          }
+        },
+        "required": [
+          "horizon_start",
+          "horizon_end",
+          "opening_balance"
+        ],
+        "title": "CreateBook",
+        "type": "object"
+      },
+      "CreateScenario": {
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CreateScenario",
+        "type": "object"
+      },
+      "Crossing": {
+        "description": "A month this change turns negative (D-MLP-05(b)).",
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "before": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "period": {
+            "format": "date",
+            "title": "Period",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period",
+          "before",
+          "after"
+        ],
+        "title": "Crossing",
+        "type": "object"
+      },
+      "Deltas": {
+        "description": "The proposal card's deltas block.",
+        "properties": {
+          "affected_events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Affected Events",
+            "type": "array"
+          },
+          "affected_items": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Affected Items",
+            "type": "array"
+          },
+          "closing_balance": {
+            "$ref": "#/components/schemas/MoneyMove"
+          },
+          "crossings": {
+            "items": {
+              "$ref": "#/components/schemas/Crossing"
+            },
+            "title": "Crossings",
+            "type": "array"
+          },
+          "min_cash": {
+            "$ref": "#/components/schemas/MoneyMove"
+          },
+          "min_cash_period": {
+            "$ref": "#/components/schemas/PeriodMove"
+          },
+          "negative_months_after": {
+            "title": "Negative Months After",
+            "type": "integer"
+          },
+          "negative_months_before": {
+            "title": "Negative Months Before",
+            "type": "integer"
+          },
+          "runway_end": {
+            "$ref": "#/components/schemas/PeriodMove"
+          },
+          "runway_periods_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runway Periods After"
+          },
+          "runway_periods_before": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runway Periods Before"
+          }
+        },
+        "required": [
+          "closing_balance",
+          "min_cash",
+          "min_cash_period",
+          "runway_end",
+          "runway_periods_before",
+          "runway_periods_after",
+          "affected_items",
+          "affected_events",
+          "crossings",
+          "negative_months_before",
+          "negative_months_after"
+        ],
+        "title": "Deltas",
+        "type": "object"
+      },
+      "DiagnosticOut": {
+        "description": "One engine diagnostic, verbatim.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Id"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "suggested_fix": {
+            "title": "Suggested Fix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "message",
+          "suggested_fix"
+        ],
+        "title": "DiagnosticOut",
+        "type": "object"
+      },
+      "DiscardResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "diagnostics": {
+            "default": [],
+            "items": {},
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "discarded": {
+            "title": "Discarded",
+            "type": "boolean"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "superseded": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Superseded",
+            "type": "array"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "discarded"
+        ],
+        "title": "DiscardResponse",
+        "type": "object"
+      },
+      "EditScheduleDate": {
+        "additionalProperties": false,
+        "description": "Host op \u2014 add, change or remove one explicit date on a schedule item.",
+        "properties": {
+          "action": {
+            "enum": [
+              "add",
+              "change",
+              "remove"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "examples": [
+                  "-912.50"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "item": {
+            "title": "Item",
+            "type": "string"
+          },
+          "new_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Date"
+          },
+          "op": {
+            "const": "edit_schedule_date",
+            "default": "edit_schedule_date",
+            "title": "Op",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          }
+        },
+        "required": [
+          "item",
+          "action",
+          "date"
+        ],
+        "title": "EditScheduleDate",
+        "type": "object"
+      },
+      "EditsRequest": {
+        "description": "``POST /book/edits`` \u2014 UI-origin proposals, no model call.\n\n``context`` carries the record-actual channel marker. It is the same field\n``POST /turns`` carries, and it feeds the same discriminator, so the rule of\nSPEC \u00a75-F5 has exactly one implementation.",
+        "properties": {
+          "context": {
+            "anyOf": [
+              {
+                "const": "actuals_record",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context"
+          },
+          "ops": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "add_event": "#/components/schemas/AddEvent",
+                  "add_item": "#/components/schemas/AddItem",
+                  "correct_actual": "#/components/schemas/CorrectActual",
+                  "edit_schedule_date": "#/components/schemas/EditScheduleDate",
+                  "fork_scenario": "#/components/schemas/ForkScenario",
+                  "record_actual": "#/components/schemas/RecordActual",
+                  "remove_event": "#/components/schemas/RemoveEvent",
+                  "save": "#/components/schemas/Save",
+                  "scale_items": "#/components/schemas/ScaleItems",
+                  "set_amount": "#/components/schemas/SetAmount",
+                  "set_cutover": "#/components/schemas/SetCutover",
+                  "set_horizon": "#/components/schemas/SetHorizon",
+                  "set_opening_balance": "#/components/schemas/SetOpeningBalance",
+                  "shift_items": "#/components/schemas/ShiftItems"
+                },
+                "propertyName": "op"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/AddItem"
+                },
+                {
+                  "$ref": "#/components/schemas/SetAmount"
+                },
+                {
+                  "$ref": "#/components/schemas/ShiftItems"
+                },
+                {
+                  "$ref": "#/components/schemas/ScaleItems"
+                },
+                {
+                  "$ref": "#/components/schemas/AddEvent"
+                },
+                {
+                  "$ref": "#/components/schemas/CorrectActual"
+                },
+                {
+                  "$ref": "#/components/schemas/ForkScenario"
+                },
+                {
+                  "$ref": "#/components/schemas/SetCutover"
+                },
+                {
+                  "$ref": "#/components/schemas/Save"
+                },
+                {
+                  "$ref": "#/components/schemas/SetHorizon"
+                },
+                {
+                  "$ref": "#/components/schemas/SetOpeningBalance"
+                },
+                {
+                  "$ref": "#/components/schemas/RemoveEvent"
+                },
+                {
+                  "$ref": "#/components/schemas/EditScheduleDate"
+                },
+                {
+                  "$ref": "#/components/schemas/RecordActual"
+                }
+              ]
+            },
+            "minItems": 1,
+            "title": "Ops",
+            "type": "array"
+          },
+          "origin": {
+            "default": "cell_edit",
+            "enum": [
+              "turn",
+              "cell_edit",
+              "onboarding",
+              "import",
+              "settings",
+              "button"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          }
+        },
+        "required": [
+          "ops"
+        ],
+        "title": "EditsRequest",
+        "type": "object"
+      },
+      "EventOut": {
+        "description": "One ledger row, as ``query_events`` produced it.",
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "corrects": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corrects"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "ext_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ext Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "item": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tags": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "date",
+          "amount",
+          "status",
+          "item",
+          "currency",
+          "source",
+          "ext_id",
+          "corrects",
+          "note",
+          "tags"
+        ],
+        "title": "EventOut",
+        "type": "object"
+      },
+      "EventsResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/EventOut"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "events"
+        ],
+        "title": "EventsResponse",
+        "type": "object"
+      },
+      "ExplanationOut": {
+        "properties": {
+          "also": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Also",
+            "type": "array"
+          },
+          "cause": {
+            "title": "Cause",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticOut"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "measure": {
+            "title": "Measure",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "period_index": {
+            "title": "Period Index",
+            "type": "integer"
+          },
+          "period_start": {
+            "format": "date",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "suggested_fix": {
+            "title": "Suggested Fix",
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/Money"
+          }
+        },
+        "required": [
+          "item_id",
+          "measure",
+          "period_index",
+          "period_start",
+          "value",
+          "cause",
+          "message",
+          "detail",
+          "also",
+          "suggested_fix",
+          "diagnostics"
+        ],
+        "title": "ExplanationOut",
+        "type": "object"
+      },
+      "Forecast": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "diagnostics": {
+            "items": {},
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "grain": {
+            "title": "Grain",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ForecastRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/SummaryOut"
+          },
+          "warnings": {
+            "$ref": "#/components/schemas/Warnings"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          },
+          "window": {
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "title": "Window",
+            "type": "array"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "grain",
+          "window",
+          "rows",
+          "summary",
+          "warnings",
+          "diagnostics"
+        ],
+        "title": "Forecast",
+        "type": "object"
+      },
+      "ForecastRow": {
+        "description": "One row of the designed monthly view: MONTH / IN / OUT / END.",
+        "properties": {
+          "closing": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "inflow": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "net": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "outflow": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "period": {
+            "format": "date",
+            "title": "Period",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period",
+          "inflow",
+          "outflow",
+          "net",
+          "closing"
+        ],
+        "title": "ForecastRow",
+        "type": "object"
+      },
+      "ForkScenario": {
+        "additionalProperties": false,
+        "description": "M7 \u2014 ``fork_scenario``.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "op": {
+            "const": "fork_scenario",
+            "default": "fork_scenario",
+            "title": "Op",
+            "type": "string"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ForkScenario",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HistoryResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "revisions": {
+            "items": {
+              "$ref": "#/components/schemas/RevisionOut"
+            },
+            "title": "Revisions",
+            "type": "array"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "revisions"
+        ],
+        "title": "HistoryResponse",
+        "type": "object"
+      },
+      "ItemSeries": {
+        "description": "One item's columns over the horizon.",
+        "properties": {
+          "accrual": {
+            "items": {
+              "$ref": "#/components/schemas/Money"
+            },
+            "title": "Accrual",
+            "type": "array"
+          },
+          "cash": {
+            "items": {
+              "$ref": "#/components/schemas/Money"
+            },
+            "title": "Cash",
+            "type": "array"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "formula": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formula"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tags": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "direction",
+          "tags",
+          "formula",
+          "cash",
+          "accrual"
+        ],
+        "title": "ItemSeries",
+        "type": "object"
+      },
+      "LinkRequest": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "platform": {
+            "default": "web",
+            "enum": [
+              "web",
+              "mobile"
+            ],
+            "title": "Platform",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "LinkRequest",
+        "type": "object"
+      },
+      "Me": {
+        "properties": {
+          "active_scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Scenario"
+          },
+          "book_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Book Id"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "has_book": {
+            "title": "Has Book",
+            "type": "boolean"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "created_at",
+          "has_book"
+        ],
+        "title": "Me",
+        "type": "object"
+      },
+      "Money": {
+        "description": "One money figure, in the only two forms the API ever ships.",
+        "properties": {
+          "display": {
+            "title": "Display",
+            "type": "string"
+          },
+          "exact": {
+            "title": "Exact",
+            "type": "string"
+          }
+        },
+        "required": [
+          "exact",
+          "display"
+        ],
+        "title": "Money",
+        "type": "object"
+      },
+      "MoneyMove": {
+        "description": "One figure, before and after.",
+        "properties": {
+          "after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "before": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "change": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "before",
+          "after",
+          "change"
+        ],
+        "title": "MoneyMove",
+        "type": "object"
+      },
+      "NegativeMonth": {
+        "properties": {
+          "depth": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "period": {
+            "format": "date",
+            "title": "Period",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period",
+          "depth"
+        ],
+        "title": "NegativeMonth",
+        "type": "object"
+      },
+      "PeriodMove": {
+        "properties": {
+          "after": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
+          }
+        },
+        "required": [
+          "period"
+        ],
+        "title": "PeriodMove",
+        "type": "object"
+      },
+      "ProposalAction": {
+        "properties": {
+          "action": {
+            "enum": [
+              "accept",
+              "discard"
+            ],
+            "title": "Action",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "ProposalAction",
+        "type": "object"
+      },
+      "ProposalOut": {
+        "description": "A proposal card, as the API ships it (SPEC \u00a76-S4).",
+        "properties": {
+          "base_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Revision"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "deltas": {
+            "$ref": "#/components/schemas/Deltas"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticOut"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "operations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "supersedes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes"
+          },
+          "turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Id"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "origin",
+          "scenario",
+          "turn_id",
+          "operations",
+          "deltas",
+          "diagnostics",
+          "base_revision",
+          "expires_at",
+          "created_at"
+        ],
+        "title": "ProposalOut",
+        "type": "object"
+      },
+      "ProposalResponse": {
+        "description": "``kind`` mirrors ``POST /turns`` so a client renders one shape.\n\n``proposal`` for a change awaiting confirmation, ``clarification`` when the\nservice needs an answer before it can build one \u2014 never a guess.",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "clarification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clarification"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProposalOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "kind"
+        ],
+        "title": "ProposalResponse",
+        "type": "object"
+      },
+      "ReconcileResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "reconciliation": {
+            "$ref": "#/components/schemas/ReconciliationOut"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "reconciliation"
+        ],
+        "title": "ReconcileResponse",
+        "type": "object"
+      },
+      "ReconciliationLineOut": {
+        "properties": {
+          "actual": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "drift": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "forecast": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "forecast",
+          "actual",
+          "drift"
+        ],
+        "title": "ReconciliationLineOut",
+        "type": "object"
+      },
+      "ReconciliationOut": {
+        "properties": {
+          "actual_events": {
+            "title": "Actual Events",
+            "type": "integer"
+          },
+          "actual_total": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticOut"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "drift_total": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "forecast_total": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ReconciliationLineOut"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "measure": {
+            "title": "Measure",
+            "type": "string"
+          },
+          "reconciled": {
+            "title": "Reconciled",
+            "type": "boolean"
+          },
+          "since": {
+            "format": "date",
+            "title": "Since",
+            "type": "string"
+          },
+          "suggested_cutover": {
+            "format": "date",
+            "title": "Suggested Cutover",
+            "type": "string"
+          },
+          "until": {
+            "format": "date",
+            "title": "Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "measure",
+          "since",
+          "until",
+          "suggested_cutover",
+          "lines",
+          "forecast_total",
+          "actual_total",
+          "drift_total",
+          "actual_events",
+          "reconciled",
+          "diagnostics"
+        ],
+        "title": "ReconciliationOut",
+        "type": "object"
+      },
+      "RecordActual": {
+        "additionalProperties": false,
+        "description": "Host op \u2014 the M5 record-actual channel (SPEC \u00a75-F5).\n\nThis op *is* the ``context: \"actuals_record\"`` flow in typed form. Whether\nit becomes an actual or a forecast is still the discriminator's decision,\nnot the caller's: a future-dated entry on this flow stays ``forecast``, and\na missing date is a clarification, never a guess.",
+        "properties": {
+          "amount": {
+            "examples": [
+              "-912.50"
+            ],
+            "title": "Amount",
+            "type": "string"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "in",
+                  "out"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "item": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "op": {
+            "const": "record_actual",
+            "default": "record_actual",
+            "title": "Op",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "RecordActual",
+        "type": "object"
+      },
+      "RemoveEvent": {
+        "additionalProperties": false,
+        "description": "Host op \u2014 remove one event. Refused on an actual (SPEC \u00a72.5).\n\nAn actual is a fact. Removing the record of a fact destroys it; correcting\nit is M6, which leaves a scar (ADR-0012). The applier refuses rather than\nchoosing for the user.",
+        "properties": {
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "note": {
+            "default": "removed from the plan",
+            "minLength": 1,
+            "title": "Note",
+            "type": "string"
+          },
+          "op": {
+            "const": "remove_event",
+            "default": "remove_event",
+            "title": "Op",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          }
+        },
+        "required": [
+          "event"
+        ],
+        "title": "RemoveEvent",
+        "type": "object"
+      },
+      "RevisionOut": {
+        "properties": {
+          "author": {
+            "title": "Author",
+            "type": "string"
+          },
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "engine_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Version"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "parent",
+          "message",
+          "author",
+          "timestamp",
+          "depth"
+        ],
+        "title": "RevisionOut",
+        "type": "object"
+      },
+      "Save": {
+        "additionalProperties": false,
+        "description": "M9 \u2014 ``save``, which is ``commit()``.\n\nIt is an intent so a turn can express it, but it does not run through the\ndry-run applier: committing is not a change to the working overlay, it is\nthe act of recording one. ``POST /book/save`` is its endpoint.",
+        "properties": {
+          "message": {
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "op": {
+            "const": "save",
+            "default": "save",
+            "title": "Op",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "Save",
+        "type": "object"
+      },
+      "SaveRequest": {
+        "properties": {
+          "message": {
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "SaveRequest",
+        "type": "object"
+      },
+      "SaveResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "committed": {
+            "title": "Committed",
+            "type": "boolean"
+          },
+          "diagnostics": {
+            "default": [],
+            "items": {},
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "superseded": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Superseded",
+            "type": "array"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "committed"
+        ],
+        "title": "SaveResponse",
+        "type": "object"
+      },
+      "ScaleItems": {
+        "additionalProperties": false,
+        "description": "M4 \u2014 ``scale_items``, the ScaleItems macro.",
+        "properties": {
+          "factor": {
+            "examples": [
+              "0.8"
+            ],
+            "title": "Factor",
+            "type": "string"
+          },
+          "op": {
+            "const": "scale_items",
+            "default": "scale_items",
+            "title": "Op",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          },
+          "selector": {
+            "title": "Selector",
+            "type": "string"
+          }
+        },
+        "required": [
+          "selector",
+          "factor"
+        ],
+        "title": "ScaleItems",
+        "type": "object"
+      },
+      "ScenarioOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "is_base": {
+            "title": "Is Base",
+            "type": "boolean"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent"
+          }
+        },
+        "required": [
+          "id",
+          "parent",
+          "note",
+          "is_base",
+          "is_active"
+        ],
+        "title": "ScenarioOut",
+        "type": "object"
+      },
+      "ScenariosResponse": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "string"
+          },
+          "scenarios": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioOut"
+            },
+            "title": "Scenarios",
+            "type": "array"
+          }
+        },
+        "required": [
+          "active",
+          "scenarios"
+        ],
+        "title": "ScenariosResponse",
+        "type": "object"
+      },
+      "Session": {
+        "properties": {
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "platform": {
+            "enum": [
+              "web",
+              "mobile"
+            ],
+            "title": "Platform",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "expires_at",
+          "platform"
+        ],
+        "title": "Session",
+        "type": "object"
+      },
+      "SetAmount": {
+        "additionalProperties": false,
+        "description": "M2 \u2014 ``set_amount``; ``from_date`` splits the segment.",
+        "properties": {
+          "amount": {
+            "examples": [
+              "-912.50"
+            ],
+            "title": "Amount",
+            "type": "string"
+          },
+          "from_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Date"
+          },
+          "item": {
+            "title": "Item",
+            "type": "string"
+          },
+          "op": {
+            "const": "set_amount",
+            "default": "set_amount",
+            "title": "Op",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          }
+        },
+        "required": [
+          "item",
+          "amount"
+        ],
+        "title": "SetAmount",
+        "type": "object"
+      },
+      "SetCutover": {
+        "additionalProperties": false,
+        "description": "M8 \u2014 ``set_cutover``.",
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "op": {
+            "const": "set_cutover",
+            "default": "set_cutover",
+            "title": "Op",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "title": "SetCutover",
+        "type": "object"
+      },
+      "SetHorizon": {
+        "additionalProperties": false,
+        "description": "Host op \u2014 move the book's horizon.",
+        "properties": {
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "op": {
+            "const": "set_horizon",
+            "default": "set_horizon",
+            "title": "Op",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "SetHorizon",
+        "type": "object"
+      },
+      "SetOpeningBalance": {
+        "additionalProperties": false,
+        "description": "Host op \u2014 restate the opening balance.",
+        "properties": {
+          "amount": {
+            "examples": [
+              "-912.50"
+            ],
+            "title": "Amount",
+            "type": "string"
+          },
+          "op": {
+            "const": "set_opening_balance",
+            "default": "set_opening_balance",
+            "title": "Op",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "SetOpeningBalance",
+        "type": "object"
+      },
+      "ShiftItems": {
+        "additionalProperties": false,
+        "description": "M3 \u2014 ``shift_items``, the ShiftItems macro.",
+        "properties": {
+          "by": {
+            "examples": [
+              "2m",
+              "30d"
+            ],
+            "title": "By",
+            "type": "string"
+          },
+          "op": {
+            "const": "shift_items",
+            "default": "shift_items",
+            "title": "Op",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          },
+          "selector": {
+            "title": "Selector",
+            "type": "string"
+          }
+        },
+        "required": [
+          "selector",
+          "by"
+        ],
+        "title": "ShiftItems",
+        "type": "object"
+      },
+      "StepOut": {
+        "properties": {
+          "expression": {
+            "title": "Expression",
+            "type": "string"
+          },
+          "inputs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "operation": {
+            "title": "Operation",
+            "type": "string"
+          },
+          "rounding": {
+            "title": "Rounding",
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/Money"
+          }
+        },
+        "required": [
+          "expression",
+          "operation",
+          "inputs",
+          "value",
+          "rounding"
+        ],
+        "title": "StepOut",
+        "type": "object"
+      },
+      "SummaryOut": {
+        "description": "``RunSummary``, field for field.",
+        "properties": {
+          "balance_source": {
+            "title": "Balance Source",
+            "type": "string"
+          },
+          "breakeven_period": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Breakeven Period"
+          },
+          "closing_balance": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticOut"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "grain": {
+            "title": "Grain",
+            "type": "string"
+          },
+          "min_cash": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "min_cash_period": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Cash Period"
+          },
+          "net_cash": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "opening_balance": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "periods": {
+            "title": "Periods",
+            "type": "integer"
+          },
+          "runway_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runway End"
+          },
+          "runway_periods": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runway Periods"
+          },
+          "total_accrual": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "total_inflow": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "total_outflow": {
+            "$ref": "#/components/schemas/Money"
+          }
+        },
+        "required": [
+          "grain",
+          "balance_source",
+          "periods",
+          "opening_balance",
+          "closing_balance",
+          "min_cash",
+          "min_cash_period",
+          "runway_periods",
+          "runway_end",
+          "breakeven_period",
+          "total_inflow",
+          "total_outflow",
+          "net_cash",
+          "total_accrual",
+          "diagnostics"
+        ],
+        "title": "SummaryOut",
+        "type": "object"
+      },
+      "TraceOut": {
+        "properties": {
+          "bindings": {
+            "items": {
+              "$ref": "#/components/schemas/BindingOut"
+            },
+            "title": "Bindings",
+            "type": "array"
+          },
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/TraceOut"
+            },
+            "title": "Children",
+            "type": "array"
+          },
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticOut"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "formula": {
+            "title": "Formula",
+            "type": "string"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "item_name": {
+            "title": "Item Name",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "measure": {
+            "title": "Measure",
+            "type": "string"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "period_end": {
+            "format": "date",
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_index": {
+            "title": "Period Index",
+            "type": "integer"
+          },
+          "period_start": {
+            "format": "date",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "reconciles": {
+            "title": "Reconciles",
+            "type": "boolean"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "value": {
+            "$ref": "#/components/schemas/Money"
+          }
+        },
+        "required": [
+          "item_id",
+          "item_name",
+          "kind",
+          "measure",
+          "period_index",
+          "period_start",
+          "period_end",
+          "value",
+          "formula",
+          "bindings",
+          "steps",
+          "children",
+          "depth",
+          "truncated",
+          "reconciles",
+          "notes",
+          "diagnostics"
+        ],
+        "title": "TraceOut",
+        "type": "object"
+      },
+      "TraceResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "measure": {
+            "title": "Measure",
+            "type": "string"
+          },
+          "period": {
+            "format": "date",
+            "title": "Period",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "trace": {
+            "$ref": "#/components/schemas/TraceOut"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "period",
+          "measure",
+          "trace"
+        ],
+        "title": "TraceResponse",
+        "type": "object"
+      },
+      "ValidateResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "diagnostics": {
+            "items": {},
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "diagnostics"
+        ],
+        "title": "ValidateResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VerifyRequest": {
+        "properties": {
+          "platform": {
+            "default": "web",
+            "enum": [
+              "web",
+              "mobile"
+            ],
+            "title": "Platform",
+            "type": "string"
+          },
+          "token": {
+            "minLength": 1,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "VerifyRequest",
+        "type": "object"
+      },
+      "Warnings": {
+        "description": "Standing, structural warnings. No thresholds, nothing configurable.\n\nComputed at every update, never on a schedule (D-MLP-05(b)): the state\npayload always reflects the book as it is right now.",
+        "properties": {
+          "min_cash": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "min_cash_period": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Cash Period"
+          },
+          "negative_months": {
+            "items": {
+              "$ref": "#/components/schemas/NegativeMonth"
+            },
+            "title": "Negative Months",
+            "type": "array"
+          }
+        },
+        "required": [
+          "negative_months",
+          "min_cash",
+          "min_cash_period"
+        ],
+        "title": "Warnings",
+        "type": "object"
+      },
+      "WhatIf": {
+        "description": "The \u00a72.4 payload field.",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "scenario",
+                  "overlay",
+                  "pending"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          },
+          "stamped": {
+            "default": false,
+            "title": "Stamped",
+            "type": "boolean"
+          }
+        },
+        "title": "WhatIf",
+        "type": "object"
+      },
+      "WhyZeroResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "explanation": {
+            "$ref": "#/components/schemas/ExplanationOut"
+          },
+          "measure": {
+            "title": "Measure",
+            "type": "string"
+          },
+          "period": {
+            "format": "date",
+            "title": "Period",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "period",
+          "measure",
+          "explanation"
+        ],
+        "title": "WhyZeroResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Deterministic service core for the CashKit consumer MLP (SPEC-mlp-consumer.md). Every money figure is an engine number, serialized once, and every payload that carries one carries its provenance with it.",
+    "title": "CashKit MLP service",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/auth/link": {
+      "post": {
+        "description": "Send a magic link.\n\nThe answer is the same whether or not the address has an account: an\nendpoint that distinguishes them is an account-enumeration oracle.",
+        "operationId": "request_link_auth_link_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Request Link",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/verify": {
+      "post": {
+        "description": "Exchange a single-use link token for a bearer session.",
+        "operationId": "verify_link_auth_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify Link",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/book/compare": {
+      "get": {
+        "operationId": "compare_scenarios_book_compare_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scenarios",
+            "required": true,
+            "schema": {
+              "examples": [
+                "base,downside"
+              ],
+              "title": "Scenarios",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "cash",
+              "title": "Metric",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompareResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compare Scenarios",
+        "tags": [
+          "scenarios"
+        ]
+      }
+    },
+    "/book/discard": {
+      "post": {
+        "description": "Reload the working overlay from HEAD (SPEC \u00a72.4).\n\nThe ledger is untouched: it is append-only and shared by every scenario, so\n\"discard my uncommitted plan changes\" never un-records something that\nhappened (ADR-0012).",
+        "operationId": "discard_working_overlay_book_discard_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscardResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discard Working Overlay",
+        "tags": [
+          "proposals"
+        ]
+      }
+    },
+    "/book/edits": {
+      "post": {
+        "operationId": "create_edit_proposal_book_edits_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Edit Proposal",
+        "tags": [
+          "proposals"
+        ]
+      }
+    },
+    "/book/events": {
+      "get": {
+        "description": "``GET /book/events`` \u2014 the ledger view (F5).\n\n``include_voided`` is what makes a correction's scar visible: the original\nrow is tombstoned, not deleted, and the Actuals screen shows it struck with\nthe correction linked (ADR-0012, SPEC \u00a76-S7).",
+        "operationId": "get_events_book_events_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "where",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Where"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_voided",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Voided",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Events",
+        "tags": [
+          "book"
+        ]
+      }
+    },
+    "/book/forecast": {
+      "get": {
+        "description": "``GET /book/forecast`` \u2014 the grid payload for F3.\n\nIN and OUT are the split of the same cash columns the closing series is\nbuilt from, summed per period. Nothing is re-derived from a rounded figure:\nthe addition happens on the engine's int64 minor units and is serialized\nonce, at the end.",
+        "operationId": "get_forecast_book_forecast_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "query",
+            "name": "grain",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Grain"
+            }
+          },
+          {
+            "in": "query",
+            "name": "window",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Window"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forecast"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Forecast",
+        "tags": [
+          "book"
+        ]
+      }
+    },
+    "/book/history": {
+      "get": {
+        "description": "``GET /book/history`` \u2014 R12, the read-only revision list (SPEC \u00a76-S15).",
+        "operationId": "get_history_book_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get History",
+        "tags": [
+          "book"
+        ]
+      }
+    },
+    "/book/reconcile": {
+      "get": {
+        "description": "``GET /book/reconcile`` \u2014 per-item forecast/actual/drift (F5, S8).\n\n``until`` defaults to ``as_of``: the host fills the date, the engine never\nreads a clock to find it (ADR-0019 rule 2).",
+        "operationId": "get_reconcile_book_reconcile_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconcileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Reconcile",
+        "tags": [
+          "book"
+        ]
+      }
+    },
+    "/book/save": {
+      "post": {
+        "description": "M9 \u2014 commit the working overlay (SPEC \u00a72.4).\n\nCommitting is not a change to the overlay, so it needs no proposal of its\nown: it records changes the user already confirmed one card at a time. It\ndoes move the revision, so every pending card is superseded (SPEC \u00a72.5).",
+        "operationId": "save_book_book_save_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Book",
+        "tags": [
+          "proposals"
+        ]
+      }
+    },
+    "/book/scenarios": {
+      "get": {
+        "operationId": "list_scenarios_book_scenarios_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenariosResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Scenarios",
+        "tags": [
+          "scenarios"
+        ]
+      },
+      "post": {
+        "description": "Create a fork \u2014 as a proposal, like every other write.\n\nSPEC \u00a75-F4 has fork creation as \"M7 via turn or button\". The button path is\nthis endpoint, and it produces a confirmation card rather than a scenario:\nADR-0029 admits no exception for a change that merely looks harmless\n(D-MLP-14).",
+        "operationId": "create_scenario_book_scenarios_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateScenario"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Scenario",
+        "tags": [
+          "scenarios"
+        ]
+      }
+    },
+    "/book/scenarios/{scenario_id}/activate": {
+      "post": {
+        "description": "Switch the working context, book-wide, from the next request on.\n\nActivation invalidates every pending proposal: a card dry-run against one\nscenario must never be applied to another (SPEC \u00a72.5).",
+        "operationId": "activate_scenario_book_scenarios__scenario_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "scenario_id",
+            "required": true,
+            "schema": {
+              "title": "Scenario Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Activate Scenario",
+        "tags": [
+          "scenarios"
+        ]
+      }
+    },
+    "/book/state": {
+      "get": {
+        "operationId": "get_state_book_state_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get State",
+        "tags": [
+          "book"
+        ]
+      }
+    },
+    "/book/trace": {
+      "get": {
+        "description": "``GET /book/trace`` \u2014 ``trace()`` for the tap-to-explain screen (R7).",
+        "operationId": "get_trace_book_trace_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "item",
+            "required": true,
+            "schema": {
+              "title": "Item",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "period",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "Period",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "measure",
+            "required": false,
+            "schema": {
+              "default": "accrual",
+              "title": "Measure",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "depth",
+            "required": false,
+            "schema": {
+              "default": 3,
+              "title": "Depth",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Trace",
+        "tags": [
+          "book"
+        ]
+      }
+    },
+    "/book/validate": {
+      "get": {
+        "description": "``GET /book/validate`` \u2014 R10.\n\n``validate()`` checks model consistency, not domain completeness\n(ADR-0021); the consumer MLP defers the domain-coverage duty entirely\n(D-MLP-02). The diagnostics render verbatim, with no advice framing.",
+        "operationId": "get_validate_book_validate_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Validate",
+        "tags": [
+          "book"
+        ]
+      }
+    },
+    "/book/why_zero": {
+      "get": {
+        "description": "``GET /book/why_zero`` \u2014 R8.\n\nThe cause and the suggested fix travel verbatim; the service never\nparaphrases an engine explanation into advice (ADR-0015).",
+        "operationId": "get_why_zero_book_why_zero_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "item",
+            "required": true,
+            "schema": {
+              "title": "Item",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "period",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "Period",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "measure",
+            "required": false,
+            "schema": {
+              "default": "cash",
+              "title": "Measure",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhyZeroResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Why Zero",
+        "tags": [
+          "book"
+        ]
+      }
+    },
+    "/books": {
+      "post": {
+        "description": "Create the account's single book.\n\nOne book per user is structural: ``books.user_id`` is UNIQUE (SPEC \u00a74), so\na second attempt is refused by the database, not by a check that could be\nraced.",
+        "operationId": "create_book_endpoint_books_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBook"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Book Endpoint",
+        "tags": [
+          "book"
+        ]
+      }
+    },
+    "/export": {
+      "get": {
+        "description": "Export the book as xlsx.\n\nA spreadsheet cell is a float \u2014 that is Excel's type, not a choice this\nservice makes. The conversion happens exactly once, at the cell boundary,\non a Decimal the engine produced; no arithmetic is ever done on the result\n(D-MLP-13). Anyone who needs the exact figure has the API, whose money is\nalways a Decimal string.",
+        "operationId": "export_workbook_export_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "default": "budget",
+              "enum": [
+                "ledger",
+                "budget"
+              ],
+              "title": "Mode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "months",
+            "required": false,
+            "schema": {
+              "default": 12,
+              "title": "Months",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scenario",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scenario"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}
+            },
+            "description": "The book as a workbook."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Workbook",
+        "tags": [
+          "export"
+        ]
+      }
+    },
+    "/me": {
+      "delete": {
+        "description": "Full account deletion (SPEC \u00a79).\n\nEvery session is revoked, every Postgres row for the account is deleted \u2014\nturns and llm_calls included, by cascade \u2014 and the book directory is\nremoved from the volume. Backups are S6's 30-day window.",
+        "operationId": "delete_me_me_delete",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Me",
+        "tags": [
+          "account"
+        ]
+      },
+      "get": {
+        "operationId": "get_me_me_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Me",
+        "tags": [
+          "account"
+        ]
+      }
+    },
+    "/me/export": {
+      "get": {
+        "description": "Everything the user owns, one archive (GDPR, SPEC \u00a73/\u00a79).\n\nPostgres rows plus the book directory itself \u2014 the YAML revisions and the\nledger are the user's data, not an internal format they are locked out of.\nSession and link token hashes are excluded: they are credentials, and\nexporting them would widen the blast radius of a leaked archive.",
+        "operationId": "export_me_me_export_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/zip": {}
+            },
+            "description": "Everything the account owns."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Me",
+        "tags": [
+          "account"
+        ]
+      }
+    },
+    "/proposals/{proposal_id}": {
+      "post": {
+        "description": "ADR-0029's confirmation step.\n\nAccept re-checks the \u00a72.5 staleness fingerprint first. On a mismatch it does\nNOT apply: it re-runs the dry-run against the book as it is now and hands\nback a refreshed proposal. Applying blind is the failure this check exists\nto prevent.",
+        "operationId": "resolve_proposal_proposals__proposal_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposalAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Proposal",
+        "tags": [
+          "proposals"
+        ]
+      }
+    }
+  }
+}
