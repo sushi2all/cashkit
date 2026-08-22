@@ -40,7 +40,20 @@ TypeScript strict mode in `apps/client`; full type annotations and Pydantic v2 i
 
 ## Execution model — sessions and gates
 
-One fresh subagent per session, strict sequence, gates verified from committed evidence (tests in CI, not claims in prose). Push after each verified session.
+One fresh subagent per session, strict sequence, gates verified from committed evidence (tests in CI, not claims in prose). Push after each verified session. Subagent model: Opus 5 (`claude-opus-5`), the house convention from `PROMPT-fable5-implementation.md`.
+
+### Orchestrator protocol
+
+1. Spawn the session's subagent with a brief containing: `SPEC-mlp-consumer.md`, this file, `CLAUDE.md`, `km/adr/index.md`, the session's scope row, and the session protocol below. One session at a time — the sequence is a dependency chain.
+2. When the subagent returns, verify independently before launching the next session: run the test suites and E2Es yourself; confirm one commit per gate exists; confirm `DECISIONS.md` (app-track section) is current; read the session's handoff note.
+3. If verification fails, respawn the **same session** as a fresh subagent with the failure evidence in its brief. Do not patch implementation code in the orchestrator context — the repo must stay explainable by its own history.
+4. The repository is the only channel between sessions. Never carry gate evidence forward in your own context; if the next session needs to know something, it belongs in the repo.
+
+### Session protocol (goes verbatim into every subagent brief)
+
+- **Start:** read `SPEC-mlp-consumer.md`, this file, `CLAUDE.md`, `km/adr/index.md` (at minimum ADR-0022…0030), and any `km/notes/handoff-mlp-*.md`. Re-run the existing app test suites before writing any code. A pre-existing failure ends the session immediately — report it to the orchestrator; never fix another session's work silently. Engine tests are not yours to run or touch.
+- **Work:** the session's scope, gate-ordered. Commit at each gate with a message naming the session and gate.
+- **End:** gate evidence committed; `DECISIONS.md` current; working tree clean; write `km/notes/handoff-mlp-s<N>.md` stating what was built, what the gates proved, and the first thing the next session should verify.
 
 | Session | Scope | Gate (all must hold) |
 |---|---|---|
@@ -52,6 +65,42 @@ One fresh subagent per session, strict sequence, gates verified from committed e
 | S6 | Compliance + hardening + beta: §9 checklist, deletion/export, backups + restore drill, deploy (staging + prod on Hetzner EU), EAS/TestFlight build, dashboards | §9 checklist item-by-item with evidence; restore-from-backup executed once successfully; `DELETE /me` verifiably erases Postgres rows and the book directory; nightly trial run scheduled; staging→prod procedure documented |
 
 Session boundaries are hard stops. If a session cannot proceed from the repository alone, that is a documentation gap in the SPEC — fix the SPEC (or file the question in `DECISIONS.md` if it is Luca's to answer, per SPEC §13), then continue.
+
+## Deliverables
+
+```
+apps/
+  service/            # FastAPI, agent layer, applier, stores wiring
+    trials/           # ported T01–T12 + T13–T18 invariants (SPEC §10)
+  client/             # Expo app: RN + react-native-web, one codebase
+packages/
+  api-types/          # generated from the service OpenAPI — never hand-edited
+km/notes/handoff-mlp-s*.md
+DECISIONS.md          # app-track section: every judgement call, with reasoning
+BENCHMARKS.md         # app section: measured latencies vs SPEC §8 budgets
+```
+
+## Definition of done
+
+Every session gate green, and additionally:
+
+- The trial suite (T01–T18) passes against staging on the pinned model, and a nightly run is scheduled.
+- SPEC §8 latency budgets measured on staging and recorded in `BENCHMARKS.md`; a budget miss is a finding to fix or a recorded decision, never silence.
+- Mechanical enforcement in CI, not review habit: no float arithmetic on money and no model key in `apps/client` (lint); no raw SDK mutation verb in any prompt template (grep gate); `packages/api-types` regenerates clean (drift check).
+- SPEC §9 compliance checklist complete with evidence; restore-from-backup executed once.
+- All session handoff notes exist; the orchestrator has re-run everything green after S6.
+
+## When you hit ambiguity
+
+Applies to every session subagent. The SPEC will not cover everything. When it does not:
+
+1. Choose the option that preserves exactness and provenance (engine numbers verbatim, stamps intact).
+2. Choose the option that keeps every mutation behind an applied proposal.
+3. Choose the option that surfaces a diagnostic or clarification over the one that guesses.
+4. Write the choice and its reasoning into `DECISIONS.md` (app-track) immediately.
+5. Continue. Do not stall for clarification — except on SPEC §13 items, which are Luca's; file those and proceed on the rest.
+
+If the SPEC contradicts an ADR, the ADR wins; record the conflict in `DECISIONS.md` under `## SPEC conflicts`.
 
 ## Commit rules
 
