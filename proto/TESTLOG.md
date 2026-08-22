@@ -14,7 +14,7 @@
 3. Honest diagnostic feedback: untruncated validation messages; the CK-E### loop then genuinely self-corrects.
 4. Applier normalization for inert requirements (settlement shorthands, recurrence on schedules, bare-number offsets).
 
-**Route forward.** Default lite for authoring/edits; route to flash when the instruction implies a formula (conditional words: "if", "when negative", "based on last month") and for every upload. Add a verification habit: after formula-bearing turns, show `trace()` output — lite's silent-wrong-formula mode is the real risk, and the engine already has the introspection to expose it.
+**Route forward (revised after T11/T12 + latency bench).** All-flash. Measured medians: flash edit 3.0 s, Q&A 3.1 s, formula 8.7 s — acceptable everywhere; lite's speed edge (0.8–1.6 s) buys nothing a user notices, and T11 showed lite is unsafe on numeric questions (confident wrong answers, and it wrote ops on a question). Keyword pre-routing on the raw instruction is interpretation done early and badly; if a cheap lane is ever wanted, route on the ARTIFACT (draft on lite, escalate when its ops contain `where`/`prev`/`cum`, any correction round fired, or the turn is a question) — but at current volume the router is not worth its failure surface. Keep the verification habit: after formula-bearing turns, show `trace()` output.
 
 Trial-by-trial records follow.
 
@@ -115,3 +115,25 @@ sonnet = anthropic/claude-sonnet-5, opus = anthropic/claude-opus-5.
 - **Tried:** Playwright drive of `http://localhost:8765`: chat a 3-line budget on lite (table + closing row render, spend badge updates), switch the selector to flash, upload the messy T07 workbook through the file chooser.
 - **Result:** **PASS.** Upload rebuilt the family budget in the UI: 13th-month salary, parental-leave gap + 400 return, bimonthly utilities, one-time June premium, kindergarten rise — closing Dec 13390 as hand-computed. Screenshots: `ui-chat.png`, `ui-upload.png` (session artifacts, not committed).
 - **One cosmetic nit left:** the summary strip prints raw 4dp values (`13390.0000`).
+
+## T11 — Q&A: affordability, models: lite, flash (2026-08-22)
+
+- **Tried:** deterministic book (closing Sep = 1900), then two questions: afford 1500 in September (yes, 400 left) and afford 2500 (no, 600 short). Prerequisite fix: the LLM state previously carried NO computed numbers — added a `results` block (closing per month per scenario, min cash, per-item year totals) and a "answer from results, never recompute" rule. Also fixed `_scenario_ids` (was silently returning only `base`).
+- **Result lite:** **FAIL, dangerously.** It answered "yes" to BOTH questions with no numbers — including yes to 2500 against a 1900 balance — and on the first question it also emitted 2 ops, i.e. it wrote to the book on a question.
+- **Result flash:** **ALL PASS.** Quoted 1900 / 400 / −600 exactly, zero ops, 2–3 s.
+- **Takeaway:** numeric Q&A is a flash class. Also: question-turns must not write — worth a hard guard later (e.g. the UI asks confirmation when a question-looking turn carries ops).
+
+## T12 — Q&A: scenario comparison, models: lite, flash (2026-08-22)
+
+- **Tried:** base vs downside fork (36400 vs 14800), ask which ends higher and by how much.
+- **Result:** **both pass** (21600). One subtraction over two provided numbers is within lite's reach; T11-style inference is not. Distinguishing "easy enough for lite" Q&A up front is the same pre-interpretation routing problem — not worth it.
+
+## Latency bench — 3 turn classes × both models, 3 reps (2026-08-22)
+
+| class | lite median | flash median |
+|---|---|---|
+| edit | 0.8 s | 3.0 s |
+| Q&A | 1.5 s | 3.1 s |
+| formula | 1.6 s | 8.7 s |
+
+The 15–40 s impression recorded during early trials was wrong for single calls — it came from 3-round correction loops and server restarts stacked on top of each other. Single-call flash sits at 3 s for chat turns and ~9 s for formula construction.

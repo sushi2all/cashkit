@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.request
 
 BASE = "http://localhost:8765"
@@ -27,7 +28,9 @@ def reset() -> None:
 
 
 def chat(message: str, model: str = "lite") -> dict:
+    t0 = time.perf_counter()
     out = _post("/api/chat", {"message": message, "model": model, "history": _history})
+    out["elapsed"] = time.perf_counter() - t0
     _history.extend([{"role": "user", "content": message},
                      {"role": "assistant", "content": out.get("reply", "")}])
     rounds = out.get("rounds", [])
@@ -35,7 +38,8 @@ def chat(message: str, model: str = "lite") -> dict:
     errs = [d for r in rounds for rep in r.get("reports", [])
             for d in rep["diagnostics"] if d["severity"] == "error"]
     errs += [d for r in rounds for d in r.get("run_errors", [])]
-    print(f"  chat: {len(rounds)} round(s), {nops} ops, {len(errs)} error diag(s)")
+    print(f"  chat: {len(rounds)} round(s), {nops} ops, {len(errs)} error diag(s), "
+          f"{out['elapsed']:.1f}s")
     for r in rounds:
         if r.get("error"):
             print(f"    ! round error: {r['error'][:200]}")

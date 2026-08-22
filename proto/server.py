@@ -189,12 +189,33 @@ def book_state_json() -> str:
         },
         "items": items,
     }
+    # computed results, so questions ("can I afford X in May") have numbers to read
+    try:
+        results: dict[str, Any] = {}
+        for sid in _scenario_ids(kit):
+            p = run_payload(sid)
+            results[sid] = {
+                "closing_by_month": dict(zip(p["months"], (_2dp(v) for v in p["closing"]))),
+                "min_cash": _2dp(p["summary"]["min_cash"]),
+                "closing_balance": _2dp(p["summary"]["closing_balance"]),
+            }
+            if sid == "base":
+                results[sid]["item_year_cash_totals"] = {
+                    it["id"]: _2dp(str(sum(Decimal(v) for v in it["cash"])))
+                    for it in p["items"]}
+        state["results"] = results
+    except Exception:
+        pass  # a broken run must not take the chat down; diagnostics flow elsewhere
     return json.dumps(state, separators=(",", ":"))
+
+
+def _2dp(v: str) -> str:
+    return str(Decimal(v).quantize(Decimal("0.01")))
 
 
 def _scenario_ids(kit: CashKit) -> list[str]:
     try:
-        return list(kit.scenarios.ids())  # type: ignore[attr-defined]
+        return list(kit.scenarios.scenarios.keys()) or ["base"]
     except Exception:
         return ["base"]
 

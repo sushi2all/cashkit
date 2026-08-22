@@ -231,7 +231,10 @@ Rules:
   "previous month's balance", the formula must keep prev(...). Fix the structure, not
   the meaning.
 - If the instruction is a question about the current book rather than a change,
-  answer in "reply" with "ops": [].
+  answer in "reply" with "ops": []. The state carries computed results per scenario
+  (closing balance per month, minimum cash, per-item year totals). Answer numeric
+  questions FROM those numbers — quote them, subtract them, never recompute items
+  from their segments and never invent a figure that is not derivable from results.
 - After your ops are applied the engine runs and any diagnostics come back to you;
   fix them when asked.
 """
