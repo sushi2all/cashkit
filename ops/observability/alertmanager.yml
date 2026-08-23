@@ -1,0 +1,31 @@
+# Alertmanager routing (SPEC §11).
+#
+# Uploaded to Grafana Cloud with `alerts.yml`; it is here so the routing is
+# reviewable and so the alarm drill can run the real thing.
+#
+# One receiver for the MLP. A beta with one operator does not need an
+# escalation tree, and a tree nobody maintains routes pages into a channel
+# nobody reads. `${ALERT_WEBHOOK_URL}` is whatever that operator actually
+# watches; the drill points it at a sink that records what arrived.
+route:
+  receiver: cashkit-operator
+  # Group by component so a disk alarm and a spend alarm are two notifications
+  # and not one, but two disks are one.
+  group_by: [component, alertname]
+  group_wait: 30s
+  group_interval: 5m
+  # Twelve hours: an alarm that repeats every hour is an alarm people mute.
+  repeat_interval: 12h
+
+receivers:
+  - name: cashkit-operator
+    webhook_configs:
+      - url: "${ALERT_WEBHOOK_URL}"
+        send_resolved: true
+
+inhibit_rules:
+  # If the site is unreachable from outside, everything scraped from inside is
+  # either silent or misleading. Say the useful thing once.
+  - source_matchers: [alertname = "CashKitSiteUnreachable"]
+    target_matchers: [component =~ "model|backup|compliance"]
+    equal: [service]

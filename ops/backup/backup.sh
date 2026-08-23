@@ -122,9 +122,15 @@ rm -f "$MANIFEST"
 aws_s3 cp "$WORK" "$DEST" --recursive --only-show-errors
 
 # The last object written, so its presence is what "the run finished" means.
-# `prune.sh` refuses to delete a snapshot that has no COMPLETE marker, and the
-# §11 backup-failure alarm reads the age of the newest one.
+# `prune.sh` refuses to delete a snapshot that has no COMPLETE marker.
 echo "$STAMP" > "$WORK/COMPLETE"
 aws_s3 cp "$WORK/COMPLETE" "$DEST/COMPLETE" --only-show-errors
+
+# The §11 backup alarm reads the age of this file, not a job's exit code: a
+# cron that never ran produces no failure to notice, but it does stop touching
+# this. It is written last and only on success.
+SUCCESS_MARKER="${BACKUP_SUCCESS_FILE:-/var/lib/cashkit/backup-last-success.txt}"
+mkdir -p "$(dirname "$SUCCESS_MARKER")"
+date -u +%Y-%m-%dT%H:%M:%S+00:00 > "$SUCCESS_MARKER"
 
 echo "[backup] done: $book_count book(s) -> $DEST"

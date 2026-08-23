@@ -143,6 +143,10 @@ class Settings(BaseSettings):
     #: windows against what is actually retained rather than against elapsed
     #: time (see `retention.close_backup_windows`).
     backup_marker_file: Path = Path("/var/lib/cashkit/backup-oldest.txt")
+    #: Touched by `backup.sh` on a successful run, and only then. The §11
+    #: backup alarm reads its age rather than a job's exit code, because a cron
+    #: that never ran produces no failure to notice.
+    backup_success_file: Path = Path("/var/lib/cashkit/backup-last-success.txt")
 
     # --- connection pool (D-MLP-29) --------------------------------------- #
     # A turn holds its request connection for the whole turn and the journal

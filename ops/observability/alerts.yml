@@ -1,0 +1,155 @@
+# The SPEC §11 alarms.
+#
+# **These rules belong in Grafana Cloud, not on the VM.** SPEC §11 is explicit:
+# metrics, alert rules and the uptime probe live off the box, because an alarm
+# that dies with the box is not an alarm. The file lives in the repository so
+# it is reviewable and diffable; it is uploaded to Grafana Cloud (see
+# `ops/DEPLOY.md` §7), and the local agent only scrapes and remote-writes.
+#
+# Every expression below is fired for real in
+# `apps/service/tests/test_alarm_drill.py -m drill`, against a real Prometheus
+# and a real Alertmanager, with this file loaded and its `for:` durations
+# shortened. The drill asserts that the **expressions** are byte-identical to
+# the ones here, so what it fires is what production would fire.
+#
+# Every metric named here is content-free by construction: `metrics.py`
+# declares the complete set of values each label may take, and refuses anything
+# else (SPEC §11's hard rule, made mechanical).
+groups:
+  - name: cashkit-spend
+    rules:
+      # SPEC §11: "global daily spend above a configured ceiling".
+      #
+      # $5/day is ten times SPEC §8's per-user daily budget of $0.50, so it is
+      # a ceiling on the *service*, not on a user — a single user cannot reach
+      # it, and ten enthusiastic beta users can. Raise it when the beta grows;
+      # it is a number about the size of the beta, not about the product.
+      #
+      # S5's D-MLP-84 note applies: an import is 4–8 model calls where an
+      # ordinary turn is one to three, so a user importing twice must not look
+      # like a runaway loop. At $5 it does not: the whole live trial suite,
+      # thirty-seven tests including ten imports, costs $0.31.
+      - alert: CashKitDailyModelSpendOverCeiling
+        expr: cashkit_llm_spend_usd_24h > 5
+        for: 10m
+        labels:
+          severity: page
+          component: model
+        annotations:
+          summary: "Model spend over the 24h ceiling"
+          description: >-
+            Model spend over the last 24 hours is {{ $value | printf "%.2f" }} USD,
+            above the 5 USD service ceiling. Check cashkit_turns_24h and
+            cashkit_llm_calls_24h by purpose: a spike in `import` is somebody
+            uploading spreadsheets, a spike in `repair` is the prompt regressing.
+
+  - name: cashkit-model-quality
+    rules:
+      # SPEC §11: "repair-round rate above 20% over 24h (the prompt is
+      # regressing or the provider changed something — rerun the trial suite)".
+      #
+      # The second condition is not decoration. A ratio over a handful of calls
+      # is noise: three calls of which one repaired is 33% and means nothing.
+      # Twenty calls is the smallest window where 20% is a signal.
+      - alert: CashKitRepairRateHigh
+        expr: cashkit_llm_repair_ratio_24h > 0.2 and cashkit_llm_calls_total_24h >= 20
+        for: 15m
+        labels:
+          severity: page
+          component: model
+        annotations:
+          summary: "Repair-round rate above 20% over 24h"
+          description: >-
+            {{ $value | printf "%.0%%" }} of model calls in the last 24 hours were
+            repairs. SPEC §11's instruction is to rerun the trial suite:
+            `uv run pytest apps/service/trials -m live_model -q`. Either the prompt
+            has regressed or the provider changed something behind the pinned model.
+
+  - name: cashkit-infrastructure
+    rules:
+      # Disk. The books live on this volume and so does Postgres; a full disk
+      # on a book directory is a failed commit, which is a user losing work.
+      # 15% is early enough to act on a 40 GB volume without being noise.
+      - alert: CashKitDiskLow
+        expr: >-
+          min by (instance, mountpoint) (
+            node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}
+          ) < 0.15
+        for: 10m
+        labels:
+          severity: page
+          component: infrastructure
+        annotations:
+          summary: "Less than 15% disk free on {{ $labels.mountpoint }}"
+          description: >-
+            {{ $value | printf "%.1%%" }} free. The books volume and Postgres share
+            this disk; a full disk during a commit is a user losing work.
+
+      # Backup failure. The sidecar writes its marker when a run finishes, so
+      # the alarm is on the age of the last success rather than on a job's exit
+      # code — a cron that never ran produces no failure to notice.
+      # 26 hours: one nightly run plus two hours of slack.
+      - alert: CashKitBackupStale
+        expr: >-
+          time() - cashkit_backup_last_success_timestamp_seconds > 26 * 3600
+          or absent(cashkit_backup_last_success_timestamp_seconds)
+        for: 15m
+        labels:
+          severity: page
+          component: backup
+        annotations:
+          summary: "No successful backup in over 26 hours"
+          description: >-
+            The backup sidecar has not completed a run since the last marker.
+            `absent()` is part of the expression on purpose: a metric that
+            stopped being reported and a backup that stopped running look the
+            same from here, and both need somebody to look.
+
+      # Uptime. The probe is Grafana Cloud's synthetic monitor hitting
+      # /healthz from outside; `up` is the agent's own view of the scrape.
+      # Both are here because they fail differently: `up == 0` means the
+      # service is down or the agent cannot reach it, and probe_success == 0
+      # means the internet cannot reach the site — DNS, TLS, or the firewall.
+      - alert: CashKitServiceDown
+        expr: up{job="cashkit-service"} == 0
+        for: 2m
+        labels:
+          severity: page
+          component: service
+        annotations:
+          summary: "The service is not answering its scrape"
+          description: "No /metrics from the service for two minutes."
+
+      - alert: CashKitSiteUnreachable
+        expr: probe_success{job="cashkit-uptime"} == 0
+        for: 3m
+        labels:
+          severity: page
+          component: service
+        annotations:
+          summary: "The public site is unreachable from outside"
+          description: >-
+            The synthetic probe cannot reach https://{{ $labels.instance }}/healthz.
+            The service may be healthy: check DNS, the certificate and the firewall
+            before restarting anything.
+
+  - name: cashkit-compliance
+    rules:
+      # SPEC §9: account deletion reaches backups within 30 days. This counts
+      # deletions past that window whose backups are not provably gone — which
+      # is a breach in progress, not a chore.
+      - alert: CashKitDeletionBackupWindowOverdue
+        expr: cashkit_deletion_backup_windows_overdue > 0
+        for: 1h
+        labels:
+          severity: page
+          component: compliance
+        annotations:
+          summary: "{{ $value }} account deletion(s) past the SPEC §9 30-day backup window"
+          description: >-
+            A deleted account's backups have not been proved gone within 30 days.
+            The prune job publishes the oldest retained snapshot and the retention
+            sweep closes windows against it (D-MLP-99); if this is firing, one of
+            those two has stopped running. Check the backup and retention
+            containers before anything else.

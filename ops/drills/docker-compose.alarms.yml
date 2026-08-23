@@ -1,0 +1,68 @@
+# The alarm drill (SPEC §11, and the S6 gate clause "the §11 ops alarms fire
+# in a drill").
+#
+# A rule file that has never fired is a rule file with an unknown success rate.
+# So this is a real Prometheus loading `ops/observability/alerts.yml`, a real
+# Alertmanager loading `ops/observability/alertmanager.yml`, and a webhook
+# receiver that records what actually arrived. The whole path is exercised:
+# evaluation, grouping, routing, delivery.
+#
+# Two things differ from production, and neither touches a rule expression:
+#
+#   * the `for:` durations are shortened, because waiting fifteen minutes for
+#     an alarm to debounce is not a test. The drill generates the shortened
+#     copy and **asserts the `expr` strings are byte-identical** to the
+#     committed file, so what fires here is what fires there.
+#   * the series come from a static fixture instead of the service and
+#     node-exporter, so a disk alarm can be driven without filling a disk.
+#     The metric names, labels and values are the real ones — `metrics.py`
+#     produces them and `test_metrics.py` checks the shapes agree.
+#
+# $CASHKIT_ALARM_DRILL_ROOT is a host directory the test creates, holding
+# `fixtures/metrics.txt`, the generated `alerts.yml`, and `out/alerts.jsonl`.
+name: cashkit-alarm-drill
+
+services:
+  # The synthetic scrape target. Its file is rewritten between phases of the
+  # drill so each alarm is driven by the series that alarm is about.
+  fixtures:
+    image: nginx:1.27-alpine
+    volumes:
+      - ${CASHKIT_ALARM_DRILL_ROOT:-/tmp/cashkit-alarms}/fixtures:/fixtures:ro
+      - ./fixtures-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # A target that does not exist, so Prometheus generates `up == 0` for it by
+  # itself. The uptime alarm is not simulated with a fake `up` series — it is
+  # driven by a scrape that genuinely fails.
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    depends_on: [fixtures, alertmanager]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-lifecycle
+      - --storage.tsdb.retention.time=1h
+    ports:
+      - "59090:9090"
+    volumes:
+      - ./prometheus-drill.yml:/etc/prometheus/prometheus.yml:ro
+      - ${CASHKIT_ALARM_DRILL_ROOT:-/tmp/cashkit-alarms}/rules:/etc/prometheus/rules:ro
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    depends_on: [sink]
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/tmp/am
+    ports:
+      - "59093:9093"
+    environment:
+      ALERT_WEBHOOK_URL: http://sink:9099/
+    volumes:
+      - ${CASHKIT_ALARM_DRILL_ROOT:-/tmp/cashkit-alarms}/am/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+  sink:
+    image: python:3.13-alpine
+    command: ["python", "/srv/alert_sink.py"]
+    volumes:
+      - ./alert_sink.py:/srv/alert_sink.py:ro
+      - ${CASHKIT_ALARM_DRILL_ROOT:-/tmp/cashkit-alarms}/out:/out

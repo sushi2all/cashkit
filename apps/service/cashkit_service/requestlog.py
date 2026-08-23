@@ -67,7 +67,13 @@ def route_template(request: Request) -> str:
 
 
 class RequestLogMiddleware(BaseHTTPMiddleware):
-    """Emit one JSON line per request, whatever the request did."""
+    """Emit one JSON line per request, and one metric observation, whatever
+    the request did.
+
+    The two travel together because they carry the same two facts — the route
+    template and the duration — and because a metric recorded somewhere else
+    would eventually disagree with the log about which route a request was on.
+    """
 
     def __init__(self, app: ASGIApp, *, enabled: bool = True) -> None:
         super().__init__(app)
@@ -95,6 +101,19 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
                 "duration_ms": duration_ms,
             }
             log.info(json.dumps(line, separators=(",", ":"), sort_keys=True))
+            registry = getattr(request.app.state, "metrics", None)
+            if registry is not None:
+                from .metrics import status_class
+
+                route, method = line["route"], request.method
+                registry.inc(
+                    "cashkit_http_requests_total",
+                    route=route, method=method, status=status_class(status),
+                )
+                registry.observe(
+                    "cashkit_http_request_duration_seconds",
+                    duration_ms / 1000.0, route=route, method=method,
+                )
 
 
 def assert_content_free(line: dict[str, Any]) -> None:

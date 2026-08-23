@@ -25,6 +25,7 @@ dependencies = [
     # The agent layer's model transport (SPEC §2.3). Async, because the whole
     # service runs on the event-loop thread.
     "httpx>=0.27",
+    "sentry-sdk>=2.20",
 ]
 
 [dependency-groups]

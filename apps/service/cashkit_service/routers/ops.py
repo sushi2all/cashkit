@@ -15,9 +15,9 @@ only 500.
 from __future__ import annotations
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Request, Response
 
-from ..deps import DatabaseDep
+from ..deps import ClockDep, DatabaseDep
 
 router = APIRouter(tags=["ops"], include_in_schema=False)
 
@@ -37,3 +37,34 @@ async def healthz(database: DatabaseDep) -> Response:
     return Response(
         content='{"status":"ok"}', media_type="application/json", status_code=200
     )
+
+
+@router.get("/metrics")
+async def metrics(request: Request, database: DatabaseDep, clock: ClockDep) -> Response:
+    """The Prometheus exposition, or 404 when metrics are switched off.
+
+    The derived gauges are recomputed here rather than on a timer: a scrape is
+    the only moment the numbers are read, and a background refresh would keep a
+    connection busy on a schedule nobody is watching.
+
+    Never published — `ops/Caddyfile` answers 404 for this path, and only the
+    metrics agent on the compose network reaches it.
+    """
+    from ..metrics import MetricsRegistry, refresh_db_gauges, render
+
+    registry: MetricsRegistry | None = getattr(request.app.state, "metrics", None)
+    if registry is None:
+        return Response(status_code=404)
+    settings = request.app.state.settings
+    try:
+        async with database.connect() as conn:
+            await refresh_db_gauges(
+                registry, conn, now=clock.now(), backup_marker=settings.backup_success_file
+            )
+    except Exception:  # noqa: BLE001
+        # Serve what is in process rather than nothing. A scrape that fails
+        # because the database is busy takes the request metrics down with it,
+        # and those are exactly what an operator wants during a database
+        # problem. The uptime and health alarms cover the database itself.
+        pass
+    return Response(content=render(registry), media_type="text/plain; version=0.0.4")

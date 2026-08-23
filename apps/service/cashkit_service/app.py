@@ -19,7 +19,9 @@ from .config import Settings, get_settings
 from .db import Database
 from .imports.jobs import ImportRegistry
 from .mail import ConsoleMailer, Mailer
+from .metrics import MetricsRegistry
 from .middleware import RequestIdMiddleware, ResponseInvariantMiddleware
+from .observability import install_sentry
 from .requestlog import RequestLogMiddleware
 from .routers import auth as auth_router
 from .routers import book_edits
@@ -96,6 +98,23 @@ def create_app(
         if settings.llm_api_key
         else None
     )
+
+    # SPEC §11: metrics are content-free by construction (`metrics.py` declares
+    # every label value a metric may carry). Switching them off leaves
+    # `/metrics` answering 404 rather than serving an empty document, so a
+    # scrape target that is off looks off rather than looks healthy.
+    app.state.metrics = MetricsRegistry() if settings.metrics_enabled else None
+    if app.state.metrics is not None:
+        from cashkit import __version__ as engine_version
+
+        app.state.metrics.gauge(
+            "cashkit_build_info",
+            1.0,
+            version=app.version,
+            engine_version=str(engine_version),
+            environment=settings.environment,
+        )
+    install_sentry(settings)
 
     app.add_middleware(ResponseInvariantMiddleware, enabled=settings.check_response_invariants)
     # Order matters: Starlette runs the last-added middleware outermost, so

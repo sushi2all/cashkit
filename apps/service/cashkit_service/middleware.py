@@ -22,6 +22,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp
 
 from .envelope import ENVELOPE_KEYS
+from .observability import attach_request_id
 
 REQUEST_ID_HEADER = "x-request-id"
 
@@ -32,6 +33,10 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request_id = request.headers.get(REQUEST_ID_HEADER) or uuid.uuid4().hex
         request.state.request_id = request_id
+        # SPEC §11: an unhandled exception reaches Sentry carrying the first
+        # link of the chain, so a Sentry event joins the turn journal and the
+        # access log. A no-op when there is no DSN.
+        attach_request_id(request_id)
         response = await call_next(request)
         response.headers[REQUEST_ID_HEADER] = request_id
         return response

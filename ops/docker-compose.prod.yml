@@ -51,6 +51,7 @@ services:
       CASHKIT_BOOKS_ROOT: /var/lib/cashkit/books
       CASHKIT_REQUEST_LOG_DIR: /var/log/cashkit
       CASHKIT_BACKUP_MARKER_FILE: /var/lib/cashkit/backup-oldest.txt
+      CASHKIT_BACKUP_SUCCESS_FILE: /var/lib/cashkit/backup-last-success.txt
       CASHKIT_WEB_APP_URL: ${WEB_APP_URL:?}
       CASHKIT_ENVIRONMENT: production
       CASHKIT_LLM_API_KEY: ${OPENROUTER_API_KEY:?}
@@ -112,6 +113,7 @@ services:
       BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:?}
       BACKUP_RETENTION_DAYS: "30"
       BACKUP_MARKER_FILE: /var/lib/cashkit/backup-oldest.txt
+      BACKUP_SUCCESS_FILE: /var/lib/cashkit/backup-last-success.txt
       PGHOST: postgres
       PGUSER: cashkit
       PGPASSWORD: ${POSTGRES_PASSWORD:?}
