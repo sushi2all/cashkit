@@ -7,10 +7,11 @@ override the dependency instead.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_DEV_DATABASE_URL = (
@@ -49,6 +50,34 @@ class Settings(BaseSettings):
     book_lock_timeout_seconds: float = 30.0
 
     default_currency: str = Field(default="EUR", frozen=True)
+
+    # --- agent layer (SPEC §2.3, §8) -------------------------------------- #
+
+    #: The pinned model. ADR-0028: every turn runs flash-class, and there is no
+    #: pre-interpretation routing. A model change reruns the trial suite first.
+    llm_model: str = "google/gemini-3.7-flash"
+    llm_base_url: str = "https://openrouter.ai/api/v1"
+    #: Accepts the repo-root `OPENROUTER_API_KEY` as well as the prefixed name,
+    #: so a developer needs one key in one place.
+    llm_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("CASHKIT_LLM_API_KEY", "OPENROUTER_API_KEY"),
+    )
+    llm_timeout_seconds: float = 120.0
+    llm_max_tokens: int = 16000
+    #: SPEC §2.3 step 5: the Q&A read loop is bounded at four read-only calls.
+    llm_qa_max_calls: int = 4
+    #: How many times a turn may re-ask after unparseable JSON, warmer each
+    #: time (proto T08/T09: a temperature-0 retry reproduces the same bytes).
+    llm_json_retries: int = 2
+    #: SPEC §2.3 step 4 / ADR-0030 stage 2: at most one repair round from
+    #: diagnostics, and one bounded verification call.
+    llm_diagnostic_repair_rounds: int = 1
+
+    # SPEC §8 guardrails, enforced server-side (see agent/budget.py).
+    daily_model_budget_usd: Decimal = Decimal("0.50")
+    turns_per_hour: int = 30
+    imports_per_day: int = 5
 
 
 @lru_cache(maxsize=1)

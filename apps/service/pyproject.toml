@@ -22,6 +22,9 @@ dependencies = [
     # GET /book/compare is a SPEC §3 endpoint (D-MLP-10).
     "duckdb>=1.5",
     "pygit2>=1.14",
+    # The agent layer's model transport (SPEC §2.3). Async, because the whole
+    # service runs on the event-loop thread.
+    "httpx>=0.27",
 ]
 
 [dependency-groups]
@@ -49,3 +52,10 @@ asyncio_mode = "auto"
 # The SPEC §10 trials are named for the trial they encode (t13_…, t17_…),
 # not test_…; pytest must still collect them.
 python_files = ["test_*.py", "t[0-9][0-9]_*.py"]
+markers = [
+    "live_model: calls OpenRouter for real (SPEC §10: nightly and pre-release, not per-commit)",
+]
+# SPEC §10: trials that call OpenRouter run on a schedule, not on every commit.
+# The default run therefore excludes them; the live run is
+# `uv run pytest apps/service/trials -m live_model`.
+addopts = "-m 'not live_model'"
