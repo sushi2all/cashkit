@@ -52,6 +52,16 @@ class UnparseableOutput(ValueError):
     """The model's output was not a JSON object, even after repair."""
 
 
+class UnreadableAnswer(RuntimeError):
+    """The provider answered, and no answer was usable JSON.
+
+    Distinct from :class:`ModelUnavailable` on purpose: the provider was
+    reached and did reply, so telling the user the assistant could not be
+    reached would be false. It is a turn that failed, not an outage, and the
+    user is asked to say it again.
+    """
+
+
 @dataclass
 class Completion:
     """One model call, and everything worth recording about it."""
@@ -324,6 +334,7 @@ __all__ = [
     "Purpose",
     "Transport",
     "UnparseableOutput",
+    "UnreadableAnswer",
     "extract_json",
     "repair_brackets",
 ]

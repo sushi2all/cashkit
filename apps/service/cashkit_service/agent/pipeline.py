@@ -40,14 +40,25 @@ from ..clock import Clock
 from ..config import Settings
 from ..db import Database
 from ..deps import BookRow
-from ..ops.applier import CK_E902, app_diagnostic
+from ..ops.applier import CK_E901, CK_E902, app_diagnostic
 from ..ops.dryrun import DryRun, dry_run
 from ..reads import read_context
 from . import budget, prompts, snapshot as snapshot_module, verify
 from .guard import Guarded, guard
 from .journal import TurnJournal, log_chain, record_refusal
 from .tools import Receipt, execute_reads, receipts_for_model
-from .transport import ModelUnavailable, Transport
+from .transport import ModelUnavailable, Transport, UnreadableAnswer
+
+
+class TurnCallLimit(RuntimeError):
+    """One turn asked the provider for more calls than a turn may make.
+
+    Every loop in the pipeline is bounded on its own, but the bounds multiply:
+    a turn that failed to produce readable JSON at every step could reach the
+    low twenties. This is the one number that bounds the whole turn, so the
+    SPEC §8 budget — which is checked once, before the first call — cannot be
+    outrun from inside a single turn.
+    """
 
 
 @dataclass
@@ -165,11 +176,34 @@ async def run_turn(
             scenario=scenario,
             result=result,
         )
-    except ModelUnavailable as exc:
-        await journal.close(
+    except UnreadableAnswer as exc:
+        # The provider answered and the answer was not usable. That is a turn
+        # that failed, not an outage: the user is asked to say it again, in the
+        # SPEC §5-F1 voice, and whatever the turn already read stays on it.
+        result.kind = "clarification"
+        result.clarification = (
+            "I could not read the assistant's answer. Say that again, in your own words."
+        )
+        result.reply = result.clarification
+        result.diagnostics.append(unparseable_diagnostic(str(exc)))
+    except TurnCallLimit as exc:
+        result.kind = "refusal"
+        result.reply = (
+            "That turn needed more steps than one turn is allowed. "
+            "Try saying it as a smaller change."
+        )
+        result.diagnostics.append(app_diagnostic(CK_E901, str(exc)[:400]))
+    except Exception as exc:  # noqa: BLE001 — the journal must record the failure
+        # Including ModelUnavailable, which the endpoint turns into a 502. The
+        # row is the point: a turn nobody can see is a turn nobody can debug,
+        # and its spend would never count against the §8 daily budget.
+        await _close_quietly(
+            journal,
             kind="error",
-            outcome="model_unavailable",
-            diagnostics=[{"code": "MODEL_UNAVAILABLE", "message": str(exc)[:800]}],
+            outcome=(
+                "model_unavailable" if isinstance(exc, ModelUnavailable) else "failed"
+            ),
+            diagnostics=[{"code": type(exc).__name__, "message": str(exc)[:800]}],
             latency_ms=_elapsed_ms(started),
         )
         raise
@@ -306,19 +340,22 @@ async def _read_phase(
         reply = _reply_of(parsed)
         if reply:
             result.reply = reply
+
+        # Sort what came back BEFORE deciding whether to stop. A change emitted
+        # alongside a question is held for the change phase exactly as one
+        # emitted during interpretation would be; dropping it on the way out
+        # would lose the user's change without a word about it.
+        follow_up = guard(parsed.get("intents"))
+        result.diagnostics.extend(follow_up.diagnostics)
+        if follow_up.mutations:
+            guarded.mutations.extend(follow_up.mutations)
+
         if parsed.get("kind") == "clarification":
             result.kind = "clarification"
             result.clarification = result.reply
             return
-
         # The model may ask for more figures. Only read operations are honoured
         # here: this loop cannot write, whatever comes back (ADR-0029).
-        follow_up = guard(parsed.get("intents"))
-        result.diagnostics.extend(follow_up.diagnostics)
-        if follow_up.mutations:
-            # A change emitted during a question is held for the change phase,
-            # exactly as one emitted during interpretation would be.
-            guarded.mutations.extend(follow_up.mutations)
         if not follow_up.reads:
             return
         pending = follow_up.reads
@@ -515,8 +552,14 @@ async def ask_json(
     temp = temperature
     attempts = max(1, settings.llm_json_retries + 1)
     last_error = "the model returned nothing usable"
+    answered = False
 
     for attempt in range(attempts):
+        if journal.seq >= settings.llm_max_calls_per_turn:
+            raise TurnCallLimit(
+                f"this turn already made {journal.seq} model calls "
+                f"(the ceiling is {settings.llm_max_calls_per_turn})"
+            )
         completion = await transport.complete(
             conversation, temperature=temp, max_tokens=settings.llm_max_tokens
         )
@@ -526,11 +569,18 @@ async def ask_json(
         last_error = completion.error or last_error
         temp = 0.7
         if completion.text:
+            answered = True
             conversation = [
                 *conversation,
                 {"role": "assistant", "content": completion.text},
                 prompts.json_repair_message(last_error),
             ]
+    # The provider replying with something unreadable and the provider not
+    # replying at all are different failures, and the user is told a different
+    # thing about each. Reporting an outage that did not happen is a lie the
+    # interface would repeat.
+    if answered:
+        raise UnreadableAnswer(last_error)
     raise ModelUnavailable(last_error)
 
 
@@ -574,6 +624,8 @@ async def _stored_ops(conn: AsyncConnection, proposal_id: uuid.UUID) -> list[dic
 def _outcome(result: TurnResult) -> str:
     if result.kind == "proposal":
         return "proposed"
+    if result.kind == "refusal":
+        return "call_limit"
     if result.kind == "clarification":
         return "clarified"
     if any(d.severity == "error" for d in result.diagnostics):
@@ -585,8 +637,20 @@ def _elapsed_ms(started: float) -> int:
     return int((time.monotonic() - started) * 1000)
 
 
+async def _close_quietly(journal: TurnJournal, **fields: Any) -> None:
+    """Close the record, and never let closing it replace the real failure."""
+    try:
+        await journal.close(**fields)
+    except Exception:  # noqa: BLE001 — a 500 here would hide the 502
+        log_chain(
+            "turn.journal_unwritable",
+            request_id=journal.request_id,
+            turn_id=journal.turn_id,
+        )
+
+
 def unparseable_diagnostic(error: str) -> Diagnostic:
     return app_diagnostic(CK_E902, f"The model's answer could not be read: {error}"[:400])
 
 
-__all__ = ["TurnResult", "ask_json", "run_turn"]
+__all__ = ["TurnCallLimit", "TurnResult", "ask_json", "run_turn"]

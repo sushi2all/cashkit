@@ -149,3 +149,43 @@ def test_the_intent_key_is_accepted_as_well_as_op():
     """The read-intent executor accepts either; the guard normalizes to ``op``."""
     result = guard([{"intent": "runway"}])
     assert result.reads == [{"op": "runway"}]
+
+
+# --- shapes that used to reach further than a diagnostic ------------------- #
+
+
+def test_an_unhashable_operation_name_is_a_diagnostic_not_a_crash():
+    """``{"op": ["add_item"]}`` used to raise TypeError on the set lookup."""
+    for name in ([{"op": ["add_item"]}], [{"op": {"a": 1}}], [{"op": 7}], [{"op": None}]):
+        result = guard(name)
+        assert result.all_operations() == [], name
+        assert result.diagnostics, name
+
+
+def test_an_unbounded_intent_list_is_capped():
+    """Every operation is applied to a copy of the book, so the list is bounded."""
+    from cashkit_service.agent.guard import MAX_OPERATIONS
+
+    result = guard([{"op": "runway"}] * (MAX_OPERATIONS + 5))
+    assert len(result.reads) == MAX_OPERATIONS
+    assert result.diagnostics[0].code == "CK-E901"
+    assert "smaller steps" in result.diagnostics[0].suggested_fix
+
+
+def test_a_read_intent_with_a_numeric_amount_is_refused():
+    """No float in the money path — including through a read intent's slots.
+
+    R1's ``delta`` has no typed model behind it, so a JSON number here would
+    reach the engine through ``str()``, which walks around the serializer's own
+    refusal of a float.
+    """
+    result = guard([{"op": "project_balance", "delta": -1500.0}])
+    assert result.reads == []
+    assert result.diagnostics[0].code == "CK-E902"
+    assert "decimal string" in result.diagnostics[0].message
+
+
+def test_a_read_intent_with_a_string_amount_is_fine():
+    result = guard([{"op": "project_balance", "delta": "-1500.00"}])
+    assert result.reads[0]["delta"] == "-1500.00"
+    assert result.diagnostics == []

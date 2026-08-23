@@ -52,6 +52,16 @@ MODEL_OPS = READ_OPS | MUTATION_INTENTS
 #: M9. Expressible, reportable, never executed by a turn (D-MLP-18).
 DEFERRED_OPS = frozenset({"save"})
 
+#: How many operations one turn may carry. Every one of them is applied to a
+#: copy of the book by the dry-run, so an unbounded list is unbounded work on
+#: the event-loop thread. No honest instruction reaches this.
+MAX_OPERATIONS = 40
+
+#: Read slots that carry money. They are not covered by the typed mutation
+#: grammar, and a JSON number in one of them would be a float before anything
+#: could refuse it — so the guard refuses it here (no float in the money path).
+READ_MONEY_SLOTS = ("delta", "amount")
+
 _MUTATION_ADAPTER = TypeAdapter(MutationOp)
 
 
@@ -97,6 +107,17 @@ def guard(intents: Any) -> Guarded:
             )
         return result
 
+    if len(intents) > MAX_OPERATIONS:
+        result.diagnostics.append(
+            app_diagnostic(
+                CK_E901,
+                f"That turn asked for {len(intents)} changes at once; "
+                f"{MAX_OPERATIONS} is the most one turn can carry.",
+                fix="Say it in a few smaller steps.",
+            )
+        )
+        intents = intents[:MAX_OPERATIONS]
+
     for raw in intents:
         if not isinstance(raw, dict):
             result.diagnostics.append(
@@ -104,6 +125,11 @@ def guard(intents: Any) -> Guarded:
             )
             continue
         name = raw.get("op") or raw.get("intent")
+        if not isinstance(name, str):
+            # A name has to be a name. Anything else cannot be looked up, and
+            # looking it up anyway is a 500 rather than a diagnostic.
+            result.diagnostics.append(_out_of_surface(name))
+            continue
         operation = {k: v for k, v in raw.items() if k != "intent"}
         operation["op"] = name
 
@@ -111,6 +137,10 @@ def guard(intents: Any) -> Guarded:
             result.diagnostics.append(_out_of_surface(name))
             continue
         if name in READ_OPS:
+            bad_money = _float_money(operation)
+            if bad_money is not None:
+                result.diagnostics.append(bad_money)
+                continue
             result.reads.append(operation)
             continue
         if name in DEFERRED_OPS:
@@ -136,6 +166,24 @@ def guard(intents: Any) -> Guarded:
     return result
 
 
+def _float_money(operation: dict[str, Any]) -> Diagnostic | None:
+    """Refuse a money slot that arrived as a number rather than a string.
+
+    The typed mutation grammar already refuses one (``MoneyStr``). Read intents
+    have no typed model, so R1's ``delta`` would otherwise reach the engine
+    through ``str()`` — and ``str()`` of a float is a float that got through.
+    """
+    for slot in READ_MONEY_SLOTS:
+        value = operation.get(slot)
+        if value is not None and not isinstance(value, str):
+            return app_diagnostic(
+                CK_E902,
+                f"{operation['op']}: {slot} must be a decimal string, not a number.",
+                fix="Say the amount again.",
+            )
+    return None
+
+
 def _out_of_surface(name: Any) -> Diagnostic:
     """An operation the model may not name.
 
@@ -144,7 +192,7 @@ def _out_of_surface(name: Any) -> Diagnostic:
     typo. The message names the surface rather than the operation, because the
     operation is not the user's vocabulary.
     """
-    reserved = name in HOST_OPS
+    reserved = isinstance(name, str) and name in HOST_OPS
     return app_diagnostic(
         CK_E901,
         f"{name!r} is not something a turn can do."
@@ -175,6 +223,7 @@ def _validate(operation: dict[str, Any]) -> dict[str, Any] | Diagnostic:
 
 __all__ = [
     "DEFERRED_OPS",
+    "MAX_OPERATIONS",
     "Guarded",
     "MODEL_OPS",
     "QUERY_LEDGER",

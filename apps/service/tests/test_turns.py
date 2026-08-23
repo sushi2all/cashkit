@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
 import sqlalchemy as sa
 
 from cashkit_service.db import llm_calls, proposals, turns as turns_table
@@ -312,10 +313,34 @@ async def test_a_broken_brace_never_reaches_a_retry(seeded_client, model_script,
     assert len(transport.calls) == 1
 
 
-async def test_a_model_that_never_returns_json_fails_loudly(
+async def test_an_unreadable_answer_asks_the_user_to_say_it_again(
     seeded_client, model_script, database
 ):
+    """The provider answered; we could not read it. That is not an outage.
+
+    Telling the user the assistant could not be reached would be false, and the
+    interface would repeat it. The turn ends as a clarification in the SPEC
+    §5-F1 voice, with the diagnostic attached verbatim.
+    """
     model_script.extend(["nope", "still nope", "nope again"])
+    response = await seeded_client.post("/turns", json={"text": "hello"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["kind"] == "clarification"
+    assert "say that again" in body["reply"].lower()
+    assert body["diagnostics"][0]["code"] == "CK-E902"
+
+    turn = (await _rows(database, turns_table))[0]
+    assert turn.outcome == "clarified"
+    assert len(await _rows(database, llm_calls)) == 3
+
+
+async def test_a_provider_that_cannot_be_reached_fails_loudly(
+    seeded_client, model_script, database
+):
+    """No reply at all is an outage, and it says so."""
+    model_script.extend([RuntimeError("connection refused")] * 3)
     response = await seeded_client.post("/turns", json={"text": "hello"})
 
     assert response.status_code == 502
@@ -323,7 +348,48 @@ async def test_a_model_that_never_returns_json_fails_loudly(
     # The journal survives the failure: it is written on its own connection.
     turn = (await _rows(database, turns_table))[0]
     assert turn.outcome == "model_unavailable"
+    assert turn.kind == "error"
     assert len(await _rows(database, llm_calls)) == 3
+
+
+async def test_a_turn_that_fails_any_other_way_is_still_recorded(
+    seeded_client, model_script, database, monkeypatch
+):
+    """A turn nobody can see is a turn nobody can debug — and its spend would
+    never count against the SPEC §8 daily budget."""
+    from cashkit_service.agent import pipeline
+
+    model_script.append({"kind": "answer", "reply": "Adding it.", "intents": [GYM]})
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("the dry-run exploded")
+
+    monkeypatch.setattr(pipeline, "dry_run", boom)
+    # The test client re-raises whatever the app raised, which is the point:
+    # the request failed outright and the record survived it anyway.
+    with pytest.raises(RuntimeError, match="exploded"):
+        await seeded_client.post("/turns", json={"text": "gym"})
+
+    turn = (await _rows(database, turns_table))[0]
+    assert turn.outcome == "failed"
+    assert turn.cost == Decimal("0.001")   # the call it did make still counts
+
+
+async def test_a_turn_has_a_ceiling_on_model_calls(
+    seeded_client, model_script, app, transport, database
+):
+    """Every loop is bounded on its own; this bounds the whole turn."""
+    app.state.settings.llm_max_calls_per_turn = 3
+    model_script.append({"kind": "answer", "reply": "", "intents": [{"op": "runway"}]})
+    for _ in range(10):
+        model_script.append(
+            {"kind": "answer", "reply": "one more", "intents": [{"op": "min_cash"}]}
+        )
+
+    body = (await seeded_client.post("/turns", json={"text": "keep looking"})).json()
+    assert body["kind"] == "refusal"
+    assert len(transport.calls) == 3
+    assert (await _rows(database, turns_table))[0].outcome == "call_limit"
 
 
 # --- the diagnostics repair round (SPEC §2.3 step 4) ----------------------- #

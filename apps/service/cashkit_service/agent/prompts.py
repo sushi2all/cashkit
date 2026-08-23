@@ -93,11 +93,16 @@ CHANGE_GRAMMAR = """CHANGE OPERATIONS — every one of these becomes a confirmat
   changes.
 
 {"op":"shift_items","selector":"cat:revenue","by":"2m"}
-  Move matching lines later (or earlier with "-2m"). selector is an item id or
-  a "key:value" tag match.
+  Move matching lines later (or earlier with "-2m").
 
 {"op":"scale_items","selector":"cat:revenue","factor":"0.8"}
   Multiply matching lines by a factor.
+
+  SELECTORS. A selector is EITHER one item id, "rent", OR a tag match written
+  with exactly one colon, "cat:revenue" — the tag key, a colon, the tag value.
+  A bare tag value is REJECTED: to reach the lines you tagged {"cat":"revenue"}
+  the selector is "cat:revenue", never "revenue". If the lines you want share
+  no tag, name them one at a time instead of guessing a selector.
 
 {"op":"add_event","date":"2026-09-15","amount":"-1500.00","direction":"out",
  "note":"laptop","item":"one_offs"}

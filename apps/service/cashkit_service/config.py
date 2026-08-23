@@ -73,6 +73,11 @@ class Settings(BaseSettings):
     #: SPEC §2.3 step 4 / ADR-0030 stage 2: at most one repair round from
     #: diagnostics, and one bounded verification call.
     llm_diagnostic_repair_rounds: int = 1
+    #: The ceiling on model calls in one turn. Every loop is bounded on its own,
+    #: but the bounds multiply; this is the single number that bounds a turn, so
+    #: the §8 daily budget — checked once, before the first call — cannot be
+    #: outrun from inside one turn. A healthy turn makes one to three calls.
+    llm_max_calls_per_turn: int = 15
 
     # SPEC §8 guardrails, enforced server-side (see agent/budget.py).
     daily_model_budget_usd: Decimal = Decimal("0.50")
