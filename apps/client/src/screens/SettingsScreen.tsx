@@ -41,6 +41,39 @@ import { EmptyState, ErrorState, LoadingState } from "../ui/states";
 import { color, font, radius, space } from "../ui/tokens";
 import { ProposalCard } from "./components/ProposalCard";
 
+/**
+ * The SPEC §9 subprocessor list, rendered from `compliance/subprocessors.md`.
+ *
+ * It is a literal rather than a fetch: the list changes when a contract
+ * changes, not at runtime, and a privacy disclosure that could fail to load is
+ * a privacy disclosure that is sometimes absent. Keeping it in the bundle
+ * means it renders offline, on the first paint, with no spinner.
+ *
+ * `apps/service/tests/test_compliance.py` greps the source for outbound hosts
+ * and fails on one this page does not name, so the two cannot drift.
+ */
+const SUBPROCESSORS: ReadonlyArray<{
+  key: string;
+  name: string;
+  purpose: string;
+  region: string;
+}> = [
+  { key: "hetzner", name: "Hetzner", purpose: "hosting, disk and backup storage", region: "EU" },
+  { key: "openrouter", name: "OpenRouter", purpose: "routes each assistant request", region: "US" },
+  { key: "google", name: "Google", purpose: "the assistant model itself", region: "Google regions" },
+  { key: "sentry", name: "Sentry", purpose: "errors only, never your text or figures", region: "EU" },
+  { key: "grafana", name: "Grafana Labs", purpose: "counts and timings, no identifiers", region: "EU" },
+];
+
+/**
+ * The retention sentence, which SPEC §9 requires the privacy page to state.
+ * The same three numbers are settings the service enforces, and a test
+ * compares the policy document against them.
+ */
+const RETENTION =
+  "Raw assistant requests are deleted after 30 days, request logs after 90, and backups after 30. " +
+  "Deleting your account removes everything immediately and clears the backups within 30 days.";
+
 const DECIMAL = /^-?\d+(\.\d{1,4})?$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** Typed exactly, or the account is not deleted. */
@@ -321,15 +354,35 @@ export function SettingsScreen({ onBack, testID = "settings-screen" }: { onBack:
         <Card testID={`${testID}-privacy-card`}>
           <Stamp tone="sub">PRIVACY</Stamp>
           <Text style={styles.explainer}>
-            Everything you write is stored in the EU. The list of companies that process any part of
-            it, and for how long each keeps it, is published on the privacy page.
+            Everything you write is stored in the EU. These are the companies that process any part
+            of it, and what each one can see. It is the whole list, and we will tell you before we
+            add to it.
           </Text>
-          {/* The list itself is SPEC §9's compliance work. This screen is the
-              surface it lands on; inventing vendor names here would be worse
-              than an empty section. */}
-          <Stamp testID={`${testID}-subprocessors-pending`}>
-            SUBPROCESSOR LIST · PUBLISHED BEFORE THE FIRST EXTERNAL USER
-          </Stamp>
+          {/* SPEC §9 requires the list to be published here before any external
+              user. The source of truth is `compliance/subprocessors.md`; this
+              is the rendering of it, and a service test fails if the code ever
+              talks to a host that page does not name. */}
+          <View testID={`${testID}-subprocessors`}>
+            {SUBPROCESSORS.map((entry) => (
+              <LeaderRow
+                key={entry.name}
+                label={entry.name}
+                value={entry.region}
+                meta={entry.purpose}
+                testID={`${testID}-subprocessor-${entry.key}`}
+              />
+            ))}
+          </View>
+          <Divider />
+          <Text style={styles.explainer} testID={`${testID}-subprocessors-absent`}>
+            Not on the list, on purpose: no database vendor (Postgres runs on our own machine), no
+            speech-recognition vendor (dictation runs on your device, and is switched off rather
+            than sent anywhere), no prompt-analytics platform, and no bank aggregator.
+          </Text>
+          <Divider />
+          <Text style={styles.explainer} testID={`${testID}-retention`}>
+            {RETENTION}
+          </Text>
         </Card>
 
         <Card testID={`${testID}-delete-card`}>

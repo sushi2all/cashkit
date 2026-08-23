@@ -278,3 +278,36 @@ test("every book setting is a proposal, and deletion needs the phrase", async ({
     expect(rendered, `"${word}" is a post-MLP feature and is not scaffolded`).not.toContain(word);
   }
 });
+
+test("the privacy page carries the subprocessor list SPEC §9 requires", async ({
+  page,
+  request,
+}) => {
+  // SPEC §9: the list is *published on the privacy page* before any external
+  // user. S4 deliberately left this section named and empty (D-MLP-71) rather
+  // than inventing vendor names; this asserts S6 filled it, on the screen and
+  // not only in a markdown file nobody reads.
+  const token = await signIn(page, request, `privacy-${Date.now()}@example.com`);
+  await seedBook(request, token);
+  await page.goto("/settings");
+  await expect(page.getByTestId("settings-screen-privacy-card")).toBeVisible();
+
+  const list = page.getByTestId("settings-screen-subprocessors");
+  await expect(list).toBeVisible();
+  for (const vendor of ["hetzner", "openrouter", "google", "sentry", "grafana"]) {
+    await expect(page.getByTestId(`settings-screen-subprocessor-${vendor}`)).toBeVisible();
+  }
+
+  // The absences are a disclosure too: a reader cannot infer "no speech
+  // vendor" from a list that simply does not mention speech (D-MLP-45).
+  const absent = (await page.getByTestId("settings-screen-subprocessors-absent").innerText())
+    .toLowerCase();
+  expect(absent).toContain("speech");
+  expect(absent).toContain("bank aggregator");
+
+  // The three retention periods, which the privacy policy also states and a
+  // service test ties to the settings the service enforces.
+  const retention = await page.getByTestId("settings-screen-retention").innerText();
+  expect(retention).toContain("30 days");
+  expect(retention).toContain("90");
+});
