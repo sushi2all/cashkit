@@ -112,3 +112,66 @@ export async function seedItems(request: APIRequestContext, token: string): Prom
   });
   expect(save.status(), await save.text()).toBe(200);
 }
+
+/**
+ * Create a fork through the ordinary proposal pipeline and apply it.
+ *
+ * Through `POST /book/edits` and `POST /proposals/{id}` — a fork is a write and
+ * ADR-0029 admits no exception for one that looks harmless (D-MLP-14). The
+ * fixture obeys the invariant it is setting up a test for.
+ */
+export async function seedFork(
+  request: APIRequestContext,
+  token: string,
+  name: string,
+  ops: Record<string, unknown>[] = [],
+): Promise<void> {
+  const auth = { Authorization: `Bearer ${token}` };
+  const create = await request.post("/api/book/edits", {
+    headers: auth,
+    data: { origin: "button", ops: [{ op: "fork_scenario", name, note: "seeded" }] },
+  });
+  expect([200, 201], await create.text()).toContain(create.status());
+  const proposal = ((await create.json()) as { proposal: { id: string } }).proposal;
+  const accept = await request.post(`/api/proposals/${proposal.id}`, {
+    headers: auth,
+    data: { action: "accept" },
+  });
+  expect(((await accept.json()) as { kind: string }).kind).toBe("applied");
+
+  if (ops.length > 0) {
+    const change = await request.post("/api/book/edits", {
+      headers: auth,
+      data: { origin: "button", scenario: name, ops },
+    });
+    expect([200, 201], await change.text()).toContain(change.status());
+    const payload = (await change.json()) as { kind: string; proposal?: { id: string; diagnostics: unknown[] } };
+    expect(JSON.stringify(payload)).toContain('"kind":"proposal"');
+    const second = payload.proposal!;
+    expect(JSON.stringify(second.diagnostics), "the fixture change must be clean").toBe("[]");
+    const applied = await request.post(`/api/proposals/${second.id}`, {
+      headers: auth,
+      data: { action: "accept" },
+    });
+    expect(await applied.text()).toContain('"kind":"applied"');
+  }
+
+  const save = await request.post("/api/book/save", {
+    headers: auth,
+    data: { message: `fork ${name}` },
+  });
+  expect(save.status(), await save.text()).toBe(200);
+}
+
+/** Read one payload straight from the service, to check it against the screen. */
+export async function readJson<T>(
+  request: APIRequestContext,
+  token: string,
+  path: string,
+): Promise<T> {
+  const response = await request.get(`/api${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(response.status(), await response.text()).toBe(200);
+  return (await response.json()) as T;
+}

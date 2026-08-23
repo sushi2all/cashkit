@@ -152,3 +152,84 @@ export function toAreaPath(scale: PlotScale, box: Box): string {
     ` L${round(toX(first, count, box))} ${round(baseline)} Z`
   );
 }
+
+/**
+ * One shared scale across several series, so two curves on the same chart can
+ * be read against each other (SPEC §6-S6, the compare chart).
+ *
+ * Scaling each series on its own would draw two lines that look alike and mean
+ * different things — the exact misreading a comparison view exists to prevent.
+ * So the range is taken over every figure in every series at once, and each
+ * series is then mapped onto it.
+ */
+export function scaleTogether(
+  series: readonly (readonly (Money | null | undefined)[])[],
+): { scales: PlotScale[]; zero: PlotRatio | null; hasNegative: boolean } {
+  const flat = series.flat();
+  const combined = scaleSeries(flat);
+  let cursor = 0;
+  const scales: PlotScale[] = series.map((one) => {
+    const points = combined.points.slice(cursor, cursor + one.length);
+    cursor += one.length;
+    let minIndex = -1;
+    let maxIndex = -1;
+    points.forEach((p, i) => {
+      if (p === null) return;
+      if (minIndex === -1 || p < (points[minIndex] as number)) minIndex = i;
+      if (maxIndex === -1 || p > (points[maxIndex] as number)) maxIndex = i;
+    });
+    return {
+      points,
+      minIndex,
+      maxIndex,
+      zero: combined.zero,
+      hasNegative: combined.hasNegative,
+    };
+  });
+  return { scales, zero: combined.zero, hasNegative: combined.hasNegative };
+}
+
+/**
+ * How full the Plan-vs-Actual bar is (SPEC §5-F5, §6-S8).
+ *
+ * The bar encodes **percent of plan** with a tick at 100%, and both figures are
+ * the engine's. The magnitudes are compared rather than the signed values, so
+ * an expense and an income read the same way: a bar that is longer than the
+ * tick means more than planned, in whichever direction the line runs.
+ *
+ * Returns `null` when there is no plan to be a percentage of, and the caller
+ * draws an empty track — a bar with no denominator would be a fake bar, and
+ * SPEC §6-S8 forbids exactly that.
+ *
+ * `overflow` is true when the actual exceeds the plan, so the caller can draw
+ * the part past the tick differently without needing the raw ratio.
+ */
+export function percentOfPlan(
+  actual: Money | null | undefined,
+  plan: Money | null | undefined,
+): { fill: PlotRatio; overflow: boolean } | null {
+  if (!actual || !plan) return null;
+  const planned = Math.abs(Number(plan.exact));
+  if (planned === 0) return null;
+  const got = Math.abs(Number(actual.exact));
+  const share = got / planned;
+  return { fill: ratio(Math.min(share, 1)), overflow: share > 1 };
+}
+
+/** Where the 100% tick sits inside a bar drawn at `PLAN_TICK` of its track. */
+export const PLAN_TICK: PlotRatio = 1 as PlotRatio;
+
+/**
+ * The band between a ratio and the bottom of the box — the shaded negative
+ * region under a zero line (SPEC §6-S6).
+ *
+ * It lives here rather than in the chart component because clamping a
+ * coordinate is still arithmetic, and the money rule bans arithmetic outside
+ * this module on purpose: a component that may do `Math.max` on a coordinate
+ * is a component that may do `Math.max` on a figure.
+ */
+export function bandBelow(r: PlotRatio, box: Box): { y: number; height: number } {
+  const y = toY(r, box);
+  const bottom = box.height - (box.padBottom ?? 0);
+  return { y, height: Math.max(bottom - y, 0) };
+}

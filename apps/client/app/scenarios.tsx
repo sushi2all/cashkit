@@ -1,9 +1,9 @@
 import React, { useCallback } from "react";
 import { useRouter } from "expo-router";
 
-import { HomeScreen } from "../src/screens/HomeScreen";
+import { ScenariosScreen } from "../src/screens/ScenariosScreen";
 
-export default function HomeRoute() {
+export default function ScenariosRoute() {
   const router = useRouter();
   const openTrace = useCallback(
     (period: string, scenario: string) => {
@@ -11,11 +11,5 @@ export default function HomeRoute() {
     },
     [router],
   );
-  return (
-    <HomeScreen
-      onOpenTrace={openTrace}
-      onOpenForecast={() => router.push("/forecast")}
-      onOpenScenarios={() => router.push("/scenarios")}
-    />
-  );
+  return <ScenariosScreen onOpenTrace={openTrace} onBack={() => router.back()} />;
 }

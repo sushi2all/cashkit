@@ -61,6 +61,32 @@ export type DiscardResponse = Schemas["DiscardResponse"];
 export type ScenariosResponse = Schemas["ScenariosResponse"];
 export type Scenario = Schemas["ScenarioOut"];
 
+/* --- F4: scenarios and compare (SPEC §5-F4, R9) ------------------------- */
+export type CompareResponse = Schemas["CompareResponse"];
+export type ComparePeriod = Schemas["ComparePeriod"];
+export type ActivateResponse = Schemas["ActivateResponse"];
+
+/* --- F5: the ledger, reconciliation and validate (SPEC §5-F5, R10) ------ */
+export type EventsResponse = Schemas["EventsResponse"];
+export type LedgerEvent = Schemas["EventOut"];
+export type ReconcileResponse = Schemas["ReconcileResponse"];
+export type Reconciliation = Schemas["ReconciliationOut"];
+export type ReconciliationLine = Schemas["ReconciliationLineOut"];
+export type ValidateResponse = Schemas["ValidateResponse"];
+
+/* --- S15: settings, history and the account (R12) ----------------------- */
+export type HistoryResponse = Schemas["HistoryResponse"];
+export type Revision = Schemas["RevisionOut"];
+
+/**
+ * One operation in a `POST /book/edits` proposal.
+ *
+ * The union is the service's own: the 21-intent mutation set plus the five
+ * host ops of SPEC §2.5. The UI composes host ops; a model never sees them.
+ */
+export type EditOperation = Schemas["EditsRequest"]["ops"][number];
+export type EditOrigin = Schemas["EditsRequest"]["origin"];
+
 export type CashKitClient = ReturnType<typeof createCashKitClient>;
 
 export interface ClientOptions {

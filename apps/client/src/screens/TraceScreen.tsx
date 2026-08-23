@@ -30,7 +30,7 @@ import type { BookState, TraceResponse } from "@cashkit/api-types";
 import { api, describeError } from "../api/client";
 import { exactOf, formatMoney, moneyTone } from "../money/money";
 import { Button, Card, Divider, LeaderRow, Stamp } from "../ui/atoms";
-import { AsOfLine, DiagnosticList, EnginePanel, monthLabel, shortDate } from "../ui/provenance";
+import { AsOfLine, DiagnosticList, EnginePanel, monthLabel, shortDate, WhatIfStamp } from "../ui/provenance";
 import { EmptyState, ErrorState, LoadingState } from "../ui/states";
 import { color, font, space } from "../ui/tokens";
 
@@ -159,6 +159,10 @@ export function TraceScreen({
         prefix={monthLabel(period)}
         testID={`${testID}-subline`}
       />
+      {/* SPEC §2.4: a trace of a fork, or of a book with uncommitted changes,
+          is not base committed state, so it carries the stamp like any other
+          hypothetical figure. The payload's own `what_if` decides. */}
+      <WhatIfStamp whatIf={state.what_if} testID={`${testID}-what-if`} />
 
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
         <Card testID={`${testID}-receipt`}>

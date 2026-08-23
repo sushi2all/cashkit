@@ -54,6 +54,57 @@ describe("the quarantined plot module", () => {
     expect(d).not.toMatch(/[€\u2212\u2009]/);
   });
 
+  describe("scaleTogether", () => {
+    it("puts every series on one range, so two curves are comparable", () => {
+      const { scales } = plot.scaleTogether([
+        [money("100"), money("200")],
+        [money("0"), money("400")],
+      ]);
+      // The second series reaches the top of the shared box; the first does
+      // not. Scaled separately both would have touched it, which is the
+      // misreading a comparison chart must not produce.
+      expect(scales[1]!.points[1]).toBe(1);
+      expect(scales[0]!.points[1]).toBeLessThan(1);
+    });
+
+    it("shares one zero line and one crossing verdict", () => {
+      const { scales, zero, hasNegative } = plot.scaleTogether([
+        [money("100")],
+        [money("-50")],
+      ]);
+      expect(hasNegative).toBe(true);
+      expect(zero).not.toBeNull();
+      expect(scales[0]!.zero).toBe(zero);
+      expect(scales[1]!.zero).toBe(zero);
+    });
+
+    it("keeps an absent figure absent", () => {
+      const { scales } = plot.scaleTogether([[money("100"), null]]);
+      expect(scales[0]!.points[1]).toBeNull();
+    });
+  });
+
+  describe("percentOfPlan", () => {
+    it("is a ratio of magnitudes, so income and expense read alike", () => {
+      expect(plot.percentOfPlan(money("-50"), money("-100"))!.fill).toBeCloseTo(0.5);
+      expect(plot.percentOfPlan(money("50"), money("100"))!.fill).toBeCloseTo(0.5);
+    });
+
+    it("clamps the fill at the track and reports the overflow separately", () => {
+      const over = plot.percentOfPlan(money("-150"), money("-100"))!;
+      expect(over.fill).toBe(1);
+      expect(over.overflow).toBe(true);
+    });
+
+    it("has no bar without a plan to be a percentage of", () => {
+      // SPEC §6-S8: an unsettled or unplanned row shows an empty track, never
+      // a fake bar. A missing denominator must not become a drawn one.
+      expect(plot.percentOfPlan(money("-50"), null)).toBeNull();
+      expect(plot.percentOfPlan(money("-50"), money("0"))).toBeNull();
+      expect(plot.percentOfPlan(null, money("-100"))).toBeNull();
+    });
+  });
+
   it("exports nothing that returns a money-shaped object", () => {
     for (const [name, value] of Object.entries(plot)) {
       if (typeof value !== "function") continue;

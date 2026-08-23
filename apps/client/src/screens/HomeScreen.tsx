@@ -56,10 +56,19 @@ function headlineBalance(state: BookState) {
 export function HomeScreen({
   onOpenTrace,
   onOpenForecast,
+  onOpenScenarios,
+  onOpenActuals,
+  onOpenPlan,
+  onOpenSettings,
   testID = "home-screen",
 }: {
   onOpenTrace: (period: string, scenario: string) => void;
   onOpenForecast: () => void;
+  /** The rest of the app (SPEC §6-S6…S11, S15). Home is the hub. */
+  onOpenScenarios?: () => void;
+  onOpenActuals?: () => void;
+  onOpenPlan?: () => void;
+  onOpenSettings?: () => void;
   testID?: string;
 }) {
   const book = useBook();
@@ -157,6 +166,16 @@ export function HomeScreen({
         <Eyebrow testID={`${testID}-eyebrow`}>
           {`${state.book.id.toUpperCase()} · ${state.scenario.toUpperCase()} · AS-OF ${shortDate(state.as_of)}`}
         </Eyebrow>
+
+        {/* SPEC §2.4: the header keeps showing base committed figures even
+            while a fork is active. Naming the working context is not the same
+            as taking a figure from it, so the two are separate elements — the
+            eyebrow above stamps the figures, this line stamps the context. */}
+        {book.activeScenario !== "base" ? (
+          <Stamp tone="pine" testID={`${testID}-working-in`}>
+            {`WORKING IN ${book.activeScenario.toUpperCase()} · FIGURES ABOVE ARE BASE`}
+          </Stamp>
+        ) : null}
 
         <WarningsBanner warnings={state.warnings} />
 
@@ -293,9 +312,23 @@ export function HomeScreen({
       <View style={styles.footer}>
         <View style={styles.footerLinks}>
           <AsOfLine asOf={state.as_of} scenario={state.scenario} testID={`${testID}-as-of`} />
-          <Text testID={`${testID}-forecast-link`} style={styles.link} onPress={onOpenForecast}>
-            FORECAST ›
-          </Text>
+          <View style={styles.navRow}>
+            {(
+              [
+                ["forecast", "FORECAST", onOpenForecast],
+                ["scenarios", "SCENARIOS", onOpenScenarios],
+                ["actuals", "ACTUALS", onOpenActuals],
+                ["plan", "PLAN VS ACTUAL", onOpenPlan],
+                ["settings", "SETTINGS", onOpenSettings],
+              ] as const
+            ).map(([key, label, go]) =>
+              go ? (
+                <Text key={key} testID={`${testID}-${key}-link`} style={styles.link} onPress={go}>
+                  {`${label} ›`}
+                </Text>
+              ) : null,
+            )}
+          </View>
         </View>
         <AskBar
           value={draft}
@@ -328,6 +361,7 @@ const styles = StyleSheet.create({
   stackContent: { gap: 14, paddingBottom: 18 },
   resolution: { gap: 10, width: "100%" },
   footer: { gap: 10 },
-  footerLinks: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  link: { fontFamily: font.mono, fontSize: 10, letterSpacing: 0.7, color: color.pine },
+  footerLinks: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
+  navRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 10, flexShrink: 1 },
+  link: { fontFamily: font.mono, fontSize: 9.5, letterSpacing: 0.6, color: color.pine },
 });
