@@ -54,8 +54,9 @@ asyncio_mode = "auto"
 python_files = ["test_*.py", "t[0-9][0-9]_*.py"]
 markers = [
     "live_model: calls OpenRouter for real (SPEC §10: nightly and pre-release, not per-commit)",
+    "drill: builds a container image and starts a stack (the S6 restore and alarm drills)",
 ]
 # SPEC §10: trials that call OpenRouter run on a schedule, not on every commit.
 # The default run therefore excludes them; the live run is
 # `uv run pytest apps/service/trials -m live_model`.
-addopts = "-m 'not live_model'"
+addopts = "-m 'not live_model and not drill'"

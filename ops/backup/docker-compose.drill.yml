@@ -1,0 +1,98 @@
+# The restore drill (SPEC §8: the restore procedure is tested once before beta).
+#
+# Everything here is real software doing the real thing. MinIO is an
+# S3-compatible object store, not a mock — the same `aws s3` calls the
+# production script makes against Hetzner Object Storage run against it
+# unchanged, so what the drill proves is the script and not a stand-in for it.
+# The only difference between this file and production is the endpoint URL and
+# the fact that the source and target databases are two containers rather than
+# two moments in time.
+#
+# Driven by `apps/service/tests/test_backup_restore_drill.py -m drill`; see
+# `ops/DEPLOY.md` for running it by hand.
+#
+# $CASHKIT_DRILL_ROOT is a host directory the test creates. It holds
+# `books/` (the source volume), `restore/` (where the drill restores to),
+# `age/` (the keypair) and `marker/` (the shared file `prune.sh` writes and
+# the retention sweep reads).
+name: cashkit-backup-drill
+
+services:
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: drillkey
+      MINIO_ROOT_PASSWORD: drillsecret
+    ports:
+      - "59000:9000"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    tmpfs:
+      - /data
+
+  # The source: a database standing in for production at backup time.
+  postgres-src:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: cashkit
+      POSTGRES_PASSWORD: cashkit
+      POSTGRES_DB: cashkit
+    ports:
+      - "55433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cashkit -d cashkit"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  # The target: an empty database standing in for the replacement box.
+  postgres-dst:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: cashkit
+      POSTGRES_PASSWORD: cashkit
+      POSTGRES_DB: postgres
+    ports:
+      - "55434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cashkit -d postgres"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  backup:
+    build: .
+    depends_on:
+      minio: {condition: service_healthy}
+      postgres-src: {condition: service_healthy}
+      postgres-dst: {condition: service_healthy}
+    environment:
+      BOOKS_ROOT: /books
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: cashkit-backups
+      S3_PREFIX: drill
+      AWS_ACCESS_KEY_ID: drillkey
+      AWS_SECRET_ACCESS_KEY: drillsecret
+      AWS_DEFAULT_REGION: eu-central-1
+      BACKUP_AGE_RECIPIENT: ${CASHKIT_DRILL_AGE_RECIPIENT:-}
+      BACKUP_AGE_IDENTITY_FILE: /age/identity.txt
+      BACKUP_RETENTION_DAYS: "30"
+      BACKUP_MARKER_FILE: /marker/backup-oldest.txt
+      PGHOST: postgres-src
+      PGUSER: cashkit
+      PGPASSWORD: cashkit
+      PGDATABASE: cashkit
+    volumes:
+      - ${CASHKIT_DRILL_ROOT:-/tmp/cashkit-drill}/books:/books
+      - ${CASHKIT_DRILL_ROOT:-/tmp/cashkit-drill}/restore:/restore
+      - ${CASHKIT_DRILL_ROOT:-/tmp/cashkit-drill}/age:/age
+      - ${CASHKIT_DRILL_ROOT:-/tmp/cashkit-drill}/marker:/marker
+    entrypoint: ["sleep", "infinity"]
