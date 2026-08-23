@@ -20,6 +20,7 @@ from .db import Database
 from .imports.jobs import ImportRegistry
 from .mail import ConsoleMailer, Mailer
 from .middleware import RequestIdMiddleware, ResponseInvariantMiddleware
+from .requestlog import RequestLogMiddleware
 from .routers import auth as auth_router
 from .routers import book_edits
 from .routers import book_read
@@ -65,7 +66,12 @@ def create_app(
     app.state.clock = clock or SystemClock()
     app.state.mailer = mailer or ConsoleMailer()
     app.state.owns_database = database is None
-    app.state.db = database or Database(settings.database_url)
+    app.state.db = database or Database(
+        settings.database_url,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout=settings.db_pool_timeout_seconds,
+    )
     app.state.books = book_runtime or BookRuntime(
         settings.books_root, lock_timeout=settings.book_lock_timeout_seconds
     )
@@ -91,6 +97,10 @@ def create_app(
     )
 
     app.add_middleware(ResponseInvariantMiddleware, enabled=settings.check_response_invariants)
+    # Order matters: Starlette runs the last-added middleware outermost, so
+    # RequestId runs first and the request log sees the id it minted. The log
+    # line is emitted in a `finally`, so a 500 still produces one.
+    app.add_middleware(RequestLogMiddleware, enabled=settings.request_log_enabled)
     app.add_middleware(RequestIdMiddleware)
 
     app.include_router(auth_router.router)

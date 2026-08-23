@@ -29,7 +29,18 @@ users = sa.Table(
     _uuid_col(),
     sa.Column("email", sa.Text, nullable=False),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-    sa.Column("deleted_at", sa.DateTime(timezone=True)),
+)
+
+#: The deletion receipt (SPEC §9, migration 0002). `DELETE /me` hard-deletes,
+#: so nothing survives to carry the 30-day backup obligation — this row does,
+#: and it carries no personal data: the account uuid now references nothing.
+deletions = sa.Table(
+    "deletions",
+    metadata,
+    sa.Column("user_id", UUID(as_uuid=True), primary_key=True),
+    sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("backup_purge_due_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("backups_purged_at", sa.DateTime(timezone=True)),
 )
 
 login_tokens = sa.Table(
@@ -137,8 +148,26 @@ import_jobs = sa.Table(
 class Database:
     """Owns the connection pool and hands out transactional connections."""
 
-    def __init__(self, url: str) -> None:
-        self._engine: AsyncEngine = create_async_engine(url, pool_pre_ping=True, future=True)
+    def __init__(
+        self,
+        url: str,
+        *,
+        pool_size: int | None = None,
+        max_overflow: int | None = None,
+        pool_timeout: float | None = None,
+    ) -> None:
+        # D-MLP-29: a turn holds its request connection for its whole life and
+        # the journal opens a second per write, so the pool, not the CPU, is
+        # what decides how many turns can be in flight. The defaults are left
+        # alone when nothing is passed, so every existing caller is unchanged.
+        options: dict[str, object] = {"pool_pre_ping": True, "future": True}
+        if pool_size is not None:
+            options["pool_size"] = pool_size
+        if max_overflow is not None:
+            options["max_overflow"] = max_overflow
+        if pool_timeout is not None:
+            options["pool_timeout"] = pool_timeout
+        self._engine: AsyncEngine = create_async_engine(url, **options)  # type: ignore[arg-type]
 
     @property
     def engine(self) -> AsyncEngine:

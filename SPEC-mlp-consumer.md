@@ -105,7 +105,8 @@ Response invariants: every payload that carries a computed number also carries `
 
 ## 4. Data model (Postgres — app data only, never book content)
 
-- `users(id, email, created_at, deleted_at)`
+- `users(id, email, created_at)` — `DELETE /me` hard-deletes (D-MLP-22), so the `deleted_at` column S6 found unused was dropped rather than left as a promise the code does not keep (D-MLP-98)
+- `deletions(user_id, deleted_at, backup_purge_due_at, backups_purged_at)` — the deletion receipt. A hard delete destroys the row §9's 30-day backup obligation was attached to; this carries it, and carries no personal data (D-MLP-98)
 - `sessions(id, user_id, token_hash, platform, expires_at, created_at, last_seen_at)`
 - `login_tokens(id, email, token_hash, expires_at, consumed_at, created_at)` — magic-link tokens; §3's single-use rule is not enforceable without a row to burn (D-MLP-07)
 - `books(id, user_id UNIQUE, storage_path, active_scenario, created_at)` — UNIQUE enforces one book per user

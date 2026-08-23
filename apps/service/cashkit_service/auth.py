@@ -111,7 +111,7 @@ async def upsert_user(conn: AsyncConnection, *, email: str, clock: Clock) -> uui
         return row.id
     user_id = uuid.uuid4()
     await conn.execute(
-        users.insert().values(id=user_id, email=email, created_at=clock.now(), deleted_at=None)
+        users.insert().values(id=user_id, email=email, created_at=clock.now())
     )
     return user_id
 

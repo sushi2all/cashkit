@@ -114,6 +114,65 @@ class Settings(BaseSettings):
     turns_per_hour: int = 30
     imports_per_day: int = 5
 
+    # --- retention (SPEC §9) ---------------------------------------------- #
+    # Every one of these numbers is also a sentence in the privacy policy
+    # (`compliance/privacy-policy.md`). They are settings and not constants so
+    # that widening one is a visible change to an operator's environment; a
+    # test asserts the policy and these defaults agree, so neither can move
+    # without the other.
+
+    #: `llm_calls.request` / `.response` carry the user's financial data
+    #: verbatim (SPEC §4) and are blanked after this many days. The numeric
+    #: columns survive, so the cost and repair-rate history does too.
+    llm_payload_retention_days: int = 30
+    #: The structured JSON access log of SPEC §11.
+    request_log_retention_days: int = 90
+    #: How long a magic-link token row (an email plus a hash) survives after it
+    #: expires. Its TTL is fifteen minutes; a day is a generous sweep window.
+    login_token_retention_days: int = 1
+    #: SPEC §9: account deletion must reach backups within 30 days. This is
+    #: both the backup bucket's own lifecycle and the window the `deletions`
+    #: receipt is measured against — one number, so they cannot disagree.
+    backup_retention_days: int = 30
+
+    #: Where the rotating request log lives. Empty in tests and in a bare
+    #: development run: the line goes to stdout like every other log.
+    request_log_dir: Path = Path("/var/log/cashkit")
+    #: Written by the backup prune with the timestamp of the oldest object it
+    #: left in the bucket. The retention sweep reads it to close deletion
+    #: windows against what is actually retained rather than against elapsed
+    #: time (see `retention.close_backup_windows`).
+    backup_marker_file: Path = Path("/var/lib/cashkit/backup-oldest.txt")
+
+    # --- connection pool (D-MLP-29) --------------------------------------- #
+    # A turn holds its request connection for the whole turn and the journal
+    # opens a second, short one per write, so concurrent turns consume two
+    # connections each at their peak. SQLAlchemy's defaults (5 + 10) put the
+    # ceiling at roughly seven turns in flight before one waits — a latency
+    # cliff SPEC §8's budgets would show. Size these against the VM's
+    # Postgres `max_connections`, which `docker-compose.prod.yml` sets.
+    db_pool_size: int = 20
+    db_max_overflow: int = 20
+    #: Refuse rather than hang when the pool is exhausted: a turn that waits
+    #: forever is a turn that has already missed its budget.
+    db_pool_timeout_seconds: float = 10.0
+
+    # --- observability (SPEC §11) ----------------------------------------- #
+
+    #: Unhandled exceptions go here with the request_id attached. Empty
+    #: disables Sentry entirely — no network call, no client installed.
+    sentry_dsn: str = Field(
+        default="", validation_alias=AliasChoices("CASHKIT_SENTRY_DSN", "SENTRY_DSN")
+    )
+    #: Names the deployment in Sentry and in the metric `cashkit_build_info`.
+    environment: str = "development"
+    #: `GET /metrics` for the Prometheus agent. It is unauthenticated on the
+    #: container network and never published by Caddy (see `ops/Caddyfile`).
+    metrics_enabled: bool = True
+    #: The structured request log middleware. Off in tests, so a suite does not
+    #: write a hundred thousand lines nobody reads.
+    request_log_enabled: bool = True
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
