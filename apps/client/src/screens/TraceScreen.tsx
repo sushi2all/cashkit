@@ -42,11 +42,18 @@ export function TraceScreen({
   period,
   scenario,
   onBack,
+  onOpenItem,
   testID = "trace-screen",
 }: {
   period: string;
   scenario?: string;
   onBack: () => void;
+  /**
+   * The ADR-0013 taxonomy's other half: a generated row's edit affordances
+   * live on the Item screen (SPEC §6-S9), which is where the segment that
+   * produced this figure can actually be changed.
+   */
+  onOpenItem?: (itemId: string, scenario: string) => void;
   testID?: string;
 }) {
   const [state, setState] = useState<BookState | null>(null);
@@ -264,6 +271,17 @@ export function TraceScreen({
 
             <DiagnosticList diagnostics={detail.trace.diagnostics} testID={`${testID}-detail-diagnostics`} />
 
+            {onOpenItem && selected ? (
+              <Text
+                testID={`${testID}-open-item`}
+                accessibilityRole="button"
+                style={styles.itemLink}
+                onPress={() => onOpenItem(selected, state.scenario)}
+              >
+                {`OPEN ${detail.trace.kind === "generated" ? "THE RULE BEHIND THIS" : "THE ITEM"} ›`}
+              </Text>
+            ) : null}
+
             <Divider />
             <Button
               label={verdict === "checking" ? "Reproducing…" : "Reproduce this figure"}
@@ -313,4 +331,5 @@ const styles = StyleSheet.create({
   stepExpression: { fontFamily: font.mono, fontSize: 11, color: color.ink },
   stepMeta: { flexDirection: "row", justifyContent: "space-between", width: "100%" },
   narrative: { fontFamily: font.ui, fontSize: 13, color: color.sub },
+  itemLink: { fontFamily: font.mono, fontSize: 9.5, letterSpacing: 0.7, color: color.pine },
 });

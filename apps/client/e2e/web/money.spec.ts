@@ -166,3 +166,40 @@ test("the scenarios, actuals and plan screens invent no figures either", async (
   await expect(page.getByTestId("plan-screen-toggle-category")).toBeVisible();
   expect(await strangersOn(page, figures), "on Plan vs actual, by category").toEqual([]);
 });
+
+/** The item, event and settings surfaces, held to the same rule. */
+test("the item, event and settings screens invent no figures either", async ({ page, request }) => {
+  const figures = collectServiceFigures(page);
+  const token = await signIn(page, request, `money-item-${Date.now()}@example.com`);
+  await seedBook(request, token);
+  await seedItems(request, token);
+
+  const auth = { Authorization: `Bearer ${token}` };
+  const created = await request.post("/api/book/edits", {
+    headers: auth,
+    data: {
+      origin: "cell_edit",
+      ops: [{ op: "add_event", date: "2026-10-12", amount: "-1800.00", note: "October trip" }],
+    },
+  });
+  const proposal = ((await created.json()) as { proposal: { id: string } }).proposal;
+  await request.post(`/api/proposals/${proposal.id}`, { headers: auth, data: { action: "accept" } });
+
+  // The item screen: the rule card's amount, the next-occurrences line, every
+  // segment row, and the arithmetic steps.
+  await page.goto("/item?id=rent");
+  await expect(page.getByTestId("item-screen-rule-card")).toBeVisible();
+  expect(await strangersOn(page, figures), "on Item, recurring").toEqual([]);
+
+  await page.getByTestId("item-screen-variant-custom").click();
+  await expect(page.getByTestId("item-screen-dates-card")).toBeVisible();
+  expect(await strangersOn(page, figures), "on Item, custom").toEqual([]);
+
+  await page.goto("/event?item=rent");
+  await expect(page.getByTestId("event-screen-rows-card")).toBeVisible();
+  expect(await strangersOn(page, figures), "on Event").toEqual([]);
+
+  await page.goto("/settings");
+  await expect(page.getByTestId("settings-screen-about-card")).toBeVisible();
+  expect(await strangersOn(page, figures), "on Settings").toEqual([]);
+});
