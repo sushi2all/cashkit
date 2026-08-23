@@ -49,18 +49,24 @@ class Envelope(BaseModel):
     request_id: str
 
 
-def what_if_for(*, scenario: str, clean: bool, pending: bool = False) -> WhatIf:
+def what_if_for(
+    *, scenario: str, clean: bool, pending: bool = False, overlay: bool = False
+) -> WhatIf:
     """Decide the §2.4 stamp for one payload.
 
     Precedence is the order the rule lists its causes. ``pending`` wins because
     a dry-run figure is hypothetical whatever it was computed over; a non-base
     scenario is next; an uncommitted working overlay on base is last.
+
+    ``overlay`` names the third cause the rule lists — *a throwaway overlay* —
+    for a payload computed on one even though the book itself is clean. R1's
+    hypothetical projection is exactly that case (added by S2).
     """
     if pending:
         return WhatIf(stamped=True, reason="pending", scenario=scenario)
     if scenario != BASE_SCENARIO:
         return WhatIf(stamped=True, reason="scenario", scenario=scenario)
-    if not clean:
+    if overlay or not clean:
         return WhatIf(stamped=True, reason="overlay", scenario=scenario)
     return WhatIf(stamped=False)
 
@@ -73,13 +79,16 @@ def envelope(
     clean: bool,
     request_id: str,
     pending: bool = False,
+    overlay: bool = False,
 ) -> Envelope:
     return Envelope(
         as_of=as_of,
         scenario=scenario,
         revision=revision,
         engine_version=ENGINE_VERSION,
-        what_if=what_if_for(scenario=scenario, clean=clean, pending=pending),
+        what_if=what_if_for(
+            scenario=scenario, clean=clean, pending=pending, overlay=overlay
+        ),
         request_id=request_id,
     )
 

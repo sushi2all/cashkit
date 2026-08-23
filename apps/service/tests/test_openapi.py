@@ -34,10 +34,22 @@ def test_the_schema_covers_the_spec_endpoints():
     } <= paths
 
 
-def test_the_schema_does_not_promise_what_s1_did_not_build():
-    """POST /turns and POST /import belong to S2 and S5."""
+def test_the_turn_endpoint_is_in_the_contract():
+    """``POST /turns`` is S2's one addition to the surface (SPEC §3)."""
+    schema = json.loads(SCHEMA_PATH.read_text())
+    assert "/turns" in schema["paths"]
+
+    response = schema["components"]["schemas"]["TurnResponse"]
+    assert {"kind", "reply", "receipts", "proposal", "turn_id"} <= set(response["properties"])
+    # SPEC §3 response invariants: a turn carries money, so it carries provenance.
+    assert {"as_of", "scenario", "revision", "engine_version", "what_if"} <= set(
+        response["properties"]
+    )
+
+
+def test_the_schema_does_not_promise_what_is_not_built():
+    """``POST /import`` belongs to S5."""
     paths = set(json.loads(SCHEMA_PATH.read_text())["paths"])
-    assert "/turns" not in paths
     assert "/import" not in paths
 
 

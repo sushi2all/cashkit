@@ -33,6 +33,7 @@ from cashkit_service.config import Settings
 from cashkit_service.db import Database
 from cashkit_service.mail import CapturingMailer
 from cashkit_service.migrate import apply_migrations
+from fake_model import ScriptedTransport
 
 COMPOSE_FILE = Path(__file__).resolve().parents[1] / "docker-compose.dev.yml"
 DB_HOST, DB_PORT = "localhost", 55432
@@ -140,13 +141,37 @@ def settings(books_root: Path) -> Settings:
 
 
 @pytest.fixture
-def app(settings: Settings, clock: FixedClock, mailer: CapturingMailer, database: Database, books_root: Path):
+def model_script() -> list:
+    """What the scripted model answers, in order.
+
+    A test appends to this list before it posts a turn. The list is the same
+    object the transport reads, so appending after the app is built works.
+    """
+    return []
+
+
+@pytest.fixture
+def transport(model_script: list) -> ScriptedTransport:
+    """The provider stand-in. It replaces the model, never the pipeline."""
+    return ScriptedTransport(script=model_script)
+
+
+@pytest.fixture
+def app(
+    settings: Settings,
+    clock: FixedClock,
+    mailer: CapturingMailer,
+    database: Database,
+    books_root: Path,
+    transport: ScriptedTransport,
+):
     return create_app(
         settings=settings,
         clock=clock,
         mailer=mailer,
         database=database,
         book_runtime=BookRuntime(books_root),
+        transport=transport,
     )
 
 

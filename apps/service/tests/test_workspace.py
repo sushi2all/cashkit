@@ -22,18 +22,60 @@ def test_the_service_is_a_workspace_member():
     assert "apps/service" in config["tool"]["uv"]["workspace"]["members"]
 
 
-def test_the_service_never_imports_a_model_client():
-    """S1 is model-free (PROMPT session table, S1 scope).
+PACKAGE = Path(__file__).resolve().parents[1] / "cashkit_service"
 
-    No model key, no model call, no prompt text anywhere in this package. The
-    grep is the gate; S2 adds the model layer in its own module tree.
+#: Anything that names a model provider. S1 banned these from the whole
+#: package because S1 was model-free; S2 added the agent layer, so the rule
+#: narrows to a boundary rather than disappearing.
+PROVIDER_NEEDLES = ("openrouter", "openai", "anthropic", "OPENROUTER_API_KEY")
+
+#: Where a provider may be named: the agent layer, the configuration that
+#: names one, and the wiring that builds one. Nowhere else.
+PROVIDER_MODULES = {"config.py", "app.py"}
+
+
+def _may_name_a_provider(relative: str) -> bool:
+    return relative.startswith("agent/") or relative in PROVIDER_MODULES
+
+
+def test_the_model_provider_is_confined_to_the_agent_layer():
+    """The deterministic core stays deterministic (SPEC §2.1, ADR-0016).
+
+    Nothing under ``cashkit/`` may know a model exists, and inside the service
+    only the agent layer may. A read endpoint, the applier, the proposal store
+    and the engine wrappers are computed truth; a provider name appearing in
+    one of them would mean a model had reached the money path.
     """
-    package = Path(__file__).resolve().parents[1] / "cashkit_service"
-    banned = ("openrouter", "openai", "anthropic", "OPENROUTER_API_KEY")
-    offenders = [
-        f"{path.relative_to(package)}: {needle}"
-        for path in package.rglob("*.py")
-        for needle in banned
+    offenders = sorted(
+        f"{path.relative_to(PACKAGE)}: {needle}"
+        for path in PACKAGE.rglob("*.py")
+        if not _may_name_a_provider(str(path.relative_to(PACKAGE)))
+        for needle in PROVIDER_NEEDLES
         if needle.lower() in path.read_text().lower()
-    ]
+    )
+    assert offenders == [], offenders
+
+
+def test_the_engine_never_learns_about_a_model():
+    """ADR-0016: the engine and SDK never call a model, and never will."""
+    engine = REPO_ROOT / "cashkit"
+    offenders = sorted(
+        f"{path.relative_to(engine)}: {needle}"
+        for path in engine.rglob("*.py")
+        for needle in PROVIDER_NEEDLES
+        if needle.lower() in path.read_text().lower()
+    )
+    assert offenders == [], offenders
+
+
+def test_no_module_outside_the_agent_layer_imports_the_transport():
+    """One door to the provider, and the routers do not open it themselves."""
+    allowed = {"app.py", "routers/turns.py"}
+    offenders = sorted(
+        str(path.relative_to(PACKAGE))
+        for path in PACKAGE.rglob("*.py")
+        if not str(path.relative_to(PACKAGE)).startswith("agent/")
+        and str(path.relative_to(PACKAGE)) not in allowed
+        and "agent.transport" in path.read_text()
+    )
     assert offenders == [], offenders

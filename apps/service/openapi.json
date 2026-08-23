@@ -2118,6 +2118,37 @@
         "title": "ProposalResponse",
         "type": "object"
       },
+      "Receipt": {
+        "description": "One executed read operation, and what the engine answered.",
+        "properties": {
+          "op": {
+            "title": "Op",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "request": {
+            "additionalProperties": true,
+            "title": "Request",
+            "type": "object"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op",
+          "scenario",
+          "request",
+          "payload"
+        ],
+        "title": "Receipt",
+        "type": "object"
+      },
       "ReconcileResponse": {
         "properties": {
           "as_of": {
@@ -3202,6 +3233,165 @@
           "trace"
         ],
         "title": "TraceResponse",
+        "type": "object"
+      },
+      "TurnRequest": {
+        "description": "``POST /turns {text, scenario?, context?}``.\n\n``context: \"actuals_record\"`` marks the record-actual channel (SPEC \u00a75-F5).\nIt is set by the interface on the Actuals record flow and passed straight\nthrough to the discriminator, which the model never influences.",
+        "properties": {
+          "context": {
+            "anyOf": [
+              {
+                "const": "actuals_record",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          },
+          "text": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "TurnRequest",
+        "type": "object"
+      },
+      "TurnResponse": {
+        "description": "``{kind, reply, receipts[], proposal?}`` plus the SPEC \u00a711 chain.\n\n``kind`` has four values, not three: SPEC \u00a73 lists ``answer``,\n``proposal`` and ``clarification``, and SPEC \u00a78 requires a turn over the\ndaily budget to \"refuse politely with a retry-tomorrow message\". That\nrefusal is a turn outcome the user reads as a sentence, not an\ninfrastructure error, so it is a fourth kind rather than a status code\n(D-MLP-24).",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "clarification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clarification"
+          },
+          "diagnostics": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticOut"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "answer",
+              "proposal",
+              "clarification",
+              "refusal"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "llm_calls": {
+            "default": 0,
+            "title": "Llm Calls",
+            "type": "integer"
+          },
+          "proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProposalOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receipts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Receipt"
+            },
+            "title": "Receipts",
+            "type": "array"
+          },
+          "reply": {
+            "title": "Reply",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "retry_after_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry After Seconds"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "turn_id": {
+            "title": "Turn Id",
+            "type": "string"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "turn_id",
+          "kind",
+          "reply"
+        ],
+        "title": "TurnResponse",
         "type": "object"
       },
       "ValidateResponse": {
@@ -5060,6 +5250,65 @@
         "summary": "Resolve Proposal",
         "tags": [
           "proposals"
+        ]
+      }
+    },
+    "/turns": {
+      "post": {
+        "operationId": "create_turn_turns_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Turn",
+        "tags": [
+          "turns"
         ]
       }
     }

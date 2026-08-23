@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from .agent.transport import OpenRouterTransport, Transport
 from .books import BookRuntime
 from .clock import Clock, SystemClock
 from .config import Settings, get_settings
@@ -25,6 +26,7 @@ from .routers import books as books_router
 from .routers import export as export_router
 from .routers import scenarios as scenarios_router
 from .routers import me as me_router
+from .routers import turns as turns_router
 
 TITLE = "CashKit MLP service"
 DESCRIPTION = (
@@ -42,6 +44,7 @@ def create_app(
     mailer: Mailer | None = None,
     database: Database | None = None,
     book_runtime: BookRuntime | None = None,
+    transport: Transport | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
 
@@ -49,6 +52,8 @@ def create_app(
     async def lifespan(app: FastAPI):
         yield
         app.state.books.close_all()
+        if app.state.transport is not None and app.state.owns_transport:
+            await app.state.transport.aclose()
         if app.state.owns_database:
             await app.state.db.dispose()
 
@@ -61,6 +66,21 @@ def create_app(
     app.state.books = book_runtime or BookRuntime(
         settings.books_root, lock_timeout=settings.book_lock_timeout_seconds
     )
+    # The model transport is optional: without a key the service is the whole
+    # deterministic core and `POST /turns` answers 503. Nothing else changes,
+    # which is what keeps S1's surface runnable with no model at all.
+    app.state.owns_transport = transport is None
+    app.state.transport = transport or (
+        OpenRouterTransport(
+            api_key=settings.llm_api_key,
+            model=settings.llm_model,
+            base_url=settings.llm_base_url,
+            timeout_seconds=settings.llm_timeout_seconds,
+            max_tokens=settings.llm_max_tokens,
+        )
+        if settings.llm_api_key
+        else None
+    )
 
     app.add_middleware(ResponseInvariantMiddleware, enabled=settings.check_response_invariants)
     app.add_middleware(RequestIdMiddleware)
@@ -71,6 +91,7 @@ def create_app(
     app.include_router(book_read.router)
     app.include_router(book_edits.router)
     app.include_router(scenarios_router.router)
+    app.include_router(turns_router.router)
     app.include_router(export_router.router)
     return app
 
