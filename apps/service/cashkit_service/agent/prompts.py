@@ -49,7 +49,9 @@ READ_GRAMMAR = """READ OPERATIONS — one call answers one question.
 
 {"op":"project_balance","delta":"-1500.00","delta_date":"2026-09-15"}
   What the balance becomes if one hypothetical amount lands on a date. Outflows
-  are negative. Omit delta to get the plain projection.
+  are negative. Omit delta to get the plain projection. The answer carries the
+  closing balance for EVERY month, before and after — so "can I afford this in
+  September" is answered by quoting September's two figures, not by subtracting.
 {"op":"runway"}                    how long the money lasts
 {"op":"min_cash","horizon":"2026-12-01"}   the lowest point (horizon optional)
 {"op":"breakeven"}                 the first period that stops losing money
@@ -60,6 +62,8 @@ READ_GRAMMAR = """READ OPERATIONS — one call answers one question.
 {"op":"explain_cell","item":"rent","period":"2026-05-01"}   where a figure comes from
 {"op":"explain_zero","item":"rent","period":"2026-05-01"}   why a figure is missing or zero
 {"op":"compare_scenarios","scenarios":["base","downside"],"metric":"cash"}
+  Each period comes back with both scenarios' figures AND their "delta", so the
+  difference is quoted, never worked out.
 {"op":"coverage"}                  the engine's model-consistency diagnostics
 {"op":"list_items","tag":"cat:housing"}    what is in the book
 {"op":"history","n":10}            the saved revisions
@@ -106,7 +110,12 @@ CHANGE_GRAMMAR = """CHANGE OPERATIONS — every one of these becomes a confirmat
   Fix a recorded amount. The note is required and the original stays visible.
 
 {"op":"fork_scenario","name":"downside","parent":"base","note":"salary cut"}
-  A what-if copy of the book. Follow it with the changes that make it different.
+  A what-if copy of the book. Follow it with the changes that make it different,
+  each carrying "scenario":"downside" so it lands on the copy and not on the plan:
+  [{"op":"fork_scenario","name":"downside","parent":"base"},
+   {"op":"scale_items","selector":"cat:income","factor":"0.8","scenario":"downside"}]
+  Any operation may carry "scenario". Without it the change goes to the scenario
+  the user is working in.
 
 {"op":"set_cutover","date":"2026-03-01"}
   The date before which recorded amounts replace the plan.
@@ -127,16 +136,20 @@ RULES = """RULES
 - ANSWER FROM "results", NEVER RECOMPUTE. The snapshot below carries the engine's
   own output per scenario: the closing balance for every month, the minimum cash
   and its month, the horizon closing balance, and each line's total. Quote those
-  figures. Do not add up segments yourself, do not estimate, and do not state a
-  number that is not in "results" or in a read operation's answer. If the figure
-  you need is not there, emit the read operation that produces it instead of
-  guessing.
+  figures. Do NOT do arithmetic of any kind — no adding, no subtracting, no
+  percentages. Every number you say must appear, character for character, in
+  "results" or in a read operation's answer. If the number you need is not there,
+  emit the read operation that produces it; the engine works it out for you.
 - If the book cannot express what the user asked — a rule that depends on last
   month's balance, a fee that only applies in some months, a formula — say so
   plainly and emit no intents. Never approximate a computed rule with a fixed
   number: a plausible wrong number is the one failure this product cannot have.
 - A question is a question. If the user asks something, answer it; do not emit
   change operations to explore it. Use "project_balance" for "what if I spend X".
+- When the user asks for a figure, emit the read operation that produces it even
+  if "results" already shows it. The answer the user sees is built from those
+  operations, so a figure with no operation behind it has nothing to show for
+  itself.
 - When you refuse or ask for something, be helpful and brief: say what happened
   and what you need, in at most two short sentences. No apologies, no hedging.
 """

@@ -64,13 +64,24 @@ def _project_balance(kit: CashKit, intent: dict, scenario: str, as_of: _dt.date)
     The delta is applied on a throwaway copy of the book, never on the book:
     a question must not change anything (ADR-0029), and the answer is stamped
     as a what-if because it is one.
+
+    The payload carries the **closing balance for every month**, before and
+    after the delta, not only the horizon summary. "Can I afford this in
+    September" is answered by September's figure, and if the caller were given
+    only the summary it would have to work September out for itself. The engine
+    computes; the caller quotes (D-MLP-26).
     """
     from ..ops.applier import apply_op
 
+    baseline = _closing_by_month(kit.run(scenario))
     delta = intent.get("delta")
     if delta is None:
         run = kit.run(scenario)
-        return {"summary": summary_out(run).model_dump(mode="json"), "hypothetical": False}
+        return {
+            "summary": summary_out(run).model_dump(mode="json"),
+            "closing_by_month": baseline,
+            "hypothetical": False,
+        }
 
     operation = {
         "op": "add_event",
@@ -83,10 +94,22 @@ def _project_balance(kit: CashKit, intent: dict, scenario: str, as_of: _dt.date)
         run = scratch.run(scenario)
         payload = {
             "summary": summary_out(run).model_dump(mode="json"),
+            "closing_by_month_before": baseline,
+            "closing_by_month": _closing_by_month(run),
             "hypothetical": True,
             "diagnostics": [d.model_dump() for d in diagnostics_out(result.diagnostics)],
         }
     return payload
+
+
+def _closing_by_month(run) -> dict[str, dict]:
+    """The closing balance per month, canonically serialized."""
+    from ..serialize import closing_series
+
+    return {
+        period.isoformat()[:7]: money(value).model_dump()
+        for period, value in zip(period_starts(run), closing_series(run), strict=True)
+    }
 
 
 def _summary_field(field: str):
@@ -256,6 +279,19 @@ def _compare_scenarios(kit: CashKit, intent: dict, scenario: str, as_of: _dt.dat
         for scenario_id, key in zip(ids, keys, strict=False):
             serialized: Money | None = money_or_none(row.get(key))
             values[scenario_id] = None if serialized is None else serialized.model_dump()
+        # SPEC §5-F4 wants a delta column beside the two columns. Computing it
+        # here keeps the subtraction exact and keeps it out of the caller: a
+        # difference worked out downstream is a derived number, and derived
+        # numbers are the thing this product exists to avoid.
+        if len(ids) == 2:
+            left, right = (values[i] for i in ids)
+            values["delta"] = (
+                None
+                if left is None or right is None
+                else money(
+                    Decimal(right["exact"]) - Decimal(left["exact"])
+                ).model_dump()
+            )
         periods.append({"period_start": row["period_start"].isoformat(), "values": values})
     return {"scenarios": ids, "periods": periods,
             "diagnostics": [d.model_dump() for d in diagnostics_out(table.diagnostics)]}
