@@ -1,0 +1,41 @@
+# Run the production stack on this machine, over plain HTTP.
+#
+#   docker compose --env-file /path/to/env \
+#     -f ops/docker-compose.prod.yml -f ops/docker-compose.local.yml up -d --wait
+#
+# It exists for two things the gate needs and a laptop can do honestly:
+#
+#   * the **end-to-end streaming check** — a real import through the real
+#     Caddy with the committed Caddyfile, watched with `curl -N`, which is what
+#     S5's handoff asks for and what no repository test can catch;
+#   * the **SPEC §8 latency measurements** in `BENCHMARKS.md`, taken against
+#     the deployed image rather than against an in-process test client.
+#
+# The only differences from production are here, and each is stated so the
+# measurements can be read with them in mind:
+#   - `SITE_ADDRESS: :8080` — plain HTTP, no ACME, no certificate. Everything
+#     else in the Caddyfile is the production file, mounted unchanged.
+#   - Caddy publishes 58090 on the loopback instead of 80/443.
+#   - The backup sidecar and the metrics agent are not started (they need
+#     object-storage and Grafana Cloud credentials); `ops/backup/` has its own
+#     drill, and so does the alarm stack.
+services:
+  caddy:
+    environment:
+      SITE_ADDRESS: ":8080"
+      ACME_EMAIL: local@example.invalid
+    ports: !override
+      - "127.0.0.1:58090:8080"
+
+  service:
+    environment:
+      CASHKIT_ENVIRONMENT: local
+
+  backup:
+    profiles: ["never"]
+  metrics-agent:
+    profiles: ["never"]
+  node-exporter:
+    profiles: ["never"]
+  retention:
+    profiles: ["never"]

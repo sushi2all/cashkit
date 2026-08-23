@@ -1,0 +1,48 @@
+# The streaming drill (S5's handoff §8: the one thing a deployment can break
+# in silence).
+#
+# Two proxies in front of the same origin:
+#
+#   caddy   the real `ops/Caddyfile`, with SITE_ADDRESS set to :8080 so it
+#           serves plain HTTP and the drill needs no certificate. Nothing else
+#           about the file changes — the `@import_stream` matcher, the
+#           `flush_interval -1` and the read timeout are the committed ones.
+#
+#   nginx   `proxy_buffering on`, which is the default almost everywhere and
+#           is the failure this drill is looking for. It is the **negative
+#           control**: it makes the timing assertion prove that it detects
+#           buffering, rather than merely pass. A drill with no control is a
+#           drill that would pass if the frames were never checked at all.
+name: cashkit-streaming-drill
+
+services:
+  # Named `service`, because that is the upstream `ops/Caddyfile` names. The
+  # Caddyfile is mounted unchanged, so the drill has to bring the name to it.
+  service:
+    image: python:3.13-alpine
+    command: ["python", "/srv/sse_origin.py"]
+    environment:
+      SSE_FRAMES: "8"
+      SSE_INTERVAL: "0.3"
+    volumes:
+      - ./sse_origin.py:/srv/sse_origin.py:ro
+
+  caddy:
+    image: caddy:2.10-alpine
+    depends_on: [service]
+    environment:
+      # Plain HTTP on 8080: no ACME, no certificate, same file.
+      SITE_ADDRESS: ":8080"
+      ACME_EMAIL: drill@example.invalid
+    ports:
+      - "58080:8080"
+    volumes:
+      - ../Caddyfile:/etc/caddy/Caddyfile:ro
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on: [service]
+    ports:
+      - "58081:8080"
+    volumes:
+      - ./nginx-buffering.conf:/etc/nginx/conf.d/default.conf:ro

@@ -29,6 +29,7 @@ from .routers import export as export_router
 from .routers import imports as imports_router
 from .routers import scenarios as scenarios_router
 from .routers import me as me_router
+from .routers import ops as ops_router
 from .routers import turns as turns_router
 
 TITLE = "CashKit MLP service"
@@ -103,6 +104,7 @@ def create_app(
     app.add_middleware(RequestLogMiddleware, enabled=settings.request_log_enabled)
     app.add_middleware(RequestIdMiddleware)
 
+    app.include_router(ops_router.router)
     app.include_router(auth_router.router)
     app.include_router(me_router.router)
     app.include_router(books_router.router)

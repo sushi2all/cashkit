@@ -1,0 +1,70 @@
+# Caddy: TLS termination and the only public surface (SPEC §12).
+#
+# ────────────────────────────────────────────────────────────────────────────
+# THE ONE THING THIS FILE CAN BREAK SILENTLY
+#
+# `GET /imports/{id}/stream` is server-sent events. If a proxy buffers it, the
+# import screen stops being "watch it happen" and becomes "wait ninety seconds,
+# then see all of it at once" — and **no test in the repository fails**, because
+# the service is correct either way and the E2E harness forwards frames itself
+# (D-MLP-95). Caddy flushes `text/event-stream` by default; `flush_interval -1`
+# below says so explicitly rather than relying on a default that a Caddy
+# upgrade could revisit.
+#
+# It is checked twice: `apps/service/tests/test_caddy_config.py` reads this
+# file per commit, and `test_streaming_drill.py -m drill` runs a real Caddy
+# with this configuration and times the frames — with a buffering nginx beside
+# it as the negative control, so the timing assertion is known to detect
+# buffering rather than merely to pass.
+# ────────────────────────────────────────────────────────────────────────────
+
+{
+	email {$ACME_EMAIL}
+	# Caddy's own admin API is off: nothing on this box needs to reconfigure
+	# the proxy at runtime, and an open admin endpoint is a way in.
+	admin off
+}
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	log {
+		output stdout
+		format json
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	# The import progress stream. Ordered before the catch-all so it wins.
+	@import_stream path_regexp import_stream ^/imports/[^/]+/stream$
+	handle @import_stream {
+		reverse_proxy service:8000 {
+			# -1 flushes every write straight through: no buffering, no
+			# coalescing, whatever the response length says.
+			flush_interval -1
+			# A model call inside an import can take a minute; the stream
+			# sends a heartbeat comment every fifteen seconds (D-MLP-83),
+			# so an idle read here means the origin is gone, not slow.
+			transport http {
+				read_timeout 300s
+			}
+		}
+	}
+
+	# `/metrics` is for the Prometheus agent on the container network only.
+	# Publishing it would put per-endpoint latency and model spend on the
+	# public internet; it is not secret, but it is not the public's either.
+	handle /metrics {
+		respond 404
+	}
+
+	handle {
+		reverse_proxy service:8000
+	}
+}

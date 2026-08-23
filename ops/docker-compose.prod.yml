@@ -1,0 +1,197 @@
+# The production stack (SPEC §12): one Hetzner Cloud VM in the EU, Docker
+# Compose, Caddy terminating TLS in front of the service, Postgres in a
+# container with a volume, the backup sidecar, and a metrics agent
+# remote-writing to Grafana Cloud EU.
+#
+#   docker compose --env-file /etc/cashkit/env -f ops/docker-compose.prod.yml up -d
+#
+# Every secret comes from that env file (SPEC §12: "secrets via environment,
+# never in the repo"). `ops/env.example` lists every variable with no value in
+# it; `ops/DEPLOY.md` is the staging→prod procedure.
+#
+# Only Caddy publishes ports. The service, Postgres, the agent and the backup
+# sidecar are reachable on the compose network and from nowhere else.
+name: cashkit
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "10"
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      service: {condition: service_healthy}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?the public hostname, e.g. app.cashkit.io}
+      ACME_EMAIL: ${ACME_EMAIL:?the address Let\'s Encrypt writes to}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging: *logging
+
+  service:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile
+    image: ${CASHKIT_IMAGE:-cashkit-service:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      CASHKIT_DATABASE_URL: postgresql+asyncpg://cashkit:${POSTGRES_PASSWORD:?}@postgres:5432/cashkit
+      CASHKIT_BOOKS_ROOT: /var/lib/cashkit/books
+      CASHKIT_REQUEST_LOG_DIR: /var/log/cashkit
+      CASHKIT_BACKUP_MARKER_FILE: /var/lib/cashkit/backup-oldest.txt
+      CASHKIT_WEB_APP_URL: ${WEB_APP_URL:?}
+      CASHKIT_ENVIRONMENT: production
+      CASHKIT_LLM_API_KEY: ${OPENROUTER_API_KEY:?}
+      CASHKIT_SENTRY_DSN: ${SENTRY_DSN:-}
+      # D-MLP-104: a turn holds its request connection for its whole life and
+      # the journal opens a second per write. 20 + 20 against the 100
+      # `max_connections` set below leaves room for migrations, the retention
+      # cron and one psql session.
+      CASHKIT_DB_POOL_SIZE: "20"
+      CASHKIT_DB_MAX_OVERFLOW: "20"
+      MAIL_PROVIDER_API_KEY: ${MAIL_PROVIDER_API_KEY:-}
+    volumes:
+      - books:/var/lib/cashkit/books
+      - state:/var/lib/cashkit
+      - logs:/var/log/cashkit
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    logging: *logging
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cashkit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: cashkit
+    # 100 is the default; it is stated here because the service's pool is
+    # sized against it and the two must be read together (D-MLP-104).
+    command: ["postgres", "-c", "max_connections=100"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cashkit -d cashkit"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    logging: *logging
+
+  backup:
+    build: ./backup
+    image: ${CASHKIT_BACKUP_IMAGE:-cashkit-backup:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      BOOKS_ROOT: /var/lib/cashkit/books
+      S3_ENDPOINT: ${S3_ENDPOINT:?}
+      S3_BUCKET: ${S3_BUCKET:?}
+      S3_PREFIX: ${S3_PREFIX:-cashkit}
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?}
+      AWS_DEFAULT_REGION: ${S3_REGION:-eu-central-1}
+      # The public half only. This container writes backups it cannot read
+      # (D-MLP-106); the identity lives wherever a restore is run.
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:?}
+      BACKUP_RETENTION_DAYS: "30"
+      BACKUP_MARKER_FILE: /var/lib/cashkit/backup-oldest.txt
+      PGHOST: postgres
+      PGUSER: cashkit
+      PGPASSWORD: ${POSTGRES_PASSWORD:?}
+      PGDATABASE: cashkit
+    volumes:
+      # Read-only: a backup process has no business writing to a book.
+      - books:/var/lib/cashkit/books:ro
+      # Writable, and the only thing it writes: the one ISO timestamp
+      # `prune.sh` publishes and the retention sweep reads (D-MLP-99).
+      - state:/var/lib/cashkit
+    logging: *logging
+
+  # The retention sweep of SPEC §9: the llm_calls payload purge (30 days), the
+  # request-log purge (90), the link-token sweep, and closing the deletion
+  # backup windows against what `prune.sh` left in the bucket.
+  retention:
+    image: ${CASHKIT_IMAGE:-cashkit-service:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      CASHKIT_DATABASE_URL: postgresql+asyncpg://cashkit:${POSTGRES_PASSWORD:?}@postgres:5432/cashkit
+      CASHKIT_REQUEST_LOG_DIR: /var/log/cashkit
+      CASHKIT_BACKUP_MARKER_FILE: /var/lib/cashkit/backup-oldest.txt
+    volumes:
+      - state:/var/lib/cashkit
+      - logs:/var/log/cashkit
+    entrypoint: ["/bin/sh", "-c"]
+    # 04:15 UTC daily: after the backup (03:15) and after its prune (03:45),
+    # so the marker it reads is the one this morning's prune wrote. The sleep
+    # is computed in Python rather than with `date -d`, because the arithmetic
+    # has to be right across a month boundary and this image has Python.
+    command:
+      - |
+        while true; do
+          python -c "import datetime as d,time; n=d.datetime.now(d.timezone.utc); t=n.replace(hour=4,minute=15,second=0,microsecond=0); t=t if t>n else t+d.timedelta(days=1); time.sleep((t-n).total_seconds())"
+          python -m cashkit_service.retention || echo "[retention] sweep failed"
+        done
+    logging: *logging
+
+  # SPEC §11: metrics, alert rules and the uptime probe live OFF the VM.
+  # This agent scrapes locally and remote-writes to Grafana Cloud (EU); the
+  # rules and the probe are configured there, so an alarm survives the box
+  # it is about. See ops/observability/.
+  metrics-agent:
+    image: prom/prometheus:v3.2.1
+    restart: unless-stopped
+    depends_on:
+      service: {condition: service_healthy}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=6h
+      - --web.listen-address=127.0.0.1:9090
+    environment:
+      GRAFANA_CLOUD_PROM_URL: ${GRAFANA_CLOUD_PROM_URL:-}
+      GRAFANA_CLOUD_PROM_USER: ${GRAFANA_CLOUD_PROM_USER:-}
+      GRAFANA_CLOUD_PROM_TOKEN: ${GRAFANA_CLOUD_PROM_TOKEN:-}
+      CASHKIT_ENVIRONMENT: production
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom_data:/prometheus
+    logging: *logging
+
+  # Host and disk metrics for the §11 disk alarm.
+  node-exporter:
+    image: prom/node-exporter:v1.9.0
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    logging: *logging
+
+volumes:
+  books:
+  state:
+  logs:
+  pgdata:
+  caddy_data:
+  caddy_config:
+  prom_data:

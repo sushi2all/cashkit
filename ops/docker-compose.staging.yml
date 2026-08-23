@@ -1,0 +1,43 @@
+# Staging (SPEC §12): "a second, smaller VM with its own key and a spend cap".
+#
+#   docker compose --env-file /etc/cashkit/env \
+#     -f ops/docker-compose.prod.yml -f ops/docker-compose.staging.yml up -d
+#
+# It is the same stack, deliberately: a staging box that differs structurally
+# from production tests a different system. Three things differ, and each is a
+# difference that makes staging *safer* rather than *smaller*:
+#
+# 1. **Its own model key with its own spend cap**, set on the OpenRouter key
+#    itself rather than here — a cap in this file would be a cap the box could
+#    edit. The per-user daily budget is tightened as well, so a loop discovered
+#    on staging costs a fraction of what it would cost in production.
+# 2. **A smaller connection pool**, matching the smaller VM. It is stated
+#    rather than inherited so nobody reads production's 20+20 and assumes both
+#    boxes were sized the same (D-MLP-104).
+# 3. **A separate backup prefix**, so a staging run can never prune, overwrite
+#    or be restored from production's snapshots. Same bucket, different
+#    namespace, and `S3_PREFIX` is what keeps them apart.
+services:
+  service:
+    environment:
+      CASHKIT_ENVIRONMENT: staging
+      # SPEC §8's default is $0.50/user/day. Staging is a handful of accounts
+      # exercising the same paths; a tenth of it is plenty and turns a runaway
+      # loop into a cheap discovery.
+      CASHKIT_DAILY_MODEL_BUDGET_USD: "0.05"
+      CASHKIT_DB_POOL_SIZE: "10"
+      CASHKIT_DB_MAX_OVERFLOW: "10"
+
+  postgres:
+    command: ["postgres", "-c", "max_connections=50"]
+
+  backup:
+    environment:
+      S3_PREFIX: ${S3_PREFIX:-cashkit}-staging
+      # A staging snapshot is worth a week, not a month: it is there to prove
+      # the job still runs, and nobody is restoring last month's staging.
+      BACKUP_RETENTION_DAYS: "7"
+
+  metrics-agent:
+    environment:
+      CASHKIT_ENVIRONMENT: staging
