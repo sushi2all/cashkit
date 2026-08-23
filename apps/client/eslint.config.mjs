@@ -65,6 +65,23 @@ export default tseslint.config(
     rules: { "@typescript-eslint/no-explicit-any": "off" },
   },
   {
+    // Maestro's flow scripts run inside Maestro's own JavaScript engine, not in
+    // Node and not in the bundle. It injects `http`, `json` and `output`, and
+    // the flow's `env:` block becomes globals — so these names are defined at
+    // run time even though nothing in this repository declares them.
+    files: ["maestro/**/*.js"],
+    languageOptions: {
+      sourceType: "script",
+      globals: {
+        http: "readonly",
+        json: "readonly",
+        output: "writable",
+        HARNESS: "readonly",
+        EMAIL: "readonly",
+      },
+    },
+  },
+  {
     // Metro and Babel config are CommonJS and run in Node, not in the bundle.
     files: ["**/*.config.js", "**/*.config.cjs"],
     languageOptions: {
