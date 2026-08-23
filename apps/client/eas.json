@@ -1,0 +1,87 @@
+{
+  "$schema": "https://raw.githubusercontent.com/expo/eas-cli/main/packages/eas-json/schema/eas.schema.json",
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "//": [
+      "SPEC §12 and the PROMPT's S6 row: the beta ships web-first plus an",
+      "Android APK for direct install. `preview` is that APK. The iOS lane is",
+      "written and inert: it activates when the Apple Developer enrolment",
+      "exists, and the web beta never waits for it.",
+      "",
+      "EXPO_PUBLIC_API_URL is the one thing a build has to be told. There is no",
+      "model key here and there never will be: the client has no model access",
+      "at all, and `cashkit/no-model-access` is an ESLint error that fails CI",
+      "if one is ever added (D-MLP-50, S3).",
+      "",
+      "EXPO_PUBLIC_ALLOW_CLOUD_DICTATION is deliberately absent from every",
+      "profile. Setting it would put a browser speech vendor on the path, and",
+      "SPEC §9 requires that vendor on compliance/subprocessors.md first",
+      "(D-MLP-45)."
+    ],
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://localhost:8000"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": true
+      }
+    },
+    "preview": {
+      "//": [
+        "The beta lane. `distribution: internal` plus `buildType: apk` is a",
+        "file a tester downloads and installs — no Play Store review, no Apple",
+        "enrolment, nothing to wait for.",
+        "",
+        "The iOS half of this profile builds only once an Apple team exists;",
+        "until then `eas build --platform android --profile preview` is the",
+        "whole beta build and it does not need the iOS half to be reachable."
+      ],
+      "distribution": "internal",
+      "channel": "preview",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://staging.cashkit.invalid"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": false
+      }
+    },
+    "production": {
+      "//": [
+        "Store distribution. Android is an AAB because Play requires one;",
+        "the direct-install APK stays the `preview` profile.",
+        "",
+        "`autoIncrement` with `appVersionSource: remote` means EAS owns the",
+        "build number, so two builds from the same commit never collide and",
+        "nobody edits a version by hand before a release."
+      ],
+      "channel": "production",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://app.cashkit.invalid"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  },
+  "submit": {
+    "//": [
+      "Nothing is configured here yet, and that is correct rather than",
+      "incomplete: submission needs an Apple Developer team and a Play",
+      "Console service account, and neither exists. The beta does not need",
+      "either — an APK is installed from a link."
+    ],
+    "production": {}
+  }
+}

@@ -66,3 +66,82 @@ The adapter itself is not untested: `src/voice/dictation.native.ts` requires
 on-device recognition and refuses rather than falling back to a cloud
 recognizer, and the web adapter's fail-closed behaviour is covered by the web
 E2E.
+
+---
+
+## S6's pass at it (2026-08-23) — Android, and where it stopped
+
+S3 wrote this flow and could not run it: no Xcode, no Simulator, no Maestro.
+Two of those three changed; the third did not, and the run still did not
+happen. Here is exactly how far it got, so the next person starts from the
+right place rather than repeating it.
+
+| Requirement | State on 2026-08-23 |
+|---|---|
+| `maestro` | **Present** — 2.8.0, at `~/.maestro/bin/maestro` (not on `PATH`) |
+| Flow syntax | **Valid** — `maestro check-syntax` passes on `smoke.yaml` and `steps/reset.yaml` |
+| Xcode.app / `simctl` / iOS Simulator | **Still absent** |
+| Java 17 | Present (Oracle 17.0.1, x86_64) |
+| Android SDK | Present — `~/Library/Android/sdk`, platform `android-34`, build-tools 34/35 |
+| Android AVD | Present — `Medium_Phone`, system image `android-35` |
+| `adb` | Works |
+| **An installable app** | **No.** See below |
+
+**The Android lane is the right one and it is one step short.** The PROMPT
+names an Android APK direct-install as the beta lane, `app.json` already
+declares `io.cashkit.app` for both platforms — the same `appId` this flow
+targets — and the flow uses no iOS-only command, so it should run against an
+emulator unchanged.
+
+What was done: `apps/client/eas.json` was written with three profiles
+(`preview` is the direct-install APK), and **`npx expo prebuild --platform
+android` succeeded** — the Expo config generates a valid native project.
+
+What stopped it: `./gradlew :app:assembleRelease` reached 100% of dependency
+resolution and then failed with **`No space left on device`**. The machine had
+1.8 GiB free of 460 GiB. That is not a configuration failure and there is
+nothing here to fix — a React Native release build needs several gigabytes of
+Gradle and Kotlin artifacts before it compiles anything.
+
+The generated `android/` directory was deleted afterwards: Expo's continuous
+native generation means it is an output, not a source, and committing it would
+give the repository a second, stale copy of `app.json`.
+
+### To finish it, on a machine with room
+
+```bash
+export ANDROID_HOME=$HOME/Library/Android/sdk
+export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+export PATH="$PATH:$HOME/.maestro/bin:$ANDROID_HOME/platform-tools"
+
+cd apps/client
+npx expo prebuild --platform android --no-install
+(cd android && ./gradlew :app:assembleRelease)
+# → android/app/build/outputs/apk/release/app-release.apk
+
+$ANDROID_HOME/emulator/emulator -avd Medium_Phone -no-snapshot &
+adb wait-for-device
+adb install -r android/app/build/outputs/apk/release/app-release.apk
+
+# The harness the flow talks to, on the host. The emulator reaches the host at
+# 10.0.2.2, so HARNESS must be overridden.
+uv run python e2e/harness/server.py --port 8099   # from the repository root
+maestro test maestro/smoke.yaml -e HARNESS=http://10.0.2.2:8099
+```
+
+Or, once an Expo account exists, skip the toolchain entirely:
+
+```bash
+npx eas-cli build --platform android --profile preview
+```
+
+### Two things that will still not be proved by that run
+
+**Dictation producing a real transcript** (D-MLP-48). An emulator has no
+voice. The flow asserts the control's state machine in both directions and
+completes the turn as text; a correct transcript is a hardware check, by hand.
+
+**The mobile export share sheet** (D-MLP-94). `src/exporting/download.native.ts`
+is written and typechecked and has never run. It is not in this flow — S5's
+export screen is not on the S3 gate path — so add a step for it when the flow
+is first extended past S3's screens.

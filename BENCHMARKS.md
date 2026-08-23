@@ -381,3 +381,203 @@ The CLI numbers are dominated by process-level work the SDK also pays:
 | Measure | Value |
 |---|---|
 | Full suite, Phases 1-10 (1,007 tests) | 31 s |
+
+---
+
+# App track (MLP consumer) — SPEC §8 latency budgets
+
+Measured by session S6 on **2026-08-23**, against the **deployed stack**:
+`ops/docker-compose.prod.yml` running the real service image behind the real
+Caddy on the committed `ops/Caddyfile`, with Postgres in its own container.
+Not an in-process test client — every figure below crossed a socket, went
+through the reverse proxy, and came back.
+
+**Basis, stated honestly.** Staging does not exist: no Hetzner VM was created
+(D-MLP-124), so "deployed" here means the same compose files running on the
+development machine — MacBook Pro, Apple M3 Pro, 18 GB, Docker 28.5.1 — with
+the client on the loopback. Two consequences for reading these numbers. The
+network hop is a loopback rather than the internet, so the endpoint figures are
+**optimistic by whatever the real round trip costs** (a few tens of
+milliseconds from Italy to Nuremberg) — which matters not at all against a
+300 ms budget with a 37× margin. And the model figures are **not** affected:
+the call goes to OpenRouter over the real internet from here exactly as it
+would from a VM, and it is 97% of the turn.
+
+Method: `httpx`, one client, sequential, no concurrency. n is stated per row.
+`p95` on a small n is the highest sample rather than an interpolation, which
+is the pessimistic reading and the right one for a budget.
+
+## Read endpoints — budget: p95 ≤ 300 ms
+
+| Endpoint | n | p50 | **p95** | max | Budget | Margin |
+|---|---:|---:|---:|---:|---:|---|
+| `GET /book/state` | 50 | 5.5 ms | **6.8 ms** | 9.6 ms | 300 ms | 44× |
+| `GET /book/forecast` | 50 | 5.6 ms | **6.8 ms** | 7.5 ms | 300 ms | 44× |
+| `GET /book/trace` | 50 | 5.4 ms | **8.0 ms** | 8.6 ms | 300 ms | 37× |
+| `GET /book/why_zero` | 30 | 5.4 ms | **6.9 ms** | 8.0 ms | 300 ms | 43× |
+| `GET /book/events` | 30 | 5.0 ms | **6.9 ms** | 7.4 ms | 300 ms | 43× |
+| `GET /book/reconcile` | 30 | 5.4 ms | **6.2 ms** | 6.6 ms | 300 ms | 48× |
+| `GET /book/validate` | 30 | 5.1 ms | **5.6 ms** | 5.8 ms | 300 ms | 53× |
+| `GET /book/history` | 30 | 4.6 ms | **5.3 ms** | 6.8 ms | 300 ms | 53× |
+| `GET /book/compare` | 20 | 24.2 ms | **97.5 ms** | 97.5 ms | 300 ms | 3× |
+| `GET /healthz` | 50 | 2.1 ms | **3.0 ms** | 3.9 ms | — | — |
+
+All pass. **`GET /book/compare` is the one to watch**: 3× margin where the
+others have 40×, because it runs the engine's `compare()` through DuckDB
+(D-MLP-10) rather than reading a computed column. Its p95 is a first-call
+figure — the max and the p95 are the same sample — so most of it is one-off
+setup. It is fine at MLP scale and it is the endpoint that will move first if
+a book grows.
+
+S4's D-MLP-63 note is settled by these numbers: the Item screen issues one
+`GET /book/trace` per non-zero period, capped at 24. At 5.4 ms that is 130 ms
+of engine work for a full year, inside the budget with room to spare.
+
+## Apply a proposal — budget: p95 ≤ 1 s
+
+| Measure | n | p50 | **p95** | max | Budget | Margin |
+|---|---:|---:|---:|---:|---:|---|
+| `POST /proposals/{id}` accept (apply + run) | 12 | 22.3 ms | **25.6 ms** | 25.6 ms | 1 s | 39× |
+
+Passes with a large margin, and the margin is the point: D-MLP-25 moved the
+verification model call **out** of accept and into the turn precisely because
+no model call fits inside a 1-second budget. What is left is a staleness
+check, a rehearsal on a copy (D-MLP-16), the apply, and a run — all engine and
+disk, no network.
+
+## Import — budget: ≤ 90 s with streamed progress
+
+| Measure | Value | Budget |
+|---|---:|---|
+| T07 messy family budget, upload → `done` event | **51.0 s** | 90 s |
+| Model calls in that run | 5 | cap 20 |
+| SSE lines delivered | 612 | — |
+
+Passes. The run is 51 seconds of which **five gaps exceed one second and each
+is a model call** — 10.3 s, 6.2 s, 7.3 s, 6.5 s, 11.0 s. Those gaps are also
+the evidence for S5's unbuffered-stream clause: a buffered proxy produces no
+gaps and then everything at once (D-MLP-112).
+
+## Turns — one budget missed, and it is structural
+
+| Turn | n | p50 | p95 | Budget p50 | Budget p95 | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| **read / answer** | 14 | **8.16 s** | **20.60 s** | 4 s | 12 s | **MISS — 2.0× on p50, 1.7× on p95** |
+| proposal | 4 | 3.91 s | 7.49 s | 6 s | — | pass |
+
+Full sample for the read turn, seconds: 4.34, 5.62, 5.82, 6.08, 6.78, 7.14,
+8.00, 8.32, 8.93, 10.32, 10.62, 11.25, 14.22, 20.60. **Every one of the
+fourteen made exactly two model calls.**
+
+### Why, from the service's own journal
+
+```
+purpose    | n  | avg_ms | min_ms | max_ms
+interpret  | 10 |   4974 |   2540 |  10726
+qa         |  6 |   2978 |   1751 |   3713
+import     |  5 |  10951 |   6303 |  16658
+
+kind          | n | avg_ms | avg_calls
+answer        | 6 |   8245 |         2
+proposal      | 3 |   3691 |         1
+```
+
+An answer turn is `interpret` (≈5.0 s) then `qa` (≈3.0 s) — **8.2 s of which
+8.0 s is model time**. There is no service-side latency to remove: the
+snapshot build, the read-intent execution and the serialization together are
+under 200 ms, and the endpoint figures above show what this stack does when no
+model is involved.
+
+The second call is not an accident. It is ADR-0030 stage 3 and S2's D-MLP-26
+working as designed: the model interprets the question into a read intent, the
+**host** executes it against the engine, and the model is asked again to phrase
+the answer around figures it must quote rather than derive. A proposal turn
+needs one call because a card is a structured object, not a sentence, and it
+lands at 3.9 s inside its 6 s budget.
+
+### Where the budget came from, and what to do about it
+
+SPEC §8 records its basis: *proto bench 2026-08-22*. The proto answered from a
+single call and had no receipts requirement; the MLP's read turn is
+structurally two calls because every quoted figure must have a read operation
+behind it. **The budget was measured against a different pipeline.**
+
+Three options, and this session took none of them unilaterally:
+
+1. **Amend the budget** to p50 ≤ 9 s, p95 ≤ 16 s for a read turn, recording
+   that a read answer is two flash-class calls by design. Honest, and it moves
+   a goalpost.
+2. **Answer from the snapshot in one call** where the results block already
+   holds the figure. S2 already found this happens (its handoff §6 records that
+   a read turn *can* answer straight from the results block, leaving `receipts`
+   empty) and deliberately pushed the prompt the other way. This would roughly
+   halve the p50 and would cost the receipt behind the figure.
+3. **Stream the turn**, so the user sees the interpretation at ≈5 s and the
+   answer at ≈8 s instead of a blank wait. It fixes the felt latency and not
+   the number.
+
+**Recommendation: (3), then reconsider (1).** Option 2 trades the product's
+central claim — the number on screen has a receipt — for four seconds, and the
+ambiguity procedure for this track says exactness and provenance win where
+they conflict with convenience. **Owner: Luca**, because it is a product call
+about how long an answer may take, not an engineering one.
+
+Not silence, per the PROMPT: this is the recorded decision, and it is recorded
+as unresolved with a named owner rather than as accepted.
+
+## Model cost
+
+| Run | Wall clock | Cost |
+|---|---|---|
+| The live suite as S5 left it, T01–T12 + T16 (37 tests) | 12 m 20 s | **$0.3138** |
+| **The live suite as it now stands, + T19 (41 tests) — S6** | **10 m 30 s** | **$0.3012** |
+| This benchmark: 18 turns + one T07 import | ≈ 4 min | **$0.0655** |
+| S6's whole session against the live model | — | **$0.3699** |
+
+Four more tests and it got *cheaper and faster* than S5's run, which is worth
+reading correctly: the difference is provider variance, not an improvement.
+T19's four tests are two tiny calls and two metadata reads. Treat $0.31 as the
+figure and the spread as noise.
+
+Measured against OpenRouter's own key-usage figure before and after, not
+estimated from token counts.
+
+**The nightly schedule costs about $9 a month** (`.github/workflows/mlp-nightly.yml`,
+03:00 UTC), plus a pre-release run when one is asked for. Against SPEC §8's
+$0.50 per user per day, **one beta user costs more than the entire monthly
+model-behaviour gate**, which is the right way round.
+
+## Web bundle
+
+| Measure | Value |
+|---|---:|
+| `dist/` total | 1.4 MB |
+| The single JS chunk, raw | 1,344,796 B |
+| …gzipped over the wire | **358,810 B** |
+
+S3 flagged the single-chunk bundle for S6 "if the SPEC §8 budgets show it".
+They do not: SPEC §8 sets no bundle budget, and 359 KB gzipped is one request
+on any connection a beta user will have. Code-splitting an Expo Router web
+export is a build-configuration change with its own failure modes, and there
+is nothing here to buy with it. **Revisit if a real user reports a slow first
+load**, not before.
+
+## Reproducing all of this
+
+```bash
+# Bring the deployment up locally (ops/docker-compose.local.yml explains the
+# three ways it differs from production).
+docker compose --env-file <your env> \
+  -f ops/docker-compose.prod.yml -f ops/docker-compose.local.yml up -d --wait
+docker compose ... exec service python -m cashkit_service.migrate
+
+# Then drive it. The measurement scripts are short and are in the S6 handoff
+# note (km/notes/handoff-mlp-s6.md §6); they are not committed, because a
+# benchmark harness nobody runs twice is a file that rots.
+```
+
+The endpoint figures also appear as live series on the deployed stack:
+`cashkit_http_request_duration_seconds` is a histogram bucketed to bracket
+these budgets, and `cashkit_turn_latency_seconds_p50_24h` /`_p95_24h` are read
+from the `turns` table per kind — so the comparison against SPEC §8 is a
+dashboard on staging rather than a document that ages.

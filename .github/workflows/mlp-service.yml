@@ -1,0 +1,133 @@
+# The MLP service's gates.
+#
+# S3 built `mlp-client.yml` and noted it was client-only, with the full
+# pipeline left to S6. This is the other half: the service suite, the trials
+# that do not call a model, the prompt-surface grep, and the deployment
+# configuration checks.
+#
+# Two rules from SPEC §10 shape this file. **Engine tests are not run here**
+# and are not this workflow's business — `uv run pytest` at the repository root
+# runs the engine suite and only the engine suite, and app tests are always
+# explicit paths. And **trials that call OpenRouter do not run per commit**:
+# they cost money and they depend on a provider, so they are `mlp-nightly.yml`.
+name: MLP service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/service/**"
+      - "cashkit/**"
+      - "ops/**"
+      - "compliance/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/mlp-service.yml"
+  pull_request:
+    paths:
+      - "apps/service/**"
+      - "cashkit/**"
+      - "ops/**"
+      - "compliance/**"
+      - "pyproject.toml"
+      - "uv.lock"
+
+jobs:
+  service:
+    name: service suite, invariant trials, compliance checks
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: cashkit
+          POSTGRES_PASSWORD: cashkit
+          POSTGRES_DB: cashkit
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U cashkit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages
+
+      # The published contract must be the one the service builds. The client
+      # workflow republishes it too; both halves are here so neither can be
+      # stale on its own.
+      - name: The published OpenAPI schema is committed
+        run: |
+          uv run python -m cashkit_service.openapi
+          git diff --exit-code apps/service/openapi.json
+
+      # The whole per-commit run: integration tests, the deterministic
+      # invariant trials T13/T14/T16/T17/T18, the retention and deletion
+      # suites, the metrics vocabulary, and the compliance documents checked
+      # against the code they describe. Live-model and drill markers are
+      # excluded by `addopts`.
+      - name: Service suite and invariant trials
+        run: uv run pytest apps/service/tests apps/service/trials -q
+
+      # PROMPT definition of done, mechanical rather than review habit: no raw
+      # SDK mutation verb may appear in a prompt template (S2's grep gate).
+      # It runs inside the suite above; naming it as its own step means a
+      # failure says which invariant broke rather than "a test failed".
+      - name: No raw SDK mutation verb reaches a prompt
+        run: uv run pytest apps/service/tests/test_prompt_surface.py -q
+
+      - name: The client never gains a model key or money arithmetic
+        run: uv run pytest apps/service/tests/test_workspace.py -q
+
+      # The deployment configuration is read on every commit, because a
+      # configuration file nothing reads is a configuration file that drifts.
+      # This is the cheap half of the unbuffered-SSE guard; the drill is the
+      # expensive half and runs nightly.
+      - name: Deployment configuration and the SSE flush setting
+        run: uv run pytest apps/service/tests/test_caddy_config.py -q
+
+      - name: The engine suite is untouched and still the default
+        run: |
+          uv run pytest --collect-only -q > /tmp/collected.txt
+          if grep -qE '^apps/' /tmp/collected.txt; then
+            echo 'a bare "uv run pytest" collected app tests; the root testpaths moved' >&2
+            exit 1
+          fi
+
+  images:
+    name: the deployment images build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # A Dockerfile that stopped building is a deploy that fails at the worst
+      # moment. Building is cheap; discovering it on the VM is not.
+      - name: Service image
+        run: docker build -f ops/Dockerfile -t cashkit-service:ci .
+      - name: Backup sidecar image
+        run: docker build -f ops/backup/Dockerfile -t cashkit-backup:ci ops/backup
+      # `config` resolves the file, so it needs the required interpolations to
+      # be set — with junk, since nothing is started. That is the check: a
+      # compose file that will not resolve is a deploy that fails at `up`.
+      - name: The compose files resolve
+        env:
+          SITE_ADDRESS: example.invalid
+          ACME_EMAIL: ci@example.invalid
+          WEB_APP_URL: https://example.invalid
+          POSTGRES_PASSWORD: ci
+          OPENROUTER_API_KEY: ci
+          S3_ENDPOINT: http://ci
+          S3_BUCKET: ci
+          S3_ACCESS_KEY_ID: ci
+          S3_SECRET_ACCESS_KEY: ci
+          BACKUP_AGE_RECIPIENT: ci
+        run: |
+          docker compose -f ops/docker-compose.prod.yml config --quiet
+          docker compose -f ops/docker-compose.prod.yml -f ops/docker-compose.staging.yml config --quiet
+          docker compose -f ops/docker-compose.prod.yml -f ops/docker-compose.local.yml config --quiet
+          docker compose -f ops/backup/docker-compose.drill.yml config --quiet
+          docker compose -f ops/drills/docker-compose.streaming.yml config --quiet
+          docker compose -f ops/drills/docker-compose.alarms.yml config --quiet

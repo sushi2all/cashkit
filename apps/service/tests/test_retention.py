@@ -15,7 +15,6 @@ import datetime as dt
 import uuid
 from pathlib import Path
 
-import pytest
 import sqlalchemy as sa
 
 from cashkit_service.config import Settings

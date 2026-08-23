@@ -20,7 +20,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-import sqlalchemy as sa
 import yaml
 
 from cashkit_service.db import books, deletions, llm_calls, proposals, turns, users

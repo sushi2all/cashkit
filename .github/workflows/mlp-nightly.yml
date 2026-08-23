@@ -1,0 +1,117 @@
+# The scheduled runs: the model-behaviour gate, and the drills.
+#
+# SPEC §10: *trials that call OpenRouter run on a nightly schedule +
+# pre-release, not per-commit (cost + flake control).* This is that schedule.
+#
+# **What it costs, deliberately stated here rather than in a note somewhere.**
+# The live suite is 41 tests — S5's 37 plus T19's four — measured by S6 at
+# **$0.3012** in **10m30s**, against OpenRouter's own key-usage figure. (S5
+# measured $0.3138 in 12m20s for 37; the spread is provider variance, not an
+# improvement.) Nightly is therefore roughly **$9 a month**, plus a
+# pre-release run whenever one is asked for. That is the price of knowing the model still behaves, against
+# SPEC §8's $0.50 per user per day — one beta user costs more than the entire
+# monthly gate. It is worth it: ADR-0028 makes the trial suite the model
+# boundary, and a model or provider change is invisible until something runs.
+#
+# It is **not** per-commit for two reasons and the second is the one that
+# matters: it would cost more than the product, and a provider hiccup would
+# turn into a red build on a commit that changed nothing.
+name: MLP nightly
+
+on:
+  schedule:
+    # 03:00 UTC, before the working day in Italy, and clear of the deployment's
+    # own backup window (03:15) so the two are never competing for a box.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why this run (e.g. pre-release for <tag>)"
+        required: false
+        default: "manual"
+
+concurrency:
+  # Two of these at once would double the spend and confuse the cost figure.
+  group: mlp-nightly
+  cancel-in-progress: false
+
+jobs:
+  live-trials:
+    name: T01–T12, T16, T19 on the pinned model
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: cashkit
+          POSTGRES_PASSWORD: cashkit
+          POSTGRES_DB: cashkit
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U cashkit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages
+
+      # Without a key the live trials **skip**; they never fail for the want of
+      # one (D-MLP-35). This step makes that a loud skip rather than a quiet
+      # green, because a nightly gate that silently stopped running is worse
+      # than one that is red.
+      - name: There is a key, or say so plainly
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::OPENROUTER_API_KEY is not set. The live trials would skip, and a"
+            echo "::error::skipping model-behaviour gate is not a passing one (ADR-0028)."
+            exit 1
+          fi
+
+      - name: The model-behaviour gate
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: uv run pytest apps/service/trials -m live_model -q
+
+      - name: Report the spend
+        if: always()
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          usage=$(curl -sS https://openrouter.ai/api/v1/key \
+            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+            | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["usage"])')
+          echo "cumulative key usage after this run: \$$usage" >> "$GITHUB_STEP_SUMMARY"
+
+  drills:
+    name: restore, streaming, alarms
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages
+
+      # SPEC §8: the restore procedure is tested. Nightly rather than
+      # quarterly because it is cheap here and because a backup system nobody
+      # has restored from has an unknown success rate — and the day you find
+      # out is the day it matters.
+      - name: Restore from backup, end to end
+        run: uv run pytest apps/service/tests/test_backup_restore_drill.py -m drill -q
+
+      # S5's handoff §8: the one thing a deployment can break in silence.
+      - name: The import stream reaches a client unbuffered
+        run: uv run pytest apps/service/tests/test_streaming_drill.py -m drill -q
+
+      # SPEC §11: the alarms fire, and are delivered.
+      - name: The ops alarms fire in a drill
+        run: uv run pytest apps/service/tests/test_alarm_drill.py -m drill -q
