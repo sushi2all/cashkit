@@ -45,6 +45,12 @@ export function describeError(error: unknown, status?: number): string {
   if (status === 404) return "That is not there.";
   if (typeof error === "object" && error !== null && "detail" in error) {
     const detail = (error as { detail?: unknown }).detail;
+    // The service ships `{code, message}` (errors.py). The message is written
+    // for a person, so it is what the person reads.
+    if (typeof detail === "object" && detail !== null && "message" in detail) {
+      const message = (detail as { message?: unknown }).message;
+      if (typeof message === "string") return message;
+    }
     if (typeof detail === "string") return detail;
   }
   if (error instanceof Error) return error.message;

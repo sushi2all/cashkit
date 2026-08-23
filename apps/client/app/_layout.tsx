@@ -23,24 +23,32 @@ function Gate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   // `useSegments()` is typed as a tuple of the known route shapes; the gate
   // only cares about the first two path parts, so read them as plain strings.
+  //
+  // The path is joined into a **string** before it reaches the dependency
+  // array. `useSegments()` returns a fresh array on every render, so depending
+  // on the array itself re-runs this effect every render — and since the
+  // effect can navigate, that is an infinite redirect loop that crashes the
+  // page rather than a wasted render.
   const segments: string[] = useSegments();
-  const inAuth = segments[0] === "auth";
+  const path = segments.join("/");
 
   React.useEffect(() => {
     if (status === "loading") return;
-    if (status === "signed-out" && !inAuth) router.replace("/auth");
-    if (status === "signed-in" && segments[0] === "auth" && segments[1] !== "verify") {
-      router.replace("/");
-    }
-  }, [status, inAuth, segments, router]);
+    const parts = path.split("/");
+    const inAuthRoute = parts[0] === "auth";
+    if (status === "signed-out" && !inAuthRoute) router.replace("/auth");
+    if (status === "signed-in" && inAuthRoute && parts[1] !== "verify") router.replace("/");
+  }, [status, path, router]);
 
   if (status === "loading") return <LoadingState label="Signing you in…" />;
   return <>{children}</>;
 }
 
 function WithBook({ children }: { children: React.ReactNode }) {
-  const book = useBook();
-  const onBookChanged = useCallback(() => book.refresh(), [book]);
+  // Depend on `refresh`, which is stable, rather than on the context value,
+  // which is a new object whenever any part of the book state moves.
+  const { refresh } = useBook();
+  const onBookChanged = useCallback(() => refresh(), [refresh]);
   return <ConversationProvider onBookChanged={onBookChanged}>{children}</ConversationProvider>;
 }
 

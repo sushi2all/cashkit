@@ -59,7 +59,6 @@ interface SpeechRecognitionLike {
 
 interface SpeechRecognitionCtor {
   new (): SpeechRecognitionLike;
-  available?: (options: { langs: string[]; processLocally: boolean }) => Promise<string>;
 }
 
 function ctor(): SpeechRecognitionCtor | null {
@@ -71,20 +70,35 @@ function ctor(): SpeechRecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+/**
+ * Does this browser expose the on-device switch?
+ *
+ * This is a **property-existence check on the prototype**, deliberately, and
+ * not a call to `SpeechRecognition.available()`. That method crashes the
+ * renderer outright in at least one shipping Chromium build (reproduced in
+ * Playwright's Chromium 151 during this session, D-MLP-47) — and a crashed
+ * renderer is not something a `try`/`catch` can save, so the app would go down
+ * with it. Reading a property cannot crash anything.
+ *
+ * The cost of not calling `available()` is that we learn the language pack is
+ * missing when `start()` fails rather than before, which the error handler
+ * already reports. The benefit is that a browser bug cannot take the tab.
+ */
+function supportsOnDevice(Recognition: SpeechRecognitionCtor): boolean {
+  try {
+    const proto = Recognition.prototype as unknown as Record<string, unknown>;
+    return proto !== undefined && "processLocally" in proto;
+  } catch {
+    return false;
+  }
+}
+
 export async function capability(): Promise<DictationCapability> {
   const Recognition = ctor();
   if (!Recognition) {
     return { supported: false, onDevice: false, reason: "This browser cannot dictate." };
   }
-  let onDevice = false;
-  if (typeof Recognition.available === "function") {
-    try {
-      const status = await Recognition.available({ langs: ["en-GB"], processLocally: true });
-      onDevice = status === "available" || status === "downloadable";
-    } catch {
-      onDevice = false;
-    }
-  }
+  const onDevice = supportsOnDevice(Recognition);
   if (!onDevice && !ALLOW_CLOUD) {
     return {
       supported: false,

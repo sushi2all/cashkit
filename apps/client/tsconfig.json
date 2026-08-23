@@ -8,7 +8,9 @@
     "exactOptionalPropertyTypes": false,
     "moduleResolution": "bundler",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     }
   },
   "include": [
@@ -17,5 +19,11 @@
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
   ],
-  "exclude": ["node_modules", "dist", "e2e/**/*.spec.ts", "playwright-report"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "playwright-report",
+    "test-results",
+    "e2e/.artifacts"
+  ]
 }

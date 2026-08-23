@@ -3,16 +3,17 @@
   "version": "0.0.0",
   "private": true,
   "main": "expo-router/entry",
-  "description": "The CashKit MLP consumer app. One Expo codebase: iOS and Android natively, and the web app through react-native-web (SPEC §2.1).",
+  "description": "The CashKit MLP consumer app. One Expo codebase: iOS and Android natively, and the web app through react-native-web (SPEC \u00a72.1).",
   "scripts": {
     "start": "expo start",
     "web": "expo start --web",
     "ios": "expo run:ios",
-    "export:web": "expo export --platform web --output-dir dist",
+    "export:web": "EXPO_PUBLIC_API_URL=/api expo export --platform web --output-dir dist",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test:unit": "vitest run",
-    "e2e:web": "playwright test -c e2e/playwright.config.ts"
+    "e2e:web": "npm run export:web && playwright test -c e2e/playwright.config.ts",
+    "e2e:web:only": "playwright test -c e2e/playwright.config.ts"
   },
   "dependencies": {
     "@cashkit/api-types": "*",
@@ -29,7 +30,8 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-svg": "15.15.4",
-    "react-native-web": "^0.21.2"
+    "react-native-web": "^0.21.2",
+    "react": "19.2.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
