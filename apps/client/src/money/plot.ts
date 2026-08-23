@@ -203,17 +203,22 @@ export function scaleTogether(
  *
  * `overflow` is true when the actual exceeds the plan, so the caller can draw
  * the part past the tick differently without needing the raw ratio.
+ *
+ * `fillPercent` is the same ratio already scaled to a CSS width, so the calling
+ * component multiplies nothing: every arithmetic operation in the drawing of a
+ * bar happens inside this module, which is the whole point of the module.
  */
 export function percentOfPlan(
   actual: Money | null | undefined,
   plan: Money | null | undefined,
-): { fill: PlotRatio; overflow: boolean } | null {
+): { fill: PlotRatio; fillPercent: number; overflow: boolean } | null {
   if (!actual || !plan) return null;
   const planned = Math.abs(Number(plan.exact));
   if (planned === 0) return null;
   const got = Math.abs(Number(actual.exact));
   const share = got / planned;
-  return { fill: ratio(Math.min(share, 1)), overflow: share > 1 };
+  const clamped = Math.min(share, 1);
+  return { fill: ratio(clamped), fillPercent: clamped * 100, overflow: share > 1 };
 }
 
 /** Where the 100% tick sits inside a bar drawn at `PLAN_TICK` of its track. */

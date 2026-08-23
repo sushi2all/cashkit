@@ -16,6 +16,8 @@ export default function HomeRoute() {
       onOpenTrace={openTrace}
       onOpenForecast={() => router.push("/forecast")}
       onOpenScenarios={() => router.push("/scenarios")}
+      onOpenActuals={() => router.push("/actuals")}
+      onOpenPlan={() => router.push("/plan")}
     />
   );
 }

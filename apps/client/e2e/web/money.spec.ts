@@ -11,7 +11,7 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 
-import { GYM_INTENT, scriptModel, seedBook, seedItems, signIn } from "./support";
+import { GYM_INTENT, scriptModel, seedBook, seedFork, seedItems, signIn } from "./support";
 
 /** Every money string the service sent this page, in both its forms. */
 function collectServiceFigures(page: Page): Set<string> {
@@ -47,6 +47,17 @@ function collectServiceFigures(page: Page): Set<string> {
  */
 function normalize(rendered: string): string {
   return rendered.replace(/€/g, "").replace(/\u2009/g, "").replace(/\u2212/g, "-").trim();
+}
+
+/** The pattern that recovers a money-shaped token from rendered text. */
+const MONEY_TOKEN =
+  /[\u2212-]?\u20ac[\d \u2009]+(?:\.\d{2,4})?|[\u2212-]?[\d \u2009]+\.\d{2,4}/g;
+
+/** Every money-shaped token on the page that the service never sent. */
+async function strangersOn(page: Page, figures: Set<string>): Promise<string[]> {
+  const rendered = await page.evaluate(() => document.body.innerText);
+  const tokens = rendered.match(MONEY_TOKEN) ?? [];
+  return tokens.map(normalize).filter((token) => !figures.has(token));
 }
 
 test("every money figure on screen is a string the service sent", async ({ page, request }) => {
@@ -87,4 +98,71 @@ test("every money figure on screen is a string the service sent", async ({ page,
 
   const strangers = tokens.map(normalize).filter((token) => !figures.has(token));
   expect(strangers, `figures on screen that the service never sent: ${strangers.join(", ")}`).toEqual([]);
+});
+
+/**
+ * The same invariant on the screens S4 added.
+ *
+ * A new screen that invents a figure — a subtotal it added up, a balance it
+ * interpolated, a percentage it turned back into euros — fails here even if it
+ * got past the linter. That is the point of checking the result as well as the
+ * mechanism (D-MLP-50), and it is why this test walks every new surface rather
+ * than trusting that the rule covered them.
+ */
+test("the scenarios, actuals and plan screens invent no figures either", async ({
+  page,
+  request,
+}) => {
+  const figures = collectServiceFigures(page);
+  const token = await signIn(page, request, `money-s4-${Date.now()}@example.com`);
+  await seedBook(request, token);
+  await seedItems(request, token);
+  await seedFork(request, token, "car", [
+    {
+      op: "add_item",
+      id: "car_loan",
+      name: "Car loan",
+      direction: "out",
+      amount: "-620.00",
+      recurrence: "1m",
+      start: "2026-06-01",
+    },
+  ]);
+
+  // An actual, so the ledger rows, the recorded total and the reconciliation
+  // all have something in them.
+  await scriptModel(request, [
+    {
+      kind: "answer",
+      reply: "Recording that.",
+      intents: [{ op: "add_event", date: "2026-03-09", amount: "-96.00", note: "groceries" }],
+    },
+  ]);
+  await page.goto("/actuals");
+  await expect(page.getByTestId("actuals-screen-recorded-card")).toBeVisible();
+  await page.getByTestId("actuals-screen-ask-input").fill("groceries on the 9th were 96");
+  await page.getByTestId("actuals-screen-ask-send").click();
+  await page.getByTestId("actuals-screen-proposal-card-apply").click();
+  await expect(page.getByTestId("actuals-screen-resolution")).toContainText("APPLIED");
+
+  // Actuals: ledger rows, the correction annotation, the recorded total, the
+  // still-computed rows and the month-end figure.
+  await expect(page.getByTestId("actuals-screen-recorded-total")).toBeVisible();
+  await expect(page.getByTestId("actuals-screen-month-end")).toBeVisible();
+  expect(await strangersOn(page, figures), "on Actuals").toEqual([]);
+
+  // Scenarios: both compare columns, every delta, the diverge label.
+  await page.goto("/scenarios");
+  await expect(page.getByTestId("scenarios-screen-table-card")).toBeVisible();
+  expect(await strangersOn(page, figures), "on Scenarios").toEqual([]);
+
+  // Plan vs actual: the summary strip, every row, every plan and delta stamp —
+  // in both groupings, because the category view is where a subtotal would be
+  // most tempting to add up.
+  await page.goto("/plan");
+  await expect(page.getByTestId("plan-screen-summary-card")).toBeVisible();
+  expect(await strangersOn(page, figures), "on Plan vs actual, by item").toEqual([]);
+  await page.getByTestId("plan-screen-toggle-category").click();
+  await expect(page.getByTestId("plan-screen-toggle-category")).toBeVisible();
+  expect(await strangersOn(page, figures), "on Plan vs actual, by category").toEqual([]);
 });
