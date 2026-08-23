@@ -258,8 +258,10 @@ async def _pipeline(
         )
         return
 
-    # A turn with no changes is an answer, or the model's own question.
-    if declared == "clarification" or (not guarded.reads and not result.reply):
+    # A turn with no changes is an answer, or the model's own question. The
+    # read phase may already have settled it, so its verdict wins: it saw the
+    # engine's figures and this branch did not.
+    if result.kind == "answer" and (declared == "clarification" or not result.reply):
         result.kind = "clarification"
         result.clarification = result.reply or "What would you like to know?"
         result.reply = result.clarification
