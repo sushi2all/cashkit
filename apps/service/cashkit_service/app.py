@@ -17,6 +17,7 @@ from .books import BookRuntime
 from .clock import Clock, SystemClock
 from .config import Settings, get_settings
 from .db import Database
+from .imports.jobs import ImportRegistry
 from .mail import ConsoleMailer, Mailer
 from .middleware import RequestIdMiddleware, ResponseInvariantMiddleware
 from .routers import auth as auth_router
@@ -24,6 +25,7 @@ from .routers import book_edits
 from .routers import book_read
 from .routers import books as books_router
 from .routers import export as export_router
+from .routers import imports as imports_router
 from .routers import scenarios as scenarios_router
 from .routers import me as me_router
 from .routers import turns as turns_router
@@ -51,6 +53,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         yield
+        await app.state.imports.close_all()
         app.state.books.close_all()
         if app.state.transport is not None and app.state.owns_transport:
             await app.state.transport.aclose()
@@ -66,6 +69,11 @@ def create_app(
     app.state.books = book_runtime or BookRuntime(
         settings.books_root, lock_timeout=settings.book_lock_timeout_seconds
     )
+    # In-process, single-node, and deliberate: an import's progress lives with
+    # the task producing it (SPEC §12 is one VM). The registry is cleared on
+    # shutdown, and a job whose process is gone is gone — a half-finished
+    # import applied nothing, so there is nothing to recover.
+    app.state.imports = ImportRegistry()
     # The model transport is optional: without a key the service is the whole
     # deterministic core and `POST /turns` answers 503. Nothing else changes,
     # which is what keeps S1's surface runnable with no model at all.
@@ -93,6 +101,7 @@ def create_app(
     app.include_router(scenarios_router.router)
     app.include_router(turns_router.router)
     app.include_router(export_router.router)
+    app.include_router(imports_router.router)
     return app
 
 

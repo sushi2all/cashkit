@@ -57,7 +57,42 @@ def rendered_prompts() -> dict[str, str]:
         "diagnostic_repair": prompts.diagnostic_repair_message([], snapshot)["content"],
         "json_repair": prompts.json_repair_message("boom")["content"],
         "qa_results": prompts.qa_results_message([])["content"],
+        # The import loop's three prompts, rendered (SPEC §7, S5). They are the
+        # newest surface and therefore the likeliest to leak a reserved verb.
+        "import_plan": _joined(
+            prompts.import_plan_messages(
+                "## sheet Budget\nA1='Salary'",
+                candidates=[{"ref": "Budget!B7", "label": "Total in", "value": "2800"}],
+                headers=["Budget row 3: Jan | Feb"],
+                book_json=snapshot,
+                filename="budget.xlsx",
+            )
+        ),
+        "import_author": _joined(
+            prompts.import_author_messages(
+                "## sheet Budget\nA1='Salary'",
+                section={"name": "Income"},
+                remaining=["Expenses"],
+                already=[],
+                book_json=snapshot,
+                plan_note="a family budget",
+                one_off_style="a one-off is a one-month line",
+            )
+        ),
+        "import_revise": _joined(
+            prompts.import_revise_messages(
+                "## sheet Budget\nA1='Salary'",
+                section={"name": "Income"},
+                operations=[],
+                failures=[],
+                evidence=[],
+            )
+        ),
     }
+
+
+def _joined(messages: list[dict[str, str]]) -> str:
+    return "\n".join(m["content"] for m in messages)
 
 
 @pytest.mark.parametrize("verb", SDK_MUTATION_VERBS)

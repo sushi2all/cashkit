@@ -338,6 +338,21 @@
         "title": "BindingOut",
         "type": "object"
       },
+      "Body_start_import_import_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "description": "An .xlsx workbook.",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_start_import_import_post",
+        "type": "object"
+      },
       "BookCreated": {
         "properties": {
           "active_scenario": {
@@ -534,6 +549,103 @@
           "diagnostics"
         ],
         "title": "BookState",
+        "type": "object"
+      },
+      "CheckResult": {
+        "description": "One row of the reconciliation report (SPEC \u00a76-S14).\n\n``sheet_value`` and ``delta`` are plain decimal strings on purpose. Only\n``engine_value`` is a money figure, because only it is one: the other two\nare a spreadsheet cell and a comparison between the two systems.",
+        "properties": {
+          "basis": {
+            "default": "absolute",
+            "enum": [
+              "absolute",
+              "added"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta"
+          },
+          "engine_value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "measure": {
+            "title": "Measure",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "parity": {
+            "default": false,
+            "title": "Parity",
+            "type": "boolean"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "sheet_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheet Value"
+          },
+          "status": {
+            "enum": [
+              "matched",
+              "mismatched",
+              "skipped"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "label",
+          "measure",
+          "status"
+        ],
+        "title": "CheckResult",
         "type": "object"
       },
       "ComparePeriod": {
@@ -1665,6 +1777,182 @@
         "title": "HistoryResponse",
         "type": "object"
       },
+      "ImportDone": {
+        "description": "The terminal payload: the report, the one card, and what went wrong.\n\nThe figures in the report are dry-run figures for the target scenario, so\nthe envelope's ``what_if`` is stamped \u2014 SPEC \u00a72.4 admits no exception for a\nnumber that came out of an import.",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticOut"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "engine_version": {
+            "default": "1",
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "kind": {
+            "default": "done",
+            "title": "Kind",
+            "type": "string"
+          },
+          "proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProposalOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "report": {
+            "$ref": "#/components/schemas/ReconciliationReport"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "what_if": {
+            "$ref": "#/components/schemas/WhatIf"
+          }
+        },
+        "required": [
+          "as_of",
+          "scenario",
+          "revision",
+          "what_if",
+          "request_id",
+          "job_id",
+          "status",
+          "report"
+        ],
+        "title": "ImportDone",
+        "type": "object"
+      },
+      "ImportStarted": {
+        "description": "The answer to ``POST /import``.\n\nIt carries no computed figure \u2014 the job has not run yet \u2014 so it carries no\nprovenance envelope either. The figures arrive on the stream, stamped.",
+        "properties": {
+          "call_cap": {
+            "title": "Call Cap",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "kind": {
+            "default": "started",
+            "title": "Kind",
+            "type": "string"
+          },
+          "reply": {
+            "default": "",
+            "title": "Reply",
+            "type": "string"
+          },
+          "retry_after_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry After Seconds"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "stream": {
+            "title": "Stream",
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/ImportTarget"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "stream",
+          "target",
+          "call_cap"
+        ],
+        "title": "ImportStarted",
+        "type": "object"
+      },
+      "ImportTarget": {
+        "description": "Where an import lands, and why (SPEC \u00a77.3).",
+        "properties": {
+          "created_fork": {
+            "title": "Created Fork",
+            "type": "boolean"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "scenario": {
+            "title": "Scenario",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scenario",
+          "reason",
+          "created_fork",
+          "message"
+        ],
+        "title": "ImportTarget",
+        "type": "object"
+      },
       "ItemSeries": {
         "description": "One item's columns over the horizon.",
         "properties": {
@@ -2290,6 +2578,96 @@
           "diagnostics"
         ],
         "title": "ReconciliationOut",
+        "type": "object"
+      },
+      "ReconciliationReport": {
+        "description": "The whole report, per sheet row plus the counts (SPEC \u00a76-S14).",
+        "properties": {
+          "call_cap": {
+            "default": 0,
+            "title": "Call Cap",
+            "type": "integer"
+          },
+          "capped": {
+            "default": false,
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/CheckResult"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "created_fork": {
+            "title": "Created Fork",
+            "type": "boolean"
+          },
+          "incomplete_reason": {
+            "default": "",
+            "title": "Incomplete Reason",
+            "type": "string"
+          },
+          "llm_calls": {
+            "default": 0,
+            "title": "Llm Calls",
+            "type": "integer"
+          },
+          "matched": {
+            "default": 0,
+            "title": "Matched",
+            "type": "integer"
+          },
+          "mismatched": {
+            "default": 0,
+            "title": "Mismatched",
+            "type": "integer"
+          },
+          "parity_notes": {
+            "default": 0,
+            "title": "Parity Notes",
+            "type": "integer"
+          },
+          "parity_tolerance": {
+            "default": "0.01",
+            "title": "Parity Tolerance",
+            "type": "string"
+          },
+          "partial": {
+            "default": false,
+            "title": "Partial",
+            "type": "boolean"
+          },
+          "skipped": {
+            "default": 0,
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "source_filename": {
+            "title": "Source Filename",
+            "type": "string"
+          },
+          "target_reason": {
+            "enum": [
+              "empty_book",
+              "non_empty_book"
+            ],
+            "title": "Target Reason",
+            "type": "string"
+          },
+          "target_scenario": {
+            "title": "Target Scenario",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_scenario",
+          "target_reason",
+          "created_fork",
+          "source_filename"
+        ],
+        "title": "ReconciliationReport",
         "type": "object"
       },
       "RecordActual": {
@@ -5044,6 +5422,182 @@
         "summary": "Export Workbook",
         "tags": [
           "export"
+        ]
+      }
+    },
+    "/import": {
+      "post": {
+        "description": "Start an import. It applies nothing; it produces a card and a report.",
+        "operationId": "start_import_import_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_start_import_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Import",
+        "tags": [
+          "import"
+        ]
+      }
+    },
+    "/imports/{job_id}": {
+      "get": {
+        "description": "The terminal payload, for a client that cannot read a stream.\n\nThe stream is the primary surface and it replays, so this adds no\ncapability the stream lacks; what it adds is a plain JSON reading of the\nsame payload for a platform without streaming ``fetch`` (D-MLP-77). It is\na read: it starts nothing and it changes nothing.",
+        "operationId": "read_import_imports__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportDone"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Import",
+        "tags": [
+          "import"
+        ]
+      }
+    },
+    "/imports/{job_id}/stream": {
+      "get": {
+        "description": "Server-sent progress for one import (SPEC \u00a73, \u00a76-S14).\n\nEverything already emitted is replayed before the stream waits, so a\nlistener that arrives late \u2014 or reconnects \u2014 sees the whole run.",
+        "operationId": "stream_import_imports__job_id__stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Progress as it happens: stage, section, and every reconciliation check passing or failing, ending with the `done` event whose data is an ImportDone."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Import",
+        "tags": [
+          "import"
         ]
       }
     },

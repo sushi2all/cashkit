@@ -293,12 +293,228 @@ def verify_messages(
     ]
 
 
+# --- the import loop (SPEC §7, ADR-0030 stage 4) -------------------------- #
+
+IMPORT_PLAN_SYSTEM = """You are reading a spreadsheet budget so a deterministic engine can rebuild it.
+
+You do this in two stages. This is stage one: READ THE SHEET AND PLAN. You author
+nothing yet.
+
+Answer with ONE JSON object and nothing else:
+
+{"reply": "<one sentence: what this sheet is>",
+ "opening_balance": {"cell": "Budget!C2"} | {"amount": "1200.00"} | null,
+ "horizon": {"start": "2026-01-01", "end": "2027-01-01"} | null,
+ "sections": [{"name": "Income", "where": "rows 3-8", "note": "salary plus a 13th month in December"}],
+ "checks": [{"ref": "Budget!B14", "label": "Total income January", "measure": "total_in",
+             "period": "2026-01-01"}]}
+
+- "opening_balance": prefer {"cell": "..."} and name the cell that holds the
+  starting balance — the host reads the number out of the workbook itself. Use
+  {"amount": "..."} only when the figure is stated in prose and not in a cell.
+  Use null when the sheet does not say.
+- "horizon": the first and last month the sheet covers. "end" is EXCLUSIVE, so a
+  sheet running January to December 2026 ends "2027-01-01".
+- "sections": the groups of rows you will author, in order. Three to eight is
+  usual: income, housing, living costs, one-offs. Each is authored on its own
+  turn, so keep them small enough to get right.
+- "checks": THE MOST IMPORTANT FIELD. Every cell where the SHEET does its own
+  arithmetic — a section subtotal, a monthly total, a net row, a running or
+  closing balance. Name the cell and say what it means. You never say what the
+  number is: the host reads the cell and the engine computes its own side, and
+  the two are compared. That comparison is how this import knows it worked.
+  List a check for EVERY month the sheet shows a total or a balance for.
+
+MEASURES — what a check cell means:
+
+  "closing"     the balance at the END of that month, after everything
+  "total_in"    everything coming IN during that month
+  "total_out"   everything going OUT during that month
+  "net"         in minus out for that month
+  "item_total"  one line's own total — add "item": "<the id you will give it>"
+                and either "period": "2026-03-01" or "since"/"until" for a window
+  "items_total" several lines added up — add "items": ["salary", "bonus"]
+
+A closing-balance check is worth more than any other, because it is wrong the
+moment ANY line is wrong. Prefer them, and give one per month where the sheet has one.
+
+The host decides where the import lands. Do not plan a scenario, a fork, or a save.
+"""
+
+IMPORT_AUTHOR_SYSTEM = """You are rebuilding one section of a spreadsheet budget as CashKit intents.
+
+CashKit is a deterministic cash-flow engine. It — not you — computes every number.
+
+Answer with ONE JSON object and nothing else:
+
+{"kind": "answer", "reply": "<one short sentence>", "intents": [ ... ]}
+
+- Author ONLY the section you are given. Later sections come on later turns, and
+  authoring one twice charges it twice.
+- Nothing you emit is applied. It is dry-run, reconciled against the sheet's own
+  totals, and shown to the user as one card to confirm.
+- Do not fork, do not save, do not name a scenario. The host decides where this
+  lands and stamps every operation itself.
+"""
+
+IMPORT_RULES = """READING A HUMAN BUDGET SHEET
+
+- SIGNS. Many sheets write expenses as POSITIVE numbers under a heading like
+  "Expenses". In CashKit an outflow is ALWAYS negative. Read the heading, not the
+  sign: a row of 900 under "Housing" is "direction":"out" with amount "-900.00".
+- ONE-TIME MEANS ONE PERIOD. "once", "annual", "in June", "premium", "13th month"
+  is one dated amount — an add_event, or a line whose start and end are one month
+  apart. An open-ended monthly line charges it EVERY month, which is the single
+  most expensive mistake in this whole task.
+- A YEARLY charge is "recurrence":"1y", not twelve rows and not a monthly amount.
+- A charge every OTHER month is "recurrence":"2m" starting on the first month it
+  appears.
+- A ROW THAT CHANGES PART-WAY THROUGH is ONE line plus set_amount with
+  "from_date" — that keeps the history. It is not two lines.
+- A GAP in the middle of a row (parental leave, a stopped subscription) is the
+  line ending at the gap and a second line starting after it, with a different id.
+- SUBTOTAL, TOTAL, NET and BALANCE rows are the sheet's own arithmetic. NEVER
+  author them as lines: the engine computes them, and authoring them would count
+  the same money twice.
+- BLANK or 0 in a month means no amount that month, not an amount of zero.
+- Give every line a short lower-case id: "salary", "rent", "utilities_gas".
+  Tag it with its section: "tags":{"cat":"housing"}.
+- If a row is something the book cannot express, leave it out and say so in
+  "reply". A wrong line is worse than a missing one; the reconciliation will show
+  the gap and the user will see it.
+"""
+
+IMPORT_REVISE_SYSTEM = """You are fixing a section that did not reconcile.
+
+The operations below were dry-run on a copy of the book. The engine's figures were
+compared against the spreadsheet's OWN total and balance cells, and they disagree.
+
+Answer with ONE JSON object and nothing else:
+
+{"kind": "answer", "reply": "<what was wrong, in one sentence>", "intents": [ ... ]}
+
+- "intents" REPLACES this section's operations entirely. Include everything the
+  section should do, not only the fix.
+- Read the engine's rows for the month that is wrong. They say what the engine
+  actually computed, line by line. Compare them against the sheet.
+- A difference of exactly one month's worth of a line means an "end" date that is
+  wrong: "end" is EXCLUSIVE.
+- A difference of one line's whole amount, repeated every month, means a one-time
+  amount was authored as a repeating line.
+- A difference of twice a line's amount means the line was authored twice, or a
+  subtotal row was authored as a line.
+- A sign that is inverted means an outflow was authored positive.
+- If the sheet's own figure cannot be reproduced by anything the book can express,
+  say so in "reply" and return the operations unchanged. An honest gap beats a
+  number bent to fit.
+"""
+
+
+def import_plan_messages(
+    sheet_text: str,
+    *,
+    candidates: list[dict[str, Any]],
+    headers: list[str],
+    book_json: str,
+    filename: str,
+) -> list[dict[str, str]]:
+    """Stage one: read the sheet, plan the sections, name the check cells."""
+    return [
+        {"role": "system", "content": IMPORT_PLAN_SYSTEM},
+        {
+            "role": "user",
+            "content": (
+                f"File: {filename}\n\n"
+                f"The book this will be built into:\n{book_json}\n\n"
+                f"Cells that look like the sheet's own arithmetic (the host found "
+                f"these; say what each one means, and add any it missed):\n"
+                f"{json.dumps(candidates[:80], default=str)}\n\n"
+                f"Header rows:\n" + "\n".join(headers) + "\n\n"
+                f"Spreadsheet contents:\n{sheet_text}"
+            ),
+        },
+    ]
+
+
+def import_author_messages(
+    sheet_text: str,
+    *,
+    section: dict[str, Any],
+    remaining: list[str],
+    already: list[dict[str, Any]],
+    book_json: str,
+    plan_note: str,
+    one_off_style: str = "",
+) -> list[dict[str, str]]:
+    """Stage two, once per section.
+
+    ``one_off_style`` is the host telling the model how a one-off must be
+    written *here*: an import into a scenario cannot use a ledger event,
+    because the ledger is shared by every scenario (SPEC §7.3). The loop
+    refuses the operation either way; this is so the model does not spend a
+    call being refused.
+    """
+    return [
+        {"role": "system", "content": IMPORT_AUTHOR_SYSTEM + "\n" + CHANGE_GRAMMAR + "\n" + IMPORT_RULES},
+        {
+            "role": "user",
+            "content": (
+                f"The book as it stands:\n{book_json}\n\n"
+                + (f"{one_off_style}\n\n" if one_off_style else "")
+                + (
+                f"What you said about this sheet:\n{plan_note}\n\n"
+                f"Author THIS section only:\n{json.dumps(section, default=str)}\n\n"
+                f"Sections still to come (do not author them now): "
+                f"{', '.join(remaining) or 'none'}\n\n"
+                f"Already authored, for reference — do not repeat any of it:\n"
+                f"{json.dumps(already, default=str)}\n\n"
+                f"Spreadsheet contents:\n{sheet_text}"
+                )
+            ),
+        },
+    ]
+
+
+def import_revise_messages(
+    sheet_text: str,
+    *,
+    section: dict[str, Any],
+    operations: list[dict[str, Any]],
+    failures: list[dict[str, Any]],
+    evidence: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """The investigation round: the mismatch, and the engine's own receipts."""
+    return [
+        {"role": "system", "content": IMPORT_REVISE_SYSTEM + "\n" + CHANGE_GRAMMAR + "\n" + IMPORT_RULES},
+        {
+            "role": "user",
+            "content": (
+                f"Section:\n{json.dumps(section, default=str)}\n\n"
+                f"You emitted:\n{json.dumps(operations, default=str)}\n\n"
+                f"Checks that failed (sheet_value is the spreadsheet's own cell, "
+                f"engine_value is what the engine computed):\n"
+                f"{json.dumps(failures, default=str)}\n\n"
+                f"What the engine says it computed for those months:\n"
+                f"{json.dumps(evidence, default=str)}\n\n"
+                f"Spreadsheet contents:\n{sheet_text}"
+            ),
+        },
+    ]
+
+
 __all__ = [
     "CHANGE_GRAMMAR",
+    "IMPORT_AUTHOR_SYSTEM",
+    "IMPORT_PLAN_SYSTEM",
+    "IMPORT_REVISE_SYSTEM",
+    "IMPORT_RULES",
     "OUTPUT_CONTRACT",
     "READ_GRAMMAR",
     "RULES",
     "diagnostic_repair_message",
+    "import_author_messages",
+    "import_plan_messages",
+    "import_revise_messages",
     "interpret_messages",
     "interpret_system",
     "json_repair_message",

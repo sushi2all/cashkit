@@ -69,8 +69,21 @@ def test_the_engine_never_learns_about_a_model():
 
 
 def test_no_module_outside_the_agent_layer_imports_the_transport():
-    """One door to the provider, and the routers do not open it themselves."""
-    allowed = {"app.py", "routers/turns.py"}
+    """One door to the provider, and the routers do not open it themselves.
+
+    The import pipeline is the second model-calling surface in the service
+    (SPEC §7, ADR-0030 stage 4), so it is on the list — but it goes through the
+    same door: every call it makes is ``agent.transport.complete`` recorded by
+    ``agent.journal``, which is what "one door" means. What is banned is a
+    module building its own provider client.
+    """
+    allowed = {
+        "app.py",
+        "routers/turns.py",
+        "routers/imports.py",
+        "imports/loop.py",
+        "imports/runner.py",
+    }
     offenders = sorted(
         str(path.relative_to(PACKAGE))
         for path in PACKAGE.rglob("*.py")

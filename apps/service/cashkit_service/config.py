@@ -96,6 +96,19 @@ class Settings(BaseSettings):
     #: outrun from inside one turn. A healthy turn makes one to three calls.
     llm_max_calls_per_turn: int = 15
 
+    # --- the import loop (SPEC §7, ADR-0030 stage 4) ---------------------- #
+
+    #: SPEC §7.2: *Cap: 20 model calls, then present partial result honestly.*
+    #: Import is the one free-running loop in the product, and this is what
+    #: bounds it. Every call it makes counts, retries included.
+    import_max_llm_calls: int = 20
+    #: How many times one section may be re-authored after a reconciliation
+    #: mismatch, with the engine's own receipts as the evidence (SPEC §7.2).
+    import_revise_rounds: int = 2
+    #: The largest upload the service will read. A household budget workbook is
+    #: two orders of magnitude smaller.
+    import_max_bytes: int = 8 * 1024 * 1024
+
     # SPEC §8 guardrails, enforced server-side (see agent/budget.py).
     daily_model_budget_usd: Decimal = Decimal("0.50")
     turns_per_hour: int = 30

@@ -88,6 +88,7 @@ def test_the_only_write_routes_are_the_proposal_pipeline(app):
         "/book/scenarios",     # produces a proposal (D-MLP-14)
         "/book/scenarios/{scenario_id}/activate",  # app state, not book content
         "/books",              # creates the book itself
+        "/import",             # produces a proposal — applies nothing (S5)
         "/me",                 # account deletion
         "/proposals/{proposal_id}",  # the one place a change is applied
         "/turns",              # produces a proposal — applies nothing (S2)

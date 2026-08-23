@@ -47,10 +47,28 @@ def test_the_turn_endpoint_is_in_the_contract():
     )
 
 
-def test_the_schema_does_not_promise_what_is_not_built():
-    """``POST /import`` belongs to S5."""
-    paths = set(json.loads(SCHEMA_PATH.read_text())["paths"])
-    assert "/import" not in paths
+def test_the_import_endpoints_are_in_the_contract():
+    """``POST /import`` and its stream are S5's addition (SPEC §3, §7)."""
+    schema = json.loads(SCHEMA_PATH.read_text())
+    paths = set(schema["paths"])
+    assert {"/import", "/imports/{job_id}/stream", "/imports/{job_id}"} <= paths
+
+    started = schema["components"]["schemas"]["ImportStarted"]
+    assert {"job_id", "status", "stream", "target", "call_cap"} <= set(started["properties"])
+
+    done = schema["components"]["schemas"]["ImportDone"]
+    assert {"report", "proposal", "status"} <= set(done["properties"])
+    # SPEC §3 response invariants: the report carries engine figures, so the
+    # terminal payload carries provenance — stamped, per SPEC §2.4.
+    assert {"as_of", "scenario", "revision", "engine_version", "what_if"} <= set(
+        done["properties"]
+    )
+
+    report = schema["components"]["schemas"]["ReconciliationReport"]
+    assert {
+        "target_scenario", "target_reason", "created_fork", "checks",
+        "matched", "mismatched", "skipped", "parity_notes", "capped", "llm_calls",
+    } <= set(report["properties"])
 
 
 def test_money_is_a_named_schema_with_both_forms():
