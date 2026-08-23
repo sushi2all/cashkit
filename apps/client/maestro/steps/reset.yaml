@@ -1,0 +1,6 @@
+appId: io.cashkit.app
+---
+# The harness has to be up before the app launches, or the first request fails
+# and the failure reads like an app bug.
+- runScript:
+    file: ../scripts/check_harness.js

@@ -1,0 +1,118 @@
+# The MLP client's mechanical gates.
+#
+# The PROMPT's definition of done asks for enforcement in CI rather than in
+# review habit: no float arithmetic on money in `apps/client`, no model key in
+# `apps/client`, and `packages/api-types` regenerating clean. All three are
+# here, and all three fail the build rather than warning.
+#
+# Engine tests are not run here and are not this workflow's business
+# (SPEC §10: "engine tests stay untouched; app tests run on the app workspaces
+# only"). Live-model trials are excluded by default and are S6's nightly job.
+name: MLP client
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/client/**"
+      - "apps/service/**"
+      - "packages/**"
+      - "tooling/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/mlp-client.yml"
+  pull_request:
+    paths:
+      - "apps/client/**"
+      - "apps/service/**"
+      - "packages/**"
+      - "tooling/**"
+      - "package.json"
+      - "package-lock.json"
+
+jobs:
+  checks:
+    name: types, lint rules, unit tests, client drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # The drift check needs the schema the service publishes *now*, not the
+      # copy in the tree — otherwise a stale `openapi.json` would let a stale
+      # client pass. The service's own `tests/test_openapi.py` covers the other
+      # half; this republishes so the two halves cannot both be stale.
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages
+      - name: Republish the OpenAPI schema from the service
+        run: uv run python -m cashkit_service.openapi
+      - name: The published schema is committed
+        run: git diff --exit-code apps/service/openapi.json
+
+      - name: The generated client matches the schema
+        run: npm run api:check-drift
+
+      - name: Lint rules do what they claim
+        run: npm run test:lint-rules
+
+      - name: TypeScript, strict
+        run: npm run typecheck
+
+      # `cashkit/no-money-arithmetic` and `cashkit/no-model-access` are errors
+      # in this config, so this step is the enforcement, not a report.
+      - name: ESLint (money and model rules included)
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:unit
+
+  e2e:
+    name: web E2E
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: cashkit
+          POSTGRES_PASSWORD: cashkit
+          POSTGRES_DB: cashkit
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U cashkit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: npm ci
+      - run: uv sync --all-packages
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/client
+      # Exports the web bundle, then runs the specs against the harness, which
+      # Playwright starts itself. No model key is needed anywhere: the provider
+      # is scripted and the guardrail checks run before any model call.
+      - run: npm run e2e:web
+        env:
+          CI: "true"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            apps/client/playwright-report
+            apps/client/e2e/.artifacts
+          retention-days: 7

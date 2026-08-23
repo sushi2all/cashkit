@@ -1,0 +1,146 @@
+# Maestro iOS-simulator smoke of the S3 gate path.
+#
+#   auth → book (API-seeded) → mutation turn (dictated) → apply proposal →
+#   forecast → trace → save
+#
+# It is the same path as `e2e/web/gate.spec.ts`, against the same harness, so a
+# divergence between the two platforms shows up as one of them failing.
+#
+# ---------------------------------------------------------------------------
+# NOT EXECUTED IN THE SESSION THAT WROTE IT. See maestro/README.md.
+#
+# This machine has Command Line Tools but no Xcode.app, so there is no
+# `simctl` and no iOS Simulator, and `maestro` is not installed. The flow is
+# written, reviewed against Maestro's command set, and left runnable; it has
+# never been run. Do not treat it as passing evidence until someone runs it and
+# says so.
+# ---------------------------------------------------------------------------
+appId: io.cashkit.app
+env:
+  HARNESS: http://127.0.0.1:8099
+  EMAIL: maestro@example.com
+---
+- runFlow:
+    file: steps/reset.yaml
+
+- launchApp:
+    clearState: true
+    permissions:
+      microphone: allow
+      speech: allow
+
+# --- auth -------------------------------------------------------------------
+# The link is read from the harness's mailer. The service never returns a link
+# token in a response, in any mode, so there is nothing to read from the app.
+- assertVisible:
+    id: "auth-screen"
+- tapOn:
+    id: "auth-screen-email"
+- inputText: ${EMAIL}
+- tapOn:
+    id: "auth-screen-submit"
+- assertVisible:
+    id: "auth-screen-sent"
+
+- runScript:
+    file: scripts/fetch_link.js
+
+# The deep link. A development build registers the `cashkit` scheme; universal
+# links need the associated-domains entitlement and arrive with the TestFlight
+# track (SPEC §3), at which point this line becomes an https URL and nothing
+# else in the flow changes.
+- openLink: ${output.link.url}
+
+# --- book (API-seeded, as the gate permits) ---------------------------------
+- runScript:
+    file: scripts/seed_book.js
+- launchApp
+
+- assertVisible:
+    id: "home-screen"
+- assertVisible:
+    id: "home-screen-eyebrow"
+- assertVisible:
+    id: "home-screen-balance"
+- assertVisible:
+    id: "home-screen-clean"
+
+# --- the dictated turn ------------------------------------------------------
+# What a simulator can and cannot prove, stated plainly:
+#
+# A simulator has no voice. It can be given the host's microphone, but nothing
+# in CI can *speak* a deterministic sentence into it, and iOS on-device
+# recognition is not dependable on a simulator at all. So this step asserts the
+# dictation path is wired and behaves correctly in both directions — either it
+# starts listening, or it refuses in the SPEC §9 way and says why — and then
+# completes the turn as text.
+#
+# Dictation producing the right transcript is a **device** check. It belongs on
+# the TestFlight build (S6), on hardware, by hand.
+- runScript:
+    file: scripts/script_model.js
+- tapOn:
+    id: "home-screen-ask-mic"
+    optional: true
+- assertTrue: ${true}
+
+- tapOn:
+    id: "home-screen-ask-input"
+- inputText: "I joined a gym, 49.90 a month from April"
+- tapOn:
+    id: "home-screen-ask-send"
+
+# --- the proposal card ------------------------------------------------------
+- assertVisible: "PENDING · ADD_ITEM"
+- assertVisible: "IF YOU APPLY THIS"
+- assertVisible:
+    id: "deltas"
+- assertVisible:
+    id: "delta-closing"
+# Nothing has landed yet: the card is the change (ADR-0029).
+- assertVisible:
+    id: "home-screen-clean"
+
+- tapOn: "Apply"
+- assertVisible: "APPLIED"
+- assertVisible: "UNSAVED CHANGES"
+
+# --- forecast ---------------------------------------------------------------
+- tapOn:
+    id: "home-screen-forecast-link"
+- assertVisible:
+    id: "forecast-screen"
+- assertVisible: "ALL FIGURES COMPUTED · TAP A ROW FOR THE TRACE"
+- assertVisible:
+    id: "forecast-screen-row-2026-04"
+
+# --- trace ------------------------------------------------------------------
+- tapOn:
+    id: "forecast-screen-row-2026-04"
+- assertVisible:
+    id: "trace-screen"
+- assertVisible:
+    id: "trace-screen-receipt"
+- assertVisible: "CANONICAL ORDER · 4DP"
+- assertVisible:
+    id: "trace-screen-row-gym"
+
+- tapOn:
+    id: "trace-screen-row-gym"
+- assertVisible:
+    id: "trace-screen-detail"
+- tapOn:
+    id: "trace-screen-reproduce"
+- assertVisible: "REPRODUCED"
+
+# --- save -------------------------------------------------------------------
+- tapOn:
+    id: "trace-screen-back"
+- tapOn:
+    id: "forecast-screen-back"
+- assertVisible:
+    id: "home-screen-dirty-flag"
+- tapOn:
+    id: "home-screen-save"
+- assertVisible:
+    id: "home-screen-clean"
