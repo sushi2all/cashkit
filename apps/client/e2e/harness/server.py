@@ -35,6 +35,7 @@ import shutil
 import sys
 import tempfile
 import uuid
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +43,7 @@ import httpx
 import sqlalchemy as sa
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -59,6 +60,7 @@ from cashkit_service.db import Database  # noqa: E402
 from cashkit_service.mail import CapturingMailer  # noqa: E402
 from cashkit_service.migrate import apply_migrations  # noqa: E402
 from fake_model import ScriptedTransport  # noqa: E402
+from workbooks import export_like, messy_family_budget  # noqa: E402
 
 #: The same frozen instant the service suites use, so a figure asserted in a
 #: browser test matches a figure asserted in a Python test (D-MLP-12).
@@ -143,6 +145,25 @@ def make_harness(service: FastAPI, ctx: dict[str, Any]) -> FastAPI:
     async def calls() -> dict[str, int]:
         return {"calls": len(transport.calls)}
 
+    @app.get("/__control/workbook")
+    async def workbook(kind: str = "simple") -> Response:
+        """The T16 workbooks, so the browser test uploads the same bytes the
+        service suite imports (`apps/service/tests/workbooks.py`)."""
+        if kind == "messy":
+            data = messy_family_budget()
+        elif kind == "decimals":
+            # Sheet figures with cents in them, so the money invariant has
+            # something money-shaped to look at that is NOT an engine figure.
+            data = export_like(rows=[("Salary", "flow", [Decimal("2617.33")] * 12)])
+        else:
+            data = export_like()
+        return Response(
+            content=data,
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+        )
+
     @app.get("/__control/link")
     async def link(email: str) -> dict[str, str]:
         """The last magic link for an address.
@@ -159,6 +180,8 @@ def make_harness(service: FastAPI, ctx: dict[str, Any]) -> FastAPI:
 
     # --- API forwarding ---------------------------------------------------- #
 
+    EXCLUDED_HEADERS = {"content-length", "transfer-encoding", "connection", "content-encoding"}
+
     @app.api_route(
         "/api/{path:path}",
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -171,6 +194,14 @@ def make_harness(service: FastAPI, ctx: dict[str, Any]) -> FastAPI:
             for k, v in request.headers.items()
             if k.lower() not in {"host", "content-length", "connection"}
         }
+
+        if path.endswith("/stream"):
+            # An import's progress is a stream, and buffering it here would
+            # turn "watch it happen" into "wait, then see everything at once" —
+            # which is the one behaviour the S14 screen exists to have. Caddy
+            # passes SSE through in the deployment (SPEC §12); so does this.
+            return await _forward_stream(request.method, path, body, headers)
+
         upstream = await forwarder.request(
             request.method,
             f"/{path}",
@@ -178,12 +209,36 @@ def make_harness(service: FastAPI, ctx: dict[str, Any]) -> FastAPI:
             headers=headers,
             params=dict(request.query_params),
         )
-        excluded = {"content-length", "transfer-encoding", "connection", "content-encoding"}
         return Response(
             content=upstream.content,
             status_code=upstream.status_code,
-            headers={k: v for k, v in upstream.headers.items() if k.lower() not in excluded},
+            headers={
+                k: v for k, v in upstream.headers.items() if k.lower() not in EXCLUDED_HEADERS
+            },
             media_type=upstream.headers.get("content-type"),
+        )
+
+    async def _forward_stream(
+        method: str, path: str, body: bytes, headers: dict[str, str]
+    ) -> Response:
+        """Pass a server-sent-event stream through frame by frame."""
+        opened = forwarder.stream(
+            method, f"/{path}", content=body or None, headers=headers
+        )
+        upstream = await opened.__aenter__()
+
+        async def frames():
+            try:
+                async for chunk in upstream.aiter_raw():
+                    yield chunk
+            finally:
+                await opened.__aexit__(None, None, None)
+
+        return StreamingResponse(
+            frames(),
+            status_code=upstream.status_code,
+            media_type=upstream.headers.get("content-type", "text/event-stream"),
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
     # --- the exported web app ---------------------------------------------- #

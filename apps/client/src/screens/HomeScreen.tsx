@@ -59,6 +59,7 @@ export function HomeScreen({
   onOpenScenarios,
   onOpenActuals,
   onOpenPlan,
+  onOpenImport,
   onOpenSettings,
   testID = "home-screen",
 }: {
@@ -68,6 +69,7 @@ export function HomeScreen({
   onOpenScenarios?: () => void;
   onOpenActuals?: () => void;
   onOpenPlan?: () => void;
+  onOpenImport?: () => void;
   onOpenSettings?: () => void;
   testID?: string;
 }) {
@@ -319,6 +321,7 @@ export function HomeScreen({
                 ["scenarios", "SCENARIOS", onOpenScenarios],
                 ["actuals", "ACTUALS", onOpenActuals],
                 ["plan", "PLAN VS ACTUAL", onOpenPlan],
+                ["import", "IMPORT / EXPORT", onOpenImport],
                 ["settings", "SETTINGS", onOpenSettings],
               ] as const
             ).map(([key, label, go]) =>

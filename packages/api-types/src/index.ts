@@ -74,6 +74,14 @@ export type Reconciliation = Schemas["ReconciliationOut"];
 export type ReconciliationLine = Schemas["ReconciliationLineOut"];
 export type ValidateResponse = Schemas["ValidateResponse"];
 
+/* --- S14: spreadsheet import and export (SPEC §7, §6-S14) --------------- */
+export type ImportStarted = Schemas["ImportStarted"];
+export type ImportTarget = Schemas["ImportTarget"];
+export type ImportDone = Schemas["ImportDone"];
+export type ReconciliationReport = Schemas["ReconciliationReport"];
+export type ImportCheck = Schemas["CheckResult"];
+export type ImportCheckStatus = ImportCheck["status"];
+
 /* --- S15: settings, history and the account (R12) ----------------------- */
 export type HistoryResponse = Schemas["HistoryResponse"];
 export type Revision = Schemas["RevisionOut"];

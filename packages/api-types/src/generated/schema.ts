@@ -412,6 +412,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Import
+         * @description Start an import. It applies nothing; it produces a card and a report.
+         */
+        post: operations["start_import_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Import
+         * @description The terminal payload, for a client that cannot read a stream.
+         *
+         *     The stream is the primary surface and it replays, so this adds no
+         *     capability the stream lacks; what it adds is a plain JSON reading of the
+         *     same payload for a platform without streaming ``fetch`` (D-MLP-77). It is
+         *     a read: it starts nothing and it changes nothing.
+         */
+        get: operations["read_import_imports__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{job_id}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream Import
+         * @description Server-sent progress for one import (SPEC §3, §6-S14).
+         *
+         *     Everything already emitted is replayed before the stream waits, so a
+         *     listener that arrives late — or reconnects — sees the whole run.
+         */
+        get: operations["stream_import_imports__job_id__stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me": {
         parameters: {
             query?: never;
@@ -655,6 +723,14 @@ export interface components {
             target: string;
             value: components["schemas"]["Money"];
         };
+        /** Body_start_import_import_post */
+        Body_start_import_import_post: {
+            /**
+             * File
+             * @description An .xlsx workbook.
+             */
+            file: string;
+        };
         /** BookCreated */
         BookCreated: {
             /** Active Scenario */
@@ -737,6 +813,50 @@ export interface components {
             summary: components["schemas"]["SummaryOut"];
             warnings: components["schemas"]["Warnings"];
             what_if: components["schemas"]["WhatIf"];
+        };
+        /**
+         * CheckResult
+         * @description One row of the reconciliation report (SPEC §6-S14).
+         *
+         *     ``sheet_value`` and ``delta`` are plain decimal strings on purpose. Only
+         *     ``engine_value`` is a money figure, because only it is one: the other two
+         *     are a spreadsheet cell and a comparison between the two systems.
+         */
+        CheckResult: {
+            /**
+             * Basis
+             * @default absolute
+             * @enum {string}
+             */
+            basis: "absolute" | "added";
+            /** Delta */
+            delta?: string | null;
+            engine_value?: components["schemas"]["Money"] | null;
+            /** Label */
+            label: string;
+            /** Measure */
+            measure: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Parity
+             * @default false
+             */
+            parity: boolean;
+            /** Period */
+            period?: string | null;
+            /** Ref */
+            ref: string;
+            /** Sheet Value */
+            sheet_value?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "matched" | "mismatched" | "skipped";
         };
         /**
          * ComparePeriod
@@ -1186,6 +1306,92 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * ImportDone
+         * @description The terminal payload: the report, the one card, and what went wrong.
+         *
+         *     The figures in the report are dry-run figures for the target scenario, so
+         *     the envelope's ``what_if`` is stamped — SPEC §2.4 admits no exception for a
+         *     number that came out of an import.
+         */
+        ImportDone: {
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+            /** Diagnostics */
+            diagnostics?: components["schemas"]["DiagnosticOut"][];
+            /**
+             * Engine Version
+             * @default 1
+             */
+            engine_version: string;
+            /** Error */
+            error?: string | null;
+            /** Job Id */
+            job_id: string;
+            /**
+             * Kind
+             * @default done
+             */
+            kind: string;
+            proposal?: components["schemas"]["ProposalOut"] | null;
+            report: components["schemas"]["ReconciliationReport"];
+            /** Request Id */
+            request_id: string;
+            /** Revision */
+            revision: string | null;
+            /** Scenario */
+            scenario: string;
+            /** Status */
+            status: string;
+            what_if: components["schemas"]["WhatIf"];
+        };
+        /**
+         * ImportStarted
+         * @description The answer to ``POST /import``.
+         *
+         *     It carries no computed figure — the job has not run yet — so it carries no
+         *     provenance envelope either. The figures arrive on the stream, stamped.
+         */
+        ImportStarted: {
+            /** Call Cap */
+            call_cap: number;
+            /** Job Id */
+            job_id: string;
+            /**
+             * Kind
+             * @default started
+             */
+            kind: string;
+            /**
+             * Reply
+             * @default
+             */
+            reply: string;
+            /** Retry After Seconds */
+            retry_after_seconds?: number | null;
+            /** Status */
+            status: string;
+            /** Stream */
+            stream: string;
+            target: components["schemas"]["ImportTarget"];
+        };
+        /**
+         * ImportTarget
+         * @description Where an import lands, and why (SPEC §7.3).
+         */
+        ImportTarget: {
+            /** Created Fork */
+            created_fork: boolean;
+            /** Message */
+            message: string;
+            /** Reason */
+            reason: string;
+            /** Scenario */
+            scenario: string;
+        };
+        /**
          * ItemSeries
          * @description One item's columns over the horizon.
          */
@@ -1422,6 +1628,75 @@ export interface components {
              * Format: date
              */
             until: string;
+        };
+        /**
+         * ReconciliationReport
+         * @description The whole report, per sheet row plus the counts (SPEC §6-S14).
+         */
+        ReconciliationReport: {
+            /**
+             * Call Cap
+             * @default 0
+             */
+            call_cap: number;
+            /**
+             * Capped
+             * @default false
+             */
+            capped: boolean;
+            /** Checks */
+            checks?: components["schemas"]["CheckResult"][];
+            /** Created Fork */
+            created_fork: boolean;
+            /**
+             * Incomplete Reason
+             * @default
+             */
+            incomplete_reason: string;
+            /**
+             * Llm Calls
+             * @default 0
+             */
+            llm_calls: number;
+            /**
+             * Matched
+             * @default 0
+             */
+            matched: number;
+            /**
+             * Mismatched
+             * @default 0
+             */
+            mismatched: number;
+            /**
+             * Parity Notes
+             * @default 0
+             */
+            parity_notes: number;
+            /**
+             * Parity Tolerance
+             * @default 0.01
+             */
+            parity_tolerance: string;
+            /**
+             * Partial
+             * @default false
+             */
+            partial: boolean;
+            /**
+             * Skipped
+             * @default 0
+             */
+            skipped: number;
+            /** Source Filename */
+            source_filename: string;
+            /**
+             * Target Reason
+             * @enum {string}
+             */
+            target_reason: "empty_book" | "non_empty_book";
+            /** Target Scenario */
+            target_scenario: string;
         };
         /**
          * RecordActual
@@ -2644,6 +2919,107 @@ export interface operations {
                 };
                 content: {
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_import_import_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_start_import_import_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportStarted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_import_imports__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportDone"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_import_imports__job_id__stream_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Progress as it happens: stage, section, and every reconciliation check passing or failing, ending with the `done` event whose data is an ImportDone. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
                 };
             };
             /** @description Validation Error */

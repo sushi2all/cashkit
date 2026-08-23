@@ -45,6 +45,16 @@ export interface EditProposalState {
     options?: { origin?: EditOrigin; scenario?: string; context?: "actuals_record" },
   ) => Promise<ProposalResponse | null>;
   resolve: (action: "accept" | "discard") => Promise<AcceptResponse | null>;
+  /**
+   * Take over a card the service produced somewhere other than `propose()`.
+   *
+   * The import loop raises its proposal from `POST /import` (SPEC §7.4), so
+   * there is no `POST /book/edits` call to return it — but it is the same row
+   * in the same store, and it must be confirmed the same way. `adopt` stores
+   * it and nothing else: `resolve()` still posts to the service and still
+   * renders what came back, so no optimistic path is opened by it.
+   */
+  adopt: (proposal: Proposal) => void;
   reset: () => void;
 }
 
@@ -64,6 +74,13 @@ export function useEditProposal(options?: {
     setResolution(null);
     setClarification(null);
     setError(null);
+  }, []);
+
+  const adopt = useCallback<EditProposalState["adopt"]>((proposal) => {
+    setResolution(null);
+    setClarification(null);
+    setError(null);
+    setPending(proposal);
   }, []);
 
   const propose = useCallback<EditProposalState["propose"]>(async (ops, opts) => {
@@ -118,5 +135,5 @@ export function useEditProposal(options?: {
     [pending, onApplied],
   );
 
-  return { pending, resolution, clarification, error, busy, propose, resolve, reset };
+  return { pending, resolution, clarification, error, busy, propose, resolve, adopt, reset };
 }

@@ -20,6 +20,7 @@ import { color } from "../src/ui/tokens";
 
 function Gate({ children }: { children: React.ReactNode }) {
   const { status } = useSession();
+  const { state, loading, error } = useBook();
   const router = useRouter();
   // `useSegments()` is typed as a tuple of the known route shapes; the gate
   // only cares about the first two path parts, so read them as plain strings.
@@ -39,6 +40,19 @@ function Gate({ children }: { children: React.ReactNode }) {
     if (status === "signed-out" && !inAuthRoute) router.replace("/auth");
     if (status === "signed-in" && inAuthRoute && parts[1] !== "verify") router.replace("/");
   }, [status, path, router]);
+
+  // A signed-in account with no book has one screen to be on: the first-book
+  // wizard (SPEC §6-S13). `BookProvider` reports a 404 as `state === null` with
+  // no error, because "this account has no book yet" is a state and not a
+  // failure — so that is exactly the condition to route on. The wizard itself
+  // is excluded, or it would redirect to itself forever.
+  React.useEffect(() => {
+    if (status !== "signed-in" || loading || error) return;
+    const first = path.split("/")[0];
+    if (state === null && first !== "onboarding" && first !== "auth") {
+      router.replace("/onboarding");
+    }
+  }, [status, loading, error, state, path, router]);
 
   if (status === "loading") return <LoadingState label="Signing you in…" />;
   return <>{children}</>;

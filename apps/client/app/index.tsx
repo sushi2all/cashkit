@@ -18,6 +18,7 @@ export default function HomeRoute() {
       onOpenScenarios={() => router.push("/scenarios")}
       onOpenActuals={() => router.push("/actuals")}
       onOpenPlan={() => router.push("/plan")}
+      onOpenImport={() => router.push("/import")}
       onOpenSettings={() => router.push("/settings")}
     />
   );

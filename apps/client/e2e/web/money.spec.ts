@@ -27,11 +27,40 @@ function collectServiceFigures(page: Page): Set<string> {
         seen.add(record.exact);
         seen.add(record.display);
       }
+      // The reconciliation report carries two figures that are NOT engine
+      // money and are deliberately not shaped like it: `sheet_value` is a
+      // spreadsheet cell, verbatim, and `delta` is the comparison between the
+      // two systems (D-MLP-78). They are still strings the service sent, and
+      // the screen renders them unchanged, so they belong in the allow-list —
+      // named, and only these two.
+      for (const field of ["sheet_value", "delta"] as const) {
+        const value = record[field];
+        if (typeof value === "string") seen.add(value);
+      }
       Object.values(record).forEach(walk);
     }
   };
   page.on("response", (response) => {
     if (!response.url().includes("/api/")) return;
+    const type = response.headers()["content-type"] ?? "";
+    if (type.includes("text/event-stream")) {
+      // An import's figures arrive as server-sent events, so `response.json()`
+      // would drop the entire reconciliation report out of this check.
+      void response
+        .text()
+        .then((body) => {
+          for (const line of body.split("\n")) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              walk(JSON.parse(line.slice(6)));
+            } catch {
+              /* a partial frame is not a payload */
+            }
+          }
+        })
+        .catch(() => undefined);
+      return;
+    }
     void response
       .json()
       .then(walk)
@@ -202,4 +231,87 @@ test("the item, event and settings screens invent no figures either", async ({ p
   await page.goto("/settings");
   await expect(page.getByTestId("settings-screen-about-card")).toBeVisible();
   expect(await strangersOn(page, figures), "on Settings").toEqual([]);
+});
+
+
+/**
+ * The import and onboarding surfaces, held to the same rule.
+ *
+ * The reconciliation report is the most tempting place in the whole app to
+ * invent a figure: it puts two systems' numbers side by side and shows the
+ * difference between them. Every one of those three is the service's own.
+ */
+test("the import and onboarding screens invent no figures either", async ({ page, request }) => {
+  const figures = collectServiceFigures(page);
+  await signIn(page, request, `money-s5-${Date.now()}@example.com`);
+
+  // Onboarding, end to end: the card's deltas block is the figure-heavy part.
+  await scriptModel(request, [
+    {
+      kind: "answer",
+      reply: "A salary and a rent.",
+      intents: [
+        {
+          op: "add_item",
+          id: "salary",
+          name: "Salary",
+          direction: "in",
+          amount: "2617.33",
+          recurrence: "1m",
+          start: "2026-01-01",
+        },
+      ],
+    },
+  ]);
+  await page.goto("/onboarding");
+  await page.getByTestId("onboarding-screen-opening").fill("2500.00");
+  await page.getByTestId("onboarding-screen-create").click();
+  await page.getByTestId("onboarding-screen-text").fill("I earn 2617.33 a month");
+  await page.getByTestId("onboarding-screen-send").click();
+  await expect(page.getByTestId("onboarding-screen-proposal-card")).toBeVisible({
+    timeout: 20_000,
+  });
+  expect(await strangersOn(page, figures), "on Onboarding").toEqual([]);
+  await page.getByTestId("onboarding-screen-proposal-card-apply").click();
+  await expect(page.getByTestId("onboarding-screen-done-card")).toBeVisible({ timeout: 20_000 });
+
+  // Import: a run that deliberately does NOT reconcile, so the report shows a
+  // sheet figure, an engine figure and a delta on the same row.
+  const wrong = {
+    op: "add_item",
+    id: "salary_sheet",
+    direction: "in",
+    amount: "1500.00",
+    recurrence: "1m",
+    start: "2026-01-01",
+  };
+  await scriptModel(request, [
+    {
+      reply: "One income line.",
+      opening_balance: null,
+      horizon: null,
+      sections: [{ name: "Income" }],
+      // The onboarding half above put a plan in this book, so this import
+      // lands in a fork and a balance row is not comparable there (D-MLP-76).
+      // A monthly total is, and it is what puts a sheet figure, an engine
+      // figure and a delta on one row — which is the whole point here.
+      checks: [
+        { ref: "Budget!C3", label: "Salary January", measure: "total_in", period: "2026-01-01" },
+      ],
+    },
+    { kind: "answer", reply: "Authored.", intents: [wrong] },
+    { kind: "answer", reply: "Authored.", intents: [wrong] },
+    { kind: "answer", reply: "Authored.", intents: [wrong] },
+  ]);
+
+  const sheet = await request.get("/__control/workbook?kind=decimals");
+  await page.goto("/import");
+  await page.locator('input[data-testid="import-file-input"]').setInputFiles({
+    name: "budget.xlsx",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from(await sheet.body()),
+  });
+  await expect(page.getByTestId("import-screen-report")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("import-screen-report-check-0-delta")).toBeVisible();
+  expect(await strangersOn(page, figures), "on Import").toEqual([]);
 });
