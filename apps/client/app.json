@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "CashKit",
+    "slug": "cashkit",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "cashkit",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "io.cashkit.app",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "CashKit uses the microphone so you can dictate what changed instead of typing it.",
+        "NSSpeechRecognitionUsageDescription": "CashKit turns your dictation into text on this device, so you can describe your money in your own words."
+      }
+    },
+    "android": {
+      "package": "io.cashkit.app",
+      "permissions": ["android.permission.RECORD_AUDIO"]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "CashKit uses the microphone so you can dictate what changed instead of typing it.",
+          "speechRecognitionPermission": "CashKit turns your dictation into text on this device, so you can describe your money in your own words."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

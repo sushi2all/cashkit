@@ -1,0 +1,11 @@
+{
+  "name": "eslint-plugin-cashkit",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Mechanical enforcement of two client invariants: the client never computes a money number, and the client holds no model key.",
+  "type": "commonjs",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}

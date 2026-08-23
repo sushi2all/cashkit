@@ -20,3 +20,13 @@ proto/usage_log.jsonl
 
 # Service test artifacts
 apps/service/.pytest_cache/
+
+# --- MLP client workspaces (S3) ------------------------------------------- #
+node_modules/
+.expo/
+apps/client/dist/
+apps/client/.expo/
+apps/client/expo-env.d.ts
+apps/client/playwright-report/
+apps/client/test-results/
+apps/client/e2e/.artifacts/

@@ -1,0 +1,19 @@
+{
+  "name": "@cashkit/api-types",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The TypeScript API client, generated from apps/service/openapi.json. Never hand-edited: src/generated/ is build output and the drift check fails the build if it stops matching the service's published schema.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "check-drift": "node scripts/generate.mjs --check"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.15.1"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0"
+  }
+}

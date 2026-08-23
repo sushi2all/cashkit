@@ -109,3 +109,49 @@ async def test_no_session_is_401(client):
     assert (await client.get("/me")).status_code == 401
     client.headers["Authorization"] = "Bearer nonsense"
     assert (await client.get("/me")).status_code == 401
+
+
+# --- deep-link shapes (SPEC §3; the constant S1 flagged for S3/S6) --------- #
+
+
+async def test_the_web_link_points_at_the_configured_web_app(client, mailer, settings):
+    """The browser gets a plain HTTPS URL at the web app's own origin.
+
+    The web app and the service are different hosts everywhere past
+    development, so the link cannot be built from the request's own host.
+    """
+    await client.post("/auth/link", json={"email": "web@example.com", "platform": "web"})
+    link = mailer.last_for("web@example.com")
+    assert link.url.startswith(settings.web_app_url.rstrip("/") + settings.verify_path)
+    assert f"token={link.token}" in link.url
+
+
+async def test_the_mobile_link_uses_the_custom_scheme(client, mailer, settings):
+    """A development build is reached through its scheme.
+
+    Universal links need the associated-domains entitlement and therefore the
+    paid Apple enrolment, so they arrive with the TestFlight track (SPEC §3).
+    """
+    await client.post("/auth/link", json={"email": "app@example.com", "platform": "mobile"})
+    link = mailer.last_for("app@example.com")
+    assert link.url.startswith(f"{settings.mobile_scheme}://auth/verify?token=")
+    assert link.token in link.url
+
+
+async def test_both_link_shapes_land_on_the_same_route(client, mailer, settings):
+    """One `verify_path`, so the client route and the mailed link cannot drift."""
+    await client.post("/auth/link", json={"email": "both@example.com", "platform": "web"})
+    web = mailer.last_for("both@example.com")
+    await client.post("/auth/link", json={"email": "both@example.com", "platform": "mobile"})
+    mobile = mailer.last_for("both@example.com")
+    assert settings.verify_path.lstrip("/") in web.url
+    assert settings.verify_path.lstrip("/") in mobile.url
+
+
+async def test_no_link_url_is_hard_coded_in_the_router():
+    """The host is configuration. A literal here would defeat the point."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "cashkit_service" / "routers" / "auth.py").read_text()
+    assert "app.cashkit.io" not in source
+    assert "cashkit://" not in source

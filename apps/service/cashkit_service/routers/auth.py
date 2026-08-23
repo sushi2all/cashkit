@@ -8,6 +8,7 @@ from fastapi import APIRouter, Response, status
 from pydantic import BaseModel, EmailStr, Field
 
 from ..auth import consume_link_token, issue_link_token, normalize_email, open_session
+from ..config import Settings
 from ..deps import ClockDep, ConnDep, MailerDep, SettingsDep
 from ..mail import MagicLink
 
@@ -33,9 +34,19 @@ class Session(BaseModel):
     platform: Literal["web", "mobile"]
 
 
-def _link_url(token: str, platform: str) -> str:
-    scheme = "cashkit://auth/verify" if platform == "mobile" else "https://app.cashkit.io/auth/verify"
-    return f"{scheme}?token={token}"
+def _link_url(token: str, platform: str, settings: Settings) -> str:
+    """Where the mailed link points.
+
+    Both shapes land on the same route in the client's router, so the token
+    travels the same way whichever platform asked for it. Neither host is
+    hard-coded any more: the web origin and the mobile scheme are
+    configuration, because they differ per environment and the development
+    build's scheme is not the production app's (S1 handoff §5, SPEC §3).
+    """
+    path = settings.verify_path
+    if platform == "mobile":
+        return f"{settings.mobile_scheme}://{path.lstrip('/')}?token={token}"
+    return f"{settings.web_app_url.rstrip('/')}{path}?token={token}"
 
 
 @router.post("/auth/link", status_code=status.HTTP_202_ACCEPTED)
@@ -50,7 +61,7 @@ async def request_link(
     email = normalize_email(str(body.email))
     token = await issue_link_token(conn, email=email, clock=clock, settings=settings)
     await mailer.send_magic_link(
-        MagicLink(email=email, token=token, url=_link_url(token, body.platform))
+        MagicLink(email=email, token=token, url=_link_url(token, body.platform, settings))
     )
     return Response(status_code=status.HTTP_202_ACCEPTED)
 

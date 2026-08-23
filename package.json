@@ -1,0 +1,24 @@
+{
+  "name": "cashkit-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "CashKit MLP consumer client workspaces. The engine and the service live outside npm; this root exists so the Expo app, the generated API client and the lint plugin resolve each other.",
+  "workspaces": [
+    "packages/api-types",
+    "tooling/eslint-plugin-cashkit",
+    "apps/client"
+  ],
+  "scripts": {
+    "api:generate": "npm run generate --workspace @cashkit/api-types",
+    "api:check-drift": "npm run check-drift --workspace @cashkit/api-types",
+    "lint": "npm run lint --workspace @cashkit/client",
+    "typecheck": "npm run typecheck --workspace @cashkit/client",
+    "test:unit": "npm run test:unit --workspace @cashkit/client",
+    "e2e:web": "npm run e2e:web --workspace @cashkit/client",
+    "verify": "npm run api:check-drift && npm run typecheck && npm run test:lint-rules && npm run lint && npm run test:unit",
+    "test:lint-rules": "npm test --workspace eslint-plugin-cashkit"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

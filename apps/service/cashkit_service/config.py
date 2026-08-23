@@ -51,6 +51,23 @@ class Settings(BaseSettings):
 
     default_currency: str = Field(default="EUR", frozen=True)
 
+    # --- magic-link deep links (SPEC §3) ---------------------------------- #
+
+    #: Where the web app serves the verify route. The link a browser receives
+    #: is an ordinary HTTPS URL throughout (SPEC §3), so this is the web app's
+    #: origin, not the service's — they are different hosts in every
+    #: environment past development.
+    web_app_url: str = "http://localhost:8081"
+    #: The custom URL scheme a development build registers. Universal links
+    #: need the associated-domains entitlement and therefore the paid Apple
+    #: enrolment, so they arrive with the TestFlight track (SPEC §3); until
+    #: then a development build is reached through its own scheme. Matches
+    #: `expo.scheme` in `apps/client/app.json`.
+    mobile_scheme: str = "cashkit"
+    #: The path both link shapes land on. One constant, so the client route and
+    #: the mailed link cannot drift apart.
+    verify_path: str = "/auth/verify"
+
     # --- agent layer (SPEC §2.3, §8) -------------------------------------- #
 
     #: The pinned model. ADR-0028: every turn runs flash-class, and there is no

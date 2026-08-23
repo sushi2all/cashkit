@@ -1,0 +1,46 @@
+{
+  "name": "@cashkit/client",
+  "version": "0.0.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "description": "The CashKit MLP consumer app. One Expo codebase: iOS and Android natively, and the web app through react-native-web (SPEC §2.1).",
+  "scripts": {
+    "start": "expo start",
+    "web": "expo start --web",
+    "ios": "expo run:ios",
+    "export:web": "expo export --platform web --output-dir dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test:unit": "vitest run",
+    "e2e:web": "playwright test -c e2e/playwright.config.ts"
+  },
+  "dependencies": {
+    "@cashkit/api-types": "*",
+    "expo": "~57.0.0",
+    "expo-constants": "~57.0.13",
+    "expo-linking": "~57.0.7",
+    "expo-router": "~57.0.15",
+    "expo-secure-store": "~57.0.1",
+    "expo-speech-recognition": "^56.0.1",
+    "expo-status-bar": "~57.0.1",
+    "expo-web-browser": "~57.0.2",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.2",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-svg": "15.15.4",
+    "react-native-web": "^0.21.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.62.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.18",
+    "eslint": "^9.39.5",
+    "eslint-plugin-cashkit": "*",
+    "jsdom": "^30.0.1",
+    "typescript": "~5.9.0",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^3.2.7"
+  }
+}
