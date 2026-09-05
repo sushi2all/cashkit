@@ -57,7 +57,7 @@ class TestPhase7Gate:
     def test_unchanged_set_item_records_nothing(self, kit: ScenarioSet) -> None:
         """An agent that writes an item and changes nothing is told so."""
         kit.fork("base", "downside")
-        unchanged = kit.resolve("downside").items["acme"]
+        unchanged = kit.resolve("downside").book.items["acme"]
 
         report = kit.set_item("downside", unchanged)
 
@@ -68,17 +68,17 @@ class TestPhase7Gate:
         # "writes nothing" is a statement about the store, not only the report.
         assert kit.scenarios["downside"] == Scenario(id="downside", parent="base")
         assert kit.scenarios["downside"].items == {}
-        assert kit.resolve("downside") == kit.resolve("base")
+        assert kit.resolve("downside").book == kit.resolve("base").book
 
     def test_unchanged_rewrite_of_an_existing_override_records_nothing(
         self, kit: ScenarioSet
     ) -> None:
         """The same, one level down: rewriting an override with its own value."""
         kit.fork("base", "downside")
-        kit.set_item("downside", retagged(kit.resolve("base").items["acme"], tier="a"))
+        kit.set_item("downside", retagged(kit.resolve("base").book.items["acme"], tier="a"))
         before = kit.scenarios["downside"]
 
-        report = kit.set_item("downside", kit.resolve("downside").items["acme"])
+        report = kit.set_item("downside", kit.resolve("downside").book.items["acme"])
 
         assert report.empty
         assert codes(report) == ["CK-I002"]
@@ -89,9 +89,9 @@ class TestPhase7Gate:
         kit.fork("base", "mid")
         kit.fork("mid", "leaf")
 
-        base_acme = kit.resolve("base").items["acme"]
+        base_acme = kit.resolve("base").book.items["acme"]
         kit.set_item("mid", retagged(base_acme, tier="silver"))
-        mid_acme = kit.resolve("mid").items["acme"]
+        mid_acme = kit.resolve("mid").book.items["acme"]
         kit.set_item(
             "leaf",
             mid_acme.model_copy(
@@ -104,7 +104,7 @@ class TestPhase7Gate:
             ),
         )
 
-        leaf = kit.resolve("leaf").items["acme"]
+        leaf = kit.resolve("leaf").book.items["acme"]
         # leaf's own records win
         assert leaf.name == "Acme maintenance (renegotiated)"
         assert leaf.settlement is not None
@@ -129,7 +129,7 @@ class TestPhase7Gate:
         kit.fork("base", "keeps_tags")
         kit.fork("base", "owns_tags")
 
-        base_acme = kit.resolve("base").items["acme"]
+        base_acme = kit.resolve("base").book.items["acme"]
         # `keeps_tags` overrides a *different* field, so it must still track base.
         kit.set_item("keeps_tags", base_acme.model_copy(update={"name": "Acme (EU)"}))
         # `owns_tags` overrides tags, so it must not.
@@ -139,9 +139,9 @@ class TestPhase7Gate:
         correction = kit.set_item("base", corrected)
 
         assert correction.changed == ("tags",)
-        assert kit.resolve("keeps_tags").items["acme"].tags["customer"] == "acme_srl"
-        assert kit.resolve("keeps_tags").items["acme"].name == "Acme (EU)"
-        assert kit.resolve("owns_tags").items["acme"].tags["customer"] == "acme_spa"
+        assert kit.resolve("keeps_tags").book.items["acme"].tags["customer"] == "acme_srl"
+        assert kit.resolve("keeps_tags").book.items["acme"].name == "Acme (EU)"
+        assert kit.resolve("owns_tags").book.items["acme"].tags["customer"] == "acme_spa"
 
     def test_base_correction_in_the_authored_book_propagates_the_same_way(
         self, kit: ScenarioSet
@@ -163,8 +163,8 @@ class TestPhase7Gate:
             }
         )
 
-        assert kit.resolve("keeps_tags").items["acme"].tags["customer"] == "acme_srl"
-        assert kit.resolve("owns_tags").items["acme"].tags["customer"] == "acme_spa"
+        assert kit.resolve("keeps_tags").book.items["acme"].tags["customer"] == "acme_srl"
+        assert kit.resolve("owns_tags").book.items["acme"].tags["customer"] == "acme_spa"
 
     def test_identical_state_by_different_routes_diffs_empty(
         self, kit: ScenarioSet
@@ -177,7 +177,7 @@ class TestPhase7Gate:
         )
         kit.fork("base", "route_b")
 
-        base_acme = kit.resolve("base").items["acme"]
+        base_acme = kit.resolve("base").book.items["acme"]
         target = base_acme.model_copy(
             update={
                 "tags": {**base_acme.tags, "tier": "gold"},
@@ -195,7 +195,7 @@ class TestPhase7Gate:
         assert kit.scenarios["route_a"].items != kit.scenarios["route_b"].items
         diff = kit.diff("route_a_child", "route_b")
         assert diff.empty, diff
-        assert kit.resolve("route_a_child") == kit.resolve("route_b")
+        assert kit.resolve("route_a_child").book == kit.resolve("route_b").book
         # and the diff is not vacuously empty
         assert not kit.diff("base", "route_b").empty
 
@@ -207,18 +207,18 @@ class TestPhase7Gate:
 
 class TestResolution:
     def test_base_resolves_to_the_authored_book(self, kit: ScenarioSet) -> None:
-        assert kit.resolve("base") == kit.book
-        assert kit.diagnostics("base") == ()
+        assert kit.resolve("base").book == kit.book
+        assert kit.resolve("base").diagnostics == ()
 
     def test_no_code_path_branches_on_base(self, kit: ScenarioSet) -> None:
         """A scenario named anything else, with parent=None, behaves identically."""
         kit.scenarios["origin"] = Scenario(id="origin")
-        assert kit.resolve("origin") == kit.resolve("base")
+        assert kit.resolve("origin").book == kit.resolve("base").book
         assert kit.ancestry("origin") == ("origin",)
 
     def test_segments_are_atomic(self, kit: ScenarioSet) -> None:
         """Touch one segment, replace the list — no positional patching."""
-        acme = kit.resolve("base").items["acme"]
+        acme = kit.resolve("base").book.items["acme"]
         kit.fork("base", "shorter")
         trimmed = acme.model_copy(update={"segments": [acme.segments[0]]})
 
@@ -228,10 +228,10 @@ class TestResolution:
         overlay = kit.scenarios["shorter"].items["acme"]
         assert overlay.recorded_fields() == frozenset({"segments"})
         assert overlay.segments == [acme.segments[0]]
-        assert kit.resolve("shorter").items["acme"].segments == [acme.segments[0]]
+        assert kit.resolve("shorter").book.items["acme"].segments == [acme.segments[0]]
 
     def test_changing_one_segment_records_the_whole_list(self, kit: ScenarioSet) -> None:
-        acme = kit.resolve("base").items["acme"]
+        acme = kit.resolve("base").book.items["acme"]
         kit.fork("base", "cheaper")
         first = acme.segments[0].model_copy(
             update={"amount": Amount(constant=Decimal("9000.0000"))}
@@ -245,7 +245,7 @@ class TestResolution:
     def test_recorded_none_clears_a_parent_value(self, kit: ScenarioSet) -> None:
         """`settlement=None` is a real state, distinct from not recording it."""
         kit.fork("base", "accrual_only")
-        acme = kit.resolve("base").items["acme"]
+        acme = kit.resolve("base").book.items["acme"]
 
         report = kit.set_item("accrual_only", acme.model_copy(update={"settlement": None}))
 
@@ -253,7 +253,7 @@ class TestResolution:
         overlay = kit.scenarios["accrual_only"].items["acme"]
         assert overlay.recorded_fields() == frozenset({"settlement"})
         assert overlay.settlement is None
-        assert kit.resolve("accrual_only").items["acme"].settlement is None
+        assert kit.resolve("accrual_only").book.items["acme"].settlement is None
 
     def test_added_item_is_a_full_item(self, kit: ScenarioSet) -> None:
         kit.fork("base", "expansion")
@@ -271,8 +271,8 @@ class TestResolution:
 
         assert report.created == ("paris",)
         assert kit.scenarios["expansion"].added["paris"] == new
-        assert "paris" in kit.resolve("expansion").items
-        assert "paris" not in kit.resolve("base").items
+        assert "paris" in kit.resolve("expansion").book.items
+        assert "paris" not in kit.resolve("base").book.items
 
     def test_removed_item_disappears_down_the_chain(self, kit: ScenarioSet) -> None:
         kit.fork("base", "lean")
@@ -281,13 +281,13 @@ class TestResolution:
         report = kit.remove_item("lean", "rent")
 
         assert report.changed == ("removed",)
-        assert "rent" not in kit.resolve("lean").items
-        assert "rent" not in kit.resolve("leaner").items
-        assert "rent" in kit.resolve("base").items
+        assert "rent" not in kit.resolve("lean").book.items
+        assert "rent" not in kit.resolve("leaner").book.items
+        assert "rent" in kit.resolve("base").book.items
 
     def test_a_descendant_can_reinstate_a_removed_item(self, kit: ScenarioSet) -> None:
         """The case D-P1-13 deferred to Phase 7."""
-        rent = kit.resolve("base").items["rent"]
+        rent = kit.resolve("base").book.items["rent"]
         kit.fork("base", "lean")
         kit.fork("lean", "restored")
         kit.remove_item("lean", "rent")
@@ -295,20 +295,20 @@ class TestResolution:
         report = kit.set_item("restored", rent)
 
         assert report.created == ("rent",)
-        assert kit.resolve("restored").items["rent"] == rent
-        assert "rent" not in kit.resolve("lean").items
+        assert kit.resolve("restored").book.items["rent"] == rent
+        assert "rent" not in kit.resolve("lean").book.items
 
     def test_re_adding_in_the_same_scenario_wins_over_its_own_removal(
         self, kit: ScenarioSet
     ) -> None:
-        rent = kit.resolve("base").items["rent"]
+        rent = kit.resolve("base").book.items["rent"]
         kit.fork("base", "swap")
         kit.remove_item("swap", "rent")
         replacement = rent.model_copy(update={"name": "Office rent (new lease)"})
 
         kit.set_item("swap", replacement)
 
-        assert kit.resolve("swap").items["rent"].name == "Office rent (new lease)"
+        assert kit.resolve("swap").book.items["rent"].name == "Office rent (new lease)"
         assert "rent" not in kit.scenarios["swap"].removed
 
     def test_removing_an_item_this_scenario_added_just_drops_it(
@@ -326,13 +326,13 @@ class TestResolution:
 
     def test_unset_reverts_to_the_parent(self, kit: ScenarioSet) -> None:
         kit.fork("base", "downside")
-        base_acme = kit.resolve("base").items["acme"]
+        base_acme = kit.resolve("base").book.items["acme"]
         kit.set_item("downside", retagged(base_acme, tier="bronze"))
 
         report = kit.unset("downside", "acme")
 
         assert report.changed == ("tags",)
-        assert kit.resolve("downside").items["acme"] == base_acme
+        assert kit.resolve("downside").book.items["acme"] == base_acme
         assert "acme" not in kit.scenarios["downside"].items
 
     def test_unset_of_an_untouched_item_records_nothing(self, kit: ScenarioSet) -> None:
@@ -345,7 +345,7 @@ class TestResolution:
         kit.scenarios["broken"] = Scenario(
             id="broken", parent="base", items={"ghost": ItemOverlay(name="Ghost")}
         )
-        resolution = kit.resolution("broken")
+        resolution = kit.resolve("broken")
         assert [d.code for d in resolution.diagnostics] == ["CK-E023"]
         assert "ghost" not in resolution.book.items
 
@@ -358,18 +358,18 @@ class TestResolution:
             items={"rent": ItemOverlay(name="Rent")},
             removed={"rent"},
         )
-        assert [d.code for d in kit.diagnostics("contradictory")] == ["CK-E023"]
+        assert [d.code for d in kit.resolve("contradictory").diagnostics] == ["CK-E023"]
 
     def test_unknown_parent_is_a_diagnostic_not_a_crash(self, kit: ScenarioSet) -> None:
         kit.scenarios["orphan"] = Scenario(id="orphan", parent="nowhere")
-        resolution = kit.resolution("orphan")
+        resolution = kit.resolve("orphan")
         assert [d.code for d in resolution.diagnostics] == ["CK-E021"]
         assert resolution.book.items == kit.book.items
 
     def test_a_cyclic_chain_is_a_diagnostic_not_a_hang(self, kit: ScenarioSet) -> None:
         kit.scenarios["a"] = Scenario(id="a", parent="b")
         kit.scenarios["b"] = Scenario(id="b", parent="a")
-        resolution = kit.resolution("a")
+        resolution = kit.resolve("a")
         assert [d.code for d in resolution.diagnostics] == ["CK-E021"]
 
     def test_unknown_scenario_on_every_write(self, kit: ScenarioSet) -> None:
@@ -417,7 +417,7 @@ class TestParams:
         assert same.empty and codes(same) == ["CK-I002"]
         assert different.changed == ("params.churn",)
         assert kit.scenarios["downside"].params == {"churn": Decimal("0.25")}
-        assert kit.resolve("downside").params["churn"] == Decimal("0.25")
+        assert kit.resolve("downside").book.params["churn"] == Decimal("0.25")
 
     def test_setting_a_param_back_to_the_parent_value_drops_the_record(
         self, kit: ScenarioSet
@@ -429,7 +429,7 @@ class TestParams:
 
         assert report.changed == ("params.churn",)
         assert kit.scenarios["downside"].params == {}
-        assert kit.resolve("downside").params["churn"] == Decimal("0.10")
+        assert kit.resolve("downside").book.params["churn"] == Decimal("0.10")
 
     def test_opening_balance_is_the_reserved_key(self, kit: ScenarioSet) -> None:
         kit.fork("base", "raise_round")
@@ -437,17 +437,17 @@ class TestParams:
         report = kit.set_param("raise_round", "opening_balance", Decimal("2500000.0000"))
 
         assert report.changed == ("params.opening_balance",)
-        resolved = kit.resolve("raise_round")
+        resolved = kit.resolve("raise_round").book
         assert resolved.opening_balance == Decimal("2500000.0000")
         assert resolved.params["opening_balance"] == Decimal("2500000.0000")
-        assert kit.resolve("base").opening_balance == Decimal("100000.0000")
+        assert kit.resolve("base").book.opening_balance == Decimal("100000.0000")
 
     def test_opening_balance_override_reaches_the_engine(self, kit: ScenarioSet) -> None:
         kit.fork("base", "raise_round")
         kit.set_param("raise_round", "opening_balance", Decimal("2500000.0000"))
 
-        base = vectorized_run(kit.resolve("base"))
-        raised = vectorized_run(kit.resolve("raise_round"))
+        base = vectorized_run(kit.resolve("base").book)
+        raised = vectorized_run(kit.resolve("raise_round").book)
 
         assert raised.value("cash", "accrual", 0) - base.value("cash", "accrual", 0) == (
             Decimal("2400000.0000")
@@ -465,7 +465,7 @@ class TestParams:
         kit.scenarios["hand"] = Scenario(
             id="hand", parent="base", params={"opening_balance": Decimal("1.000005")}
         )
-        resolution = kit.resolution("hand")
+        resolution = kit.resolve("hand")
         assert [d.code for d in resolution.diagnostics] == ["CK-E024"]
         assert resolution.book.opening_balance == Decimal("100000.0000")
 
@@ -498,7 +498,7 @@ class TestMacros:
             "recut",
             Item(id="paris", name="Paris", kind="flow", tags={"cat": "opex"}, segments=[]),
         )
-        assert kit.resolve("recut").items["paris"].tags == {"cat": "opex"}
+        assert kit.resolve("recut").book.items["paris"].tags == {"cat": "opex"}
 
     def test_post_macro_state_is_indistinguishable_from_typing_it_out(
         self, kit: ScenarioSet
@@ -508,7 +508,7 @@ class TestMacros:
 
         kit.apply_macro("by_macro", ScaleItems(selector="cat:opex", factor=Decimal("0.8")))
         for item_id in ("payroll", "rent"):
-            item = kit.resolve("base").items[item_id]
+            item = kit.resolve("base").book.items[item_id]
             segments = [
                 segment.model_copy(
                     update={
@@ -530,7 +530,7 @@ class TestMacros:
         kit.fork("base", "trim")
         kit.apply_macro("trim", ScaleItems(selector="cat:revenue", factor=Decimal("0.333")))
 
-        segments = kit.resolve("trim").items["acme"].segments
+        segments = kit.resolve("trim").book.items["acme"].segments
         assert segments[0].amount.constant == Decimal("3330.0000")
         assert segments[1].amount.constant == Decimal("3996.0000")
         assert all(
@@ -545,19 +545,19 @@ class TestMacros:
         report = kit.apply_macro("delayed", ShiftItems(selector="customer:acme", by="2m"))
 
         assert report.changed == ("acme.segments",)
-        segments = kit.resolve("delayed").items["acme"].segments
+        segments = kit.resolve("delayed").book.items["acme"].segments
         assert segments[0].start == date(2026, 3, 1)
         assert segments[0].end == date(2027, 3, 1)
         assert segments[1].start == date(2027, 3, 1)
         assert segments[1].end is None
         # ...and the numbers move with it.
-        base_total = vectorized_run(kit.resolve("base")).total("acme", "accrual")
-        delayed_total = vectorized_run(kit.resolve("delayed")).total("acme", "accrual")
+        base_total = vectorized_run(kit.resolve("base").book).total("acme", "accrual")
+        delayed_total = vectorized_run(kit.resolve("delayed").book).total("acme", "accrual")
         assert delayed_total != base_total
 
     def test_shift_moves_explicit_schedule_dates(self, kit: ScenarioSet) -> None:
         kit.fork("base", "scheduled")
-        acme = kit.resolve("base").items["acme"]
+        acme = kit.resolve("base").book.items["acme"]
         scheduled = acme.model_copy(
             update={
                 "segments": [
@@ -578,7 +578,7 @@ class TestMacros:
 
         kit.apply_macro("scheduled", ShiftItems(selector="customer:acme", by="1m"))
 
-        schedule = kit.resolve("scheduled").items["acme"].segments[0].amount.schedule
+        schedule = kit.resolve("scheduled").book.items["acme"].segments[0].amount.schedule
         assert schedule == [
             (date(2026, 4, 30), Decimal("5000.0000")),
             (date(2026, 7, 30), Decimal("7000.0000")),
@@ -623,10 +623,10 @@ class TestProvenance:
     ) -> None:
         kit.fork("base", "mid")
         kit.fork("mid", "leaf")
-        base_acme = kit.resolve("base").items["acme"]
+        base_acme = kit.resolve("base").book.items["acme"]
         kit.set_item("mid", retagged(base_acme, tier="silver"))
         kit.set_item(
-            "leaf", kit.resolve("mid").items["acme"].model_copy(update={"name": "Acme+"})
+            "leaf", kit.resolve("mid").book.items["acme"].model_copy(update={"name": "Acme+"})
         )
 
         provenance = kit.provenance("leaf", "acme")
@@ -672,7 +672,7 @@ class TestDiff:
         kit.remove_item("downside", "rent")
         kit.set_item("downside", Item(id="paris", name="Paris", kind="flow", segments=[]))
         kit.set_item(
-            "downside", retagged(kit.resolve("base").items["acme"], tier="bronze")
+            "downside", retagged(kit.resolve("base").book.items["acme"], tier="bronze")
         )
         kit.set_param("downside", "churn", Decimal("0.30"))
 
@@ -711,9 +711,9 @@ class TestFlatten:
     def test_flatten_collapses_the_chain(self, kit: ScenarioSet) -> None:
         kit.fork("base", "mid")
         kit.fork("mid", "leaf")
-        base_acme = kit.resolve("base").items["acme"]
+        base_acme = kit.resolve("base").book.items["acme"]
         kit.set_item("mid", retagged(base_acme, tier="silver"))
-        kit.set_item("leaf", kit.resolve("mid").items["acme"].model_copy(update={"name": "A+"}))
+        kit.set_item("leaf", kit.resolve("mid").book.items["acme"].model_copy(update={"name": "A+"}))
         kit.remove_item("leaf", "rent")
         kit.set_item("leaf", Item(id="paris", name="Paris", kind="flow", segments=[]))
         kit.set_param("leaf", "churn", Decimal("0.4"))
@@ -727,20 +727,20 @@ class TestFlatten:
         assert set(flat.added) == {"paris"}
         assert flat.items["acme"].recorded_fields() == frozenset({"name", "tags"})
         assert kit.diff("leaf", "leaf_flat").empty
-        assert kit.resolve("leaf_flat") == kit.resolve("leaf")
+        assert kit.resolve("leaf_flat").book == kit.resolve("leaf").book
 
     def test_a_flattened_scenario_is_an_ordinary_scenario(self, kit: ScenarioSet) -> None:
         kit.fork("base", "mid")
-        kit.set_item("mid", retagged(kit.resolve("base").items["acme"], tier="silver"))
+        kit.set_item("mid", retagged(kit.resolve("base").book.items["acme"], tier="silver"))
         kit.flatten("mid", "standalone")
 
         kit.fork("standalone", "child")
         kit.set_item(
-            "child", kit.resolve("standalone").items["rent"].model_copy(update={"name": "R"})
+            "child", kit.resolve("standalone").book.items["rent"].model_copy(update={"name": "R"})
         )
 
-        assert kit.resolve("child").items["acme"].tags["tier"] == "silver"
-        assert kit.resolve("child").items["rent"].name == "R"
+        assert kit.resolve("child").book.items["acme"].tags["tier"] == "silver"
+        assert kit.resolve("child").book.items["rent"].name == "R"
 
 
 # --------------------------------------------------------------------------- #
@@ -844,7 +844,7 @@ class TestResolvedBooksEvaluate:
         kit.apply_macro("downside", ScaleItems(selector="cat:revenue", factor=Decimal("0.7")))
         kit.apply_macro("downside", ShiftItems(selector="cat:opex", by="1m"))
         kit.set_param("downside", "opening_balance", Decimal("80000.0000"))
-        book = kit.resolve("downside")
+        book = kit.resolve("downside").book
 
         fast = vectorized_run(book)
         oracle = reference_run(book)
@@ -862,8 +862,8 @@ class TestResolvedBooksEvaluate:
         kit.fork("base", "downside")
         kit.apply_macro("downside", ScaleItems(selector="cat:revenue", factor=Decimal("0.7")))
 
-        base = vectorized_run(kit.resolve("base"))
-        downside = vectorized_run(kit.resolve("downside"))
+        base = vectorized_run(kit.resolve("base").book)
+        downside = vectorized_run(kit.resolve("downside").book)
 
         assert downside.total("acme", "accrual") == (
             base.total("acme", "accrual") * Decimal("0.7")
@@ -885,11 +885,11 @@ class TestResolvedBooksEvaluate:
         ]
         from cashkit.engine import Engine
 
-        engine = Engine(kit.resolve("base"), events=tuple(events))
+        engine = Engine(kit.resolve("base").book, events=tuple(events))
         engine.run()
 
         assert any(item_id.startswith("_event:") for item_id in engine.book.items)
-        assert kit.resolve("base") == kit.book
+        assert kit.resolve("base").book == kit.book
         with pytest.raises(ValueError, match="synthesized"):
             ScenarioSet.new(engine.book)
 
@@ -904,7 +904,7 @@ class TestResolvedBooksEvaluate:
                 tags={"cat": "opex"},
             )
         ]
-        book = kit.resolve("downside")
+        book = kit.resolve("downside").book
         result = vectorized_run(book, events=events)
 
         assert any(item_id.startswith("_event:") for item_id in result.accrual)

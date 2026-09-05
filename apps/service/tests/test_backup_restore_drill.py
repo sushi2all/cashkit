@@ -93,7 +93,7 @@ def author_book(root: Path, *, opening: str, salary: str, rent: str) -> None:
     kit, diagnostics = CashKit.open(root)
     assert kit is not None, diagnostics
 
-    kit.add_item(
+    kit.set_item(
         Item(
             id="salary", name="Salary", kind="flow", direction="in", tags={"cat": "income"},
             segments=[Segment(
@@ -106,7 +106,7 @@ def author_book(root: Path, *, opening: str, salary: str, rent: str) -> None:
     )
     kit.commit("salary")
 
-    kit.add_item(
+    kit.set_item(
         Item(
             id="rent", name="Rent", kind="flow", direction="out", tags={"cat": "housing"},
             segments=[Segment(
@@ -126,7 +126,7 @@ def author_book(root: Path, *, opening: str, salary: str, rent: str) -> None:
     kit.commit("rent and one actual")
 
     # Uncommitted from here: the working overlay a bundle cannot carry.
-    kit.add_item(
+    kit.set_item(
         Item(
             id="unsaved_gym", name="Gym", kind="flow", direction="out", tags={"cat": "health"},
             segments=[Segment(

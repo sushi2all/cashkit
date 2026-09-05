@@ -1,15 +1,31 @@
-"""``CashKit`` — the kit a book is opened as, and its version control (PRD §6.6).
+"""``CashKit`` — the kit a book is opened as: reads, writes and version control.
 
-``at()`` returns a **kit, not a book**, so ``kit.at("HEAD~5").run("downside")
-.summary()`` works and eras of the model compare through one API. That is the
-whole shape of this module: one object holding a book root, its three stores and
-its scenarios, plus a read-only twin of itself bound to a past revision.
+Two types, one shape (ADR-0033). :class:`ReadOnlyKit` is everything that reads a
+book: resolve a scenario, run it, tabulate, trace, walk the history, open a
+past revision. :class:`CashKit` is a ``ReadOnlyKit`` that can also write —
+author, record events, commit. :meth:`ReadOnlyKit.at` returns a **kit, not a
+book**, so ``kit.at("HEAD~5").run("downside").summary()`` works and eras of the
+model compare through one API; and it returns the read-only type, so a write
+on the past is not a diagnostic to remember to return but a method that does
+not exist.
+
+**Every write is addressed by scenario and lands on disk** (ADR-0031). There is
+one ``set_item``, one ``set_param``, one ``apply_macro``; ``scenario="base"``
+writes the authored book and any other id writes an overlay, and no caller
+chooses a verb by which one it is. A write that changed something is written to
+the §3.3 working tree before it returns, so the CLI, a human's editor and the
+next process see the same book this one holds. Exploratory sweeping is still
+free: the working tree is not a revision, and :meth:`CashKit.commit` marks the
+boundaries that matter (PRD §6.7).
+
+**Every write returns a** :class:`~cashkit.model.ChangeReport` (ADR-0032), and
+every handle-returning call — :func:`~cashkit.sdk.construction.create_book`,
+:meth:`CashKit.open`, :meth:`ReadOnlyKit.at` — returns ``(handle, diagnostics)``.
 
 **Git never appears here.** Every version-control operation goes through
 :class:`~cashkit.stores.revisions.RevisionStore` (ADR-0018); this module does not
 import ``pygit2``, does not shell out, and takes no ref-spec other than the
-opaque ``ref`` string. Swapping the git store for an append-only SQLite one is a
-constructor argument.
+opaque ``ref`` string.
 
 **What a run is identified by** (PRD §6.6): ``(revision, scenario,
 engine_version, ledger_watermark)``. Each of the four is recoverable from the
@@ -19,12 +35,11 @@ the watermark are recorded in the committed snapshot, and the watermark is
 stamped by ``commit()`` and never by an import (ADR-0006). A live run always sees
 the whole ledger; only a run through ``at(ref)`` truncates it.
 
-**Reproduction is checked, never assumed.** :meth:`CashKit.reproduce` re-runs a
-revision and compares against the snapshot committed with it. At matching engine
-version a difference is an error (``CK-E028``) — something outside the four-tuple
-reached the computation. At a differing engine version the delta is *reported*
-(``CK-W011``), which is the ADR-0006 rule: never a silent failure in either
-direction.
+**Reproduction is checked, never assumed.** :meth:`ReadOnlyKit.reproduce`
+re-runs a revision and compares against the snapshot committed with it. At
+matching engine version a difference is an error (``CK-E028``); at a differing
+engine version the delta is *reported* (``CK-W011``), which is the ADR-0006 rule:
+never a silent failure in either direction.
 """
 
 from __future__ import annotations
@@ -35,6 +50,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Mapping, Sequence
 
+from pydantic import ValidationError
+
 from cashkit.engine import ENGINE_VERSION, Engine, RoundingPolicy, RunResult
 from cashkit.model import (
     Book,
@@ -42,22 +59,24 @@ from cashkit.model import (
     Diagnostic,
     Event,
     EventId,
+    Grain,
     Item,
     ItemDiff,
     ItemId,
-    ItemRef,
     OutcomeDiff,
     ParamDiff,
+    Provenance,
     ReconciliationReport,
     Reproduction,
     RevisionDiff,
     RunSummary,
+    Scenario,
+    ScenarioDiff,
     Table,
-    TaxRegime,
     WorkingState,
 )
 from cashkit.model.diagnostics import make_diagnostic
-from cashkit.model.primitives import ScenarioId
+from cashkit.model.primitives import ScenarioId, _require_money
 from cashkit.stores.clock import Timestamp
 from cashkit.stores.config import (
     ITEMS_DIR,
@@ -77,19 +96,40 @@ from cashkit.stores.ledger import LedgerStore, SqliteLedger
 from cashkit.stores.lock import WriterLock
 from cashkit.stores.revisions import Revision, RevisionState, RevisionStore, diff_states
 
-from .construction import AffectedCount
+from .construction import (
+    isolated_problems,
+    new_compile_problems,
+    reason_of,
+    regime_problem,
+    validated_params,
+)
 from .execution import ExportReport
-from .scenarios import OVERLAY_FIELDS, ScenarioSet
+from .macros import Macro
+from .scenarios import OPENING_BALANCE_PARAM, OVERLAY_FIELDS, Resolution, ScenarioSet
+from .validation import ordered
 from .views import summary as summarize
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from cashkit.stores.frames import FrameStore
 
-__all__ = ["BASE_SCENARIO", "CashKit", "CommitReport", "ExportReport", "RunRef"]
+__all__ = [
+    "BASE_SCENARIO",
+    "CashKit",
+    "CommitReport",
+    "ExportReport",
+    "ReadOnlyKit",
+    "RunRef",
+]
 
 #: The scenario every book starts with. Base is a scenario with ``parent=None``;
 #: it is privileged in storage only (ADR-0007).
 BASE_SCENARIO: ScenarioId = "base"
+
+#: The Book fields ``set_book`` may write. ``params`` and ``items`` have their
+#: own verbs; ``id``, ``base_grain`` and ``ledger_watermark`` are not authored
+#: after creation (the grain would re-index every column, the watermark is
+#: ``commit()``'s alone — ADR-0006).
+BOOK_FIELDS: tuple[str, ...] = ("cutover", "opening_balance", "horizon", "calendar", "tax_regimes")
 
 #: ``RunSummary`` fields compared when checking historical reproduction. Every
 #: number a reader acts on, and nothing that is merely a label.
@@ -126,44 +166,48 @@ class CommitReport(ChangeReport):
     model_config = ChangeReport.model_config | {"arbitrary_types_allowed": True}
 
 
+# --------------------------------------------------------------------------- #
+# A run
+# --------------------------------------------------------------------------- #
+
+
 @dataclass(frozen=True)
 class RunRef:
-    """A completed run, and the handles onto it (PRD §6.4).
+    """A completed run, and everything that reads it (PRD §6.4, §6.5, ADR-0034).
 
     Holds the resolved book the run evaluated — **not** the engine's augmented
     one — alongside the engine, so introspection can reach the compiled graph
-    without recompiling and without the caller having to keep two books straight
-    (D-P5-10, D-P7-05).
+    without recompiling (D-P5-10, D-P7-05), and the kit it came from, so the
+    frame verbs can reach a store. ``summary()`` and the introspection verbs
+    need no store at all.
     """
 
     scenario: ScenarioId
     book: Book
     result: RunResult
     engine: Engine
+    kit: "ReadOnlyKit"
     revision: str | None = None
     policy: RoundingPolicy = RoundingPolicy.HALF_UP
-
-    def summary(self, **kwargs: object) -> RunSummary:
-        """The headline numbers of this run (PRD §6.4).
-
-        Delegates to :func:`cashkit.sdk.views.summary`; see it for what min
-        cash, runway and breakeven mean. Diagnostics: every error-severity
-        diagnostic of the run is carried through.
-        """
-        return summarize(self.result, self.book, **kwargs)  # type: ignore[arg-type]
 
     @property
     def diagnostics(self) -> tuple[Diagnostic, ...]:
         """The run's diagnostics. No diagnostics of its own."""
         return self.result.diagnostics
 
-    def trace(self, item: ItemId, period, *, measure: str = "accrual", depth: int = 3):
+    # -- off the int64 columns, no store ---------------------------------- #
+
+    def summary(self, *, grain: Grain | None = None, balance: str = "auto") -> RunSummary:
+        """The headline numbers of this run — see :func:`cashkit.sdk.summary`."""
+        return summarize(self.result, self.book, grain=grain, balance=balance)
+
+    def trace(self, item: ItemId, period: int | date, *, measure: str = "accrual", depth: int = 3):
         """Explain one cell of this run — see :func:`cashkit.sdk.trace`."""
         from .introspection import trace as _trace
 
         return _trace(self, item, period, measure=measure, depth=depth)
 
-    def why_zero(self, item: ItemId, period, *, measure: str = "cash"):
+    def why_zero(self, item: ItemId, period: int | date, *, measure: str = "cash"):
         """Explain a zero cell — see :func:`cashkit.sdk.why_zero`."""
         from .introspection import why_zero as _why_zero
 
@@ -181,262 +225,95 @@ class RunRef:
 
         return _dependents_of(self, item, depth=depth)
 
+    # -- through the frame store ------------------------------------------ #
+
+    def frame(
+        self,
+        *,
+        grain: Grain | None = None,
+        measures: Sequence[str] | None = None,
+        where: str | None = None,
+        status: str | None = None,
+        include_synthetic: bool = True,
+    ) -> Table:
+        """The run's tidy/long frame — see :func:`cashkit.sdk.execution.frame`."""
+        from .execution import frame as _frame
+
+        return _frame(
+            self.kit,
+            self,
+            grain=grain,
+            measures=measures,
+            where=where,
+            status=status,
+            include_synthetic=include_synthetic,
+        )
+
+    def pivot(
+        self,
+        *,
+        index: str = "period",
+        columns: str = "tag:customer",
+        values: str = "cash",
+        grain: Grain | None = None,
+    ) -> Table:
+        """A wide view of one measure — see :func:`cashkit.sdk.execution.pivot`."""
+        from .execution import pivot as _pivot
+
+        return _pivot(self.kit, self, index=index, columns=columns, values=values, grain=grain)
+
+    def export(
+        self, path: str | Path, *, format: str = "parquet", grain: Grain | None = None
+    ) -> ExportReport:
+        """Write the frame to Parquet or CSV — see :func:`cashkit.sdk.execution.export`."""
+        from .execution import export as _export
+
+        return _export(self.kit, self, path, format=format, grain=grain)
+
+
+# --------------------------------------------------------------------------- #
+# The read-only kit
+# --------------------------------------------------------------------------- #
+
 
 @dataclass
-class CashKit:
-    """A book, its stores and its history (PRD §6).
+class ReadOnlyKit:
+    """A book, its stores and its history, read but never written (ADR-0033).
 
-    Open one with :meth:`open` or create one with :meth:`init`. ``scenarios``
-    is the Phase 7 :class:`~cashkit.sdk.scenarios.ScenarioSet`, holding the
-    **authored** book; the engine's augmented book never leaves a run.
-
-    The *working state* is what this kit holds in memory. :meth:`save` writes it
-    to the §3.3 layout so another process — the CLI, a human's editor — can see
-    it, and :meth:`commit` records it as a revision. Exploratory sweeping stays
-    in memory and costs nothing (PRD §6.7).
+    This is what :meth:`at` returns: the config **as committed at a revision**
+    and the ledger truncated to that revision's watermark, so a correction
+    appended afterwards is invisible to it. That is deliberate — ``at()``
+    reproduces what was believed then, errors included (ADR-0012). Sharing the
+    live stores is safe precisely because nothing here can write to them.
     """
 
     root: Path
-    scenarios: ScenarioSet
+    #: The authored book plus every scenario, in memory. Writes go through the
+    #: kit's verbs, which are what persist and validate them; reads may look.
+    state: ScenarioSet
     revisions: RevisionStore
     ledger: LedgerStore | None = None
     settings: EngineSettings = field(default_factory=EngineSettings)
     summaries: dict[ScenarioId, CommittedSummary] = field(default_factory=dict)
-    #: Set when this kit is bound to a past revision: every write refuses, and
-    #: the ledger is truncated to that revision's watermark (ADR-0006).
-    bound_to: str | None = None
+    #: The revision this kit is bound to, or ``None`` for the live working
+    #: state. A bound kit truncates the ledger to that revision's watermark.
+    revision: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
     #: The §6.4 frame store, opened on first use and never before: ``duckdb`` is
-    #: an optional extra, so a core install must be able to hold a kit. Typed
-    #: through ``TYPE_CHECKING`` for the same reason — the annotation is a
-    #: string under ``from __future__ import annotations`` and imports nothing.
+    #: an optional extra, so a core install must be able to hold a kit.
     frames: "FrameStore | None" = None
 
-    # -- construction ------------------------------------------------------- #
-
-    @classmethod
-    def init(
-        cls,
-        root: str | Path,
-        book: Book,
-        *,
-        settings: EngineSettings | None = None,
-        ledger: LedgerStore | None = None,
-        revisions: RevisionStore | None = None,
-        base_id: ScenarioId = BASE_SCENARIO,
-    ) -> "CashKit":
-        """Create the §3.3 layout at ``root`` and return the kit on it.
-
-        Writes the working tree and opens the ledger, but does **not** commit —
-        the caller decides whether an empty book deserves a revision, and
-        ``cashkit init`` makes that call for the CLI. Raises ``ValueError`` when
-        ``book`` carries engine-synthesized items (programmer error: that is the
-        engine's book, not the authored one).
-        """
-        root = Path(root)
-        root.mkdir(parents=True, exist_ok=True)
-        kit = cls(
-            root=root,
-            scenarios=ScenarioSet.new(book, base_id=base_id),
-            revisions=revisions if revisions is not None else _default_store(root),
-            ledger=ledger if ledger is not None else SqliteLedger(root / "ledger.sqlite"),
-            settings=settings or EngineSettings(),
-        )
-        kit.save()
-        return kit
-
-    @classmethod
-    def open(
-        cls,
-        root: str | Path,
-        *,
-        ledger: LedgerStore | None = None,
-        revisions: RevisionStore | None = None,
-    ) -> tuple["CashKit | None", tuple[Diagnostic, ...]]:
-        """Open the book at ``root``.
-
-        Returns ``(kit, diagnostics)``; ``kit`` is ``None`` when the layout
-        cannot be read. Diagnostics: ``CK-E029`` when there is no book there,
-        ``CK-E025``/``CK-E026`` when a stored file is malformed or comes from a
-        newer schema generation. Never raises on stored content.
-        """
-        root = Path(root)
-        if not is_book_root(root):
-            return None, (make_diagnostic("CK-E029", path=str(root)),)
-        config, problems = load_state(read_working_tree(root))
-        if config is None:
-            return None, problems
-        return (
-            cls(
-                root=root,
-                scenarios=ScenarioSet(book=config.book, scenarios=config.scenarios),
-                revisions=revisions if revisions is not None else _default_store(root),
-                ledger=(
-                    ledger if ledger is not None else SqliteLedger(root / "ledger.sqlite")
-                ),
-                settings=config.settings,
-                summaries=config.summaries,
-                diagnostics=problems,
-            ),
-            problems,
-        )
-
-    # -- construction (PRD §6.1) -------------------------------------------- #
-    #
-    # Thin delegates onto :mod:`cashkit.sdk.construction`, which owns the
-    # validation rules and the one write path onto the authored book. They live
-    # here for the same reason ``validate()`` and ``describe_book()`` do: the
-    # kit is the object an agent holds, and a surface split across two import
-    # sites is a surface an agent gets wrong.
-
-    def add_item(self, spec: Item) -> ItemRef:
-        """Add or re-author one item in the book — see :func:`cashkit.sdk.add_item`."""
-        from .construction import add_item as _add_item
-
-        return _add_item(self, spec)
-
-    def add_derived(
-        self, item_id: ItemId, formula: str, tags: Mapping[str, str] | None = None, **kwargs
-    ) -> ItemRef:
-        """Add a derived item, formula parsed and DAG-checked now — see
-        :func:`cashkit.sdk.add_derived`."""
-        from .construction import add_derived as _add_derived
-
-        return _add_derived(self, item_id, formula, tags, **kwargs)
-
-    def set_param(self, key: str, value: Decimal, note: str = "") -> ChangeReport:
-        """Set a named scalar on the book — see :func:`cashkit.sdk.set_param`."""
-        from .construction import set_param as _set_param
-
-        return _set_param(self, key, value, note)
-
-    def retag(self, selector: str, tags: Mapping[str, str]) -> AffectedCount:
-        """Merge tags into every item a selector matches — see
-        :func:`cashkit.sdk.retag`."""
-        from .construction import retag as _retag
-
-        return _retag(self, selector, tags)
-
-    def add_tax_regime(self, regime: TaxRegime) -> ChangeReport:
-        """Add or replace a tax regime — see :func:`cashkit.sdk.add_tax_regime`."""
-        from .construction import add_tax_regime as _add_tax_regime
-
-        return _add_tax_regime(self, regime)
-
-    def set_cutover(self, day: date, note: str = "") -> ChangeReport:
-        """Move the last reconciled boundary — see :func:`cashkit.sdk.set_cutover`."""
-        from .construction import set_cutover as _set_cutover
-
-        return _set_cutover(self, day, note)
-
-    # -- ledger (PRD §6.2) --------------------------------------------------- #
-    #
-    # The store owns append-only-ness and ``UNIQUE(source, ext_id)``; these
-    # exist so a **revision-bound kit refuses to write**. ``at(ref)`` shares the
-    # live ledger object, so a write reached through ``kit.ledger`` would append
-    # to the present while reading the past — the one direction ADR-0006 has no
-    # defence against.
-
-    def add_event(self, event: Event) -> ChangeReport:
-        """Append one event to the ledger (PRD §6.2).
-
-        Returns the store's :class:`~cashkit.model.ChangeReport`. Diagnostics:
-        ``CK-E010`` for a taken ``(source, ext_id)``, ``CK-E015`` for a taken
-        id, ``CK-I002`` for an identical re-add, ``CK-E030`` on a
-        revision-bound kit.
-        """
-        return self._ledger_write("add_event", lambda store: store.add_event(event))
-
-    def import_events(self, rows: Iterable[Event], source: str) -> ChangeReport:
-        """Idempotent batch import keyed on ``(source, ext_id)`` (PRD §6.2).
-
-        Returns the store's :class:`~cashkit.model.ImportReport`; any conflict
-        aborts the whole batch (ADR-0008). Diagnostics: ``CK-E010``,
-        ``CK-E017``, ``CK-E030`` on a revision-bound kit.
-        """
-        return self._ledger_write(
-            source, lambda store: store.import_events(rows, source)
-        )
-
-    def void_event(self, event_id: EventId, note: str) -> ChangeReport:
-        """Tombstone a committed/forecast event (PRD §6.2).
-
-        Diagnostics: ``CK-E014``, ``CK-E015``, ``CK-E016`` (an actual is
-        corrected, never voided — ADR-0012), ``CK-E030``.
-        """
-        return self._ledger_write(
-            event_id, lambda store: store.void_event(event_id, note)
-        )
-
-    def correct_event(
-        self, event_id: EventId, corrected: Event, note: str
-    ) -> ChangeReport:
-        """Tombstone an event and append its correction, atomically (ADR-0012).
-
-        Diagnostics: ``CK-E014``, ``CK-E015``, ``CK-E030``.
-        """
-        return self._ledger_write(
-            event_id, lambda store: store.correct_event(event_id, corrected, note)
-        )
-
-    def _authored_write(self) -> Diagnostic | None:
-        """The refusal a revision-bound kit owes an **authored** write, or ``None``.
-
-        The authored-book twin of :meth:`_ledger_write`, and it exists for the
-        same reason. ``at(ref)`` shares this kit's ``root``, so a §6.1 verb on a
-        bound kit would mutate the *past* book and then ``save()`` it over the
-        **live** working tree — a write that reads history and lands in the
-        present, which is the exact direction ADR-0006 has no defence against.
-        Worse than the ledger case it mirrors: the live in-memory kit goes on
-        reporting ``status().clean`` while the tree on disk no longer matches it.
-
-        It returns the diagnostic rather than wrapping the operation because the
-        §6.1 verbs return three different report types (``ItemRef``,
-        ``AffectedCount``, ``ChangeReport``) and each has to shape its own
-        refusal. Every caller checks it **before** touching the book, so a
-        refused write records nothing — D-S55-01's rule, applied to the kit
-        rather than to the item.
-
-        Returns ``CK-E030`` naming the bound revision, or ``None`` on a live kit.
-        """
-        return None if self.bound_to is None else _read_only(self.bound_to)
-
-    def _ledger_write(self, target: str, operation) -> ChangeReport:
-        """Run a ledger write, refusing on a revision-bound kit (``CK-E030``)."""
-        if self.bound_to is not None:
-            return ChangeReport(target=target, diagnostics=(_read_only(self.bound_to),))
-        if self.ledger is None:
-            raise ValueError(
-                "this kit has no ledger store; ledger operations need one "
-                "(construct the kit with ledger=..., or open a book root)"
-            )
-        return operation(self.ledger)
-
-    def query_events(
-        self,
-        where: str | None = None,
-        since: date | None = None,
-        until: date | None = None,
-        **kwargs,
-    ) -> Table:
-        """Filter the ledger into a Table — see :func:`cashkit.sdk.query_events`."""
-        from .events import query_events as _query_events
-
-        return _query_events(self, where, since, until, **kwargs)
-
-    def reconcile(self, until: date, **kwargs) -> ReconciliationReport:
-        """Compare actuals to forecast over a window — see
-        :func:`cashkit.sdk.reconcile`."""
-        from .events import reconcile as _reconcile
-
-        return _reconcile(self, until, **kwargs)
-
-    # -- state -------------------------------------------------------------- #
+    # -- state ------------------------------------------------------------ #
 
     @property
     def book(self) -> Book:
         """The authored book. Never the engine's augmented one. No diagnostics."""
-        return self.scenarios.book
+        return self.state.book
+
+    @property
+    def scenarios(self) -> Mapping[ScenarioId, Scenario]:
+        """Every scenario by id, base included. A read view; no diagnostics."""
+        return self.state.scenarios
 
     @property
     def policy(self) -> RoundingPolicy:
@@ -455,19 +332,51 @@ class CashKit:
             book = book.model_copy(update={"ledger_watermark": self.ledger.watermark()})
         return ConfigState(
             book=book,
-            scenarios=dict(self.scenarios.scenarios),
+            scenarios=dict(self.state.scenarios),
             summaries=dict(self.summaries),
             settings=self.settings,
             schema_version=SCHEMA_VERSION,
         )
 
-    def save(self) -> None:
-        """Write the working state to the §3.3 layout on disk. No diagnostics."""
-        write_working_tree(self.root, build_state(self.config_state()))
+    # -- scenarios, read ---------------------------------------------------- #
 
-    # -- execution ---------------------------------------------------------- #
+    def resolve(self, scenario: ScenarioId = BASE_SCENARIO) -> Resolution:
+        """The concrete book a scenario evaluates as, with its audit trail.
 
-    def events_for(self, scenario_id: ScenarioId) -> tuple[list[Event], tuple[Diagnostic, ...]]:
+        Returns a :class:`~cashkit.sdk.scenarios.Resolution`: ``.book`` is
+        materialized (no overlays, no chain), ``.origins`` says which ancestor
+        set each field, ``.diagnostics`` carries ``CK-E021`` / ``CK-E023`` /
+        ``CK-E024`` for anything resolution refused to guess about.
+        """
+        return self.state.resolve(scenario)
+
+    def provenance(self, item: ItemId, *, scenario: ScenarioId = BASE_SCENARIO) -> Provenance:
+        """Which ancestor set each field of ``item`` in ``scenario`` (PRD §6.3)."""
+        return self.state.provenance(scenario, item)
+
+    def diff(self, left: ScenarioId, right: ScenarioId) -> ScenarioDiff:
+        """Compare two scenarios semantically, from their resolved books (PRD §6.3)."""
+        return self.state.diff(left, right)
+
+    def describe_book(self, scenario: ScenarioId = BASE_SCENARIO):
+        """Schema, items, measures, params and query vocabulary (PRD §6.5).
+
+        Describes the **resolved** scenario, because that is the book a query
+        would run against. Returns a
+        :class:`~cashkit.model.BookDescription`; produces no diagnostics.
+        """
+        from .introspection import describe_book as _describe
+
+        return _describe(
+            self.resolve(scenario).book,
+            scenarios=tuple(sorted(self.state.scenarios)),
+            rounding_policy=self.policy.value,
+            schema_version=SCHEMA_VERSION,
+        )
+
+    # -- ledger, read ------------------------------------------------------- #
+
+    def events_for(self, scenario: ScenarioId) -> tuple[list[Event], tuple[Diagnostic, ...]]:
         """The ledger sequence this scenario sees, overlays applied.
 
         A live kit sees the whole ledger; a kit bound to a revision sees it
@@ -477,11 +386,40 @@ class CashKit:
         """
         if self.ledger is None:
             return [], ()
-        watermark = self.book.ledger_watermark if self.bound_to is not None else None
-        return self.scenarios.resolve_events(scenario_id, self.ledger.facts(watermark))
+        watermark = self.book.ledger_watermark if self.revision is not None else None
+        return self.state.resolve_events(scenario, self.ledger.facts(watermark))
+
+    def query_events(
+        self,
+        where: str | None = None,
+        since: date | None = None,
+        until: date | None = None,
+        *,
+        include_voided: bool = False,
+    ) -> Table:
+        """Filter the ledger into a Table — see :func:`cashkit.sdk.events.query_events`."""
+        from .events import query_events as _query_events
+
+        return _query_events(self, where, since, until, include_voided=include_voided)
+
+    def reconcile(
+        self,
+        until: date,
+        *,
+        scenario: ScenarioId = BASE_SCENARIO,
+        since: date | None = None,
+        measure: str = "cash",
+    ) -> ReconciliationReport:
+        """Compare actuals to forecast over a window — see
+        :func:`cashkit.sdk.events.reconcile`."""
+        from .events import reconcile as _reconcile
+
+        return _reconcile(self, until, scenario_id=scenario, since=since, measure=measure)
+
+    # -- execution ---------------------------------------------------------- #
 
     def run(
-        self, scenario_id: ScenarioId = BASE_SCENARIO, *, cutover_override: object = None
+        self, scenario: ScenarioId = BASE_SCENARIO, *, cutover_override: date | None = None
     ) -> RunRef:
         """Evaluate a scenario (PRD §6.4).
 
@@ -496,11 +434,11 @@ class CashKit:
         in, so a run over a broken chain says so rather than quietly evaluating
         a partial book.
         """
-        resolution = self.scenarios.resolution(scenario_id)
+        resolution = self.resolve(scenario)
         book = resolution.book
         if cutover_override is not None:
             book = book.model_copy(update={"cutover": cutover_override})
-        events, event_diagnostics = self.events_for(scenario_id)
+        events, event_diagnostics = self.events_for(scenario)
         engine = Engine(book, self.policy, tuple(events))
         result = engine.run()
         extra = tuple(resolution.diagnostics) + tuple(event_diagnostics)
@@ -515,290 +453,42 @@ class CashKit:
                 vat=result.vat,
             )
         return RunRef(
-            scenario=scenario_id,
+            scenario=scenario,
             book=book,
             result=result,
             engine=engine,
-            revision=self.bound_to,
+            kit=self,
+            revision=self.revision,
             policy=self.policy,
         )
 
-    # -- execution: the frame surface (PRD §6.4) ----------------------------- #
-    #
-    # Thin delegates onto :mod:`cashkit.sdk.execution`, which owns run
-    # materialization and the lazy, diagnostic-reporting import of the frame
-    # store. They live here for the reason the §6.1 delegates do: the kit is the
-    # object an agent holds. ``summary()`` is on ``RunRef`` and needs no store.
+    def validate(self, scenario: ScenarioId = BASE_SCENARIO) -> list[Diagnostic]:
+        """Every diagnostic this scenario's state produces (PRD §6.1, ADR-0034).
 
-    def frame(self, run: RunRef, **kwargs) -> Table:
-        """The run's tidy/long frame — see :func:`cashkit.sdk.frame`."""
-        from .execution import frame as _frame
+        Exactly ``run(scenario).diagnostics``, ordered errors-first and
+        de-duplicated: the resolved book, the ledger sequence that scenario
+        sees, the compile-time authoring checks and the expansion-time
+        warnings, from the one implementation that produces them.
+        """
+        return ordered(self.run(scenario).diagnostics)
 
-        return _frame(self, run, **kwargs)
-
-    def pivot(self, run: RunRef, **kwargs) -> Table:
-        """A wide view of one measure — see :func:`cashkit.sdk.pivot`."""
-        from .execution import pivot as _pivot
-
-        return _pivot(self, run, **kwargs)
-
-    def compare(self, runs: Sequence[RunRef], **kwargs) -> Table:
+    def compare(
+        self, runs: Sequence[RunRef], *, metric: str = "cash", grain: Grain | None = None
+    ) -> Table:
         """One column per run of the same metric — see
-        :func:`cashkit.sdk.compare`."""
+        :func:`cashkit.sdk.execution.compare`."""
         from .execution import compare as _compare
 
-        return _compare(self, runs, **kwargs)
-
-    def export(self, run: RunRef, path: str | Path, **kwargs) -> ExportReport:
-        """Write the frame to Parquet or CSV — see :func:`cashkit.sdk.export`."""
-        from .execution import export as _export
-
-        return _export(self, run, path, **kwargs)
+        return _compare(self, runs, metric=metric, grain=grain)
 
     def read_export(self, path: str | Path) -> Table:
         """Read an export back in the types it was written in — see
-        :func:`cashkit.sdk.read_export`."""
+        :func:`cashkit.sdk.execution.read_export`."""
         from .execution import read_export as _read_export
 
         return _read_export(self, path)
 
-    # -- introspection ------------------------------------------------------ #
-
-    def validate(self, scenario_id: ScenarioId = BASE_SCENARIO) -> list[Diagnostic]:
-        """Every diagnostic this book's state produces (PRD §6.1).
-
-        Validates the **resolved** scenario against the ledger sequence that
-        scenario sees, so ``CK-W003`` (an actual dated on or after cutover) and
-        ``CK-E018`` (an event on an item that cannot carry it) are visible —
-        both are statements about the book and the ledger together. Resolution's
-        own diagnostics are folded in, so a broken chain is reported rather than
-        validated around.
-
-        Returns the diagnostics sorted errors-first. See
-        :func:`cashkit.sdk.validate` for the full list of codes.
-        """
-        from .validation import validate as _validate
-
-        resolution = self.scenarios.resolution(scenario_id)
-        events, event_diagnostics = self.events_for(scenario_id)
-        found = list(resolution.diagnostics) + list(event_diagnostics)
-        found.extend(_validate(resolution.book, events=events, policy=self.policy))
-        return found
-
-    def describe_book(self, scenario_id: ScenarioId = BASE_SCENARIO):
-        """Schema, items, measures, params and query vocabulary (PRD §6.5).
-
-        Describes the **resolved** scenario, because that is the book a query
-        would run against. Returns a
-        :class:`~cashkit.model.BookDescription`; produces no diagnostics.
-        """
-        from .introspection import describe_book as _describe
-
-        return _describe(
-            self.scenarios.resolution(scenario_id).book,
-            scenarios=tuple(sorted(self.scenarios.scenarios)),
-            rounding_policy=self.policy.value,
-            schema_version=SCHEMA_VERSION,
-        )
-
-    # -- version control ---------------------------------------------------- #
-
-    def commit(
-        self,
-        message: str,
-        *,
-        scenarios: Sequence[ScenarioId] | None = None,
-        author: str = "agent",
-        timestamp: Timestamp | None = None,
-    ) -> CommitReport:
-        """Serialize state, recompute snapshots, record a revision (PRD §6.6).
-
-        Takes the single-writer lock for the whole operation (ADR-0010): the
-        config store, the ledger watermark and the snapshots are one consistency
-        domain, and a second writer interleaving between them is exactly the
-        silent merge this refuses to do. Stamps the ledger watermark — only
-        ``commit()`` ever does (ADR-0006) — and recomputes the affected
-        scenarios' snapshots so the config diff and the outcome diff land in the
-        same revision.
-
-        Returns a :class:`CommitReport` whose ``revision`` is ``None`` when the
-        tree was unchanged. Diagnostics: ``CK-E013`` when another writer holds
-        the lock (the second writer fails loudly and never merges), ``CK-W010``
-        when a dead writer's lock was reclaimed, ``CK-I002`` when nothing
-        changed, plus every error-severity diagnostic of a recomputed run.
-        """
-        if self.bound_to is not None:
-            return CommitReport(target=message, diagnostics=(_read_only(self.bound_to),))
-
-        with WriterLock(self.root, timestamp=timestamp) as lock:
-            if not lock.acquired:
-                return CommitReport(target=message, diagnostics=lock.diagnostics)
-            notes = list(lock.diagnostics)
-
-            targets = list(scenarios) if scenarios is not None else sorted(
-                self.scenarios.scenarios
-            )
-            watermark = self.ledger.watermark() if self.ledger is not None else None
-            for scenario_id in targets:
-                run = self.run(scenario_id)
-                notes.extend(d for d in run.diagnostics if d.severity == "error")
-                self.summaries[scenario_id] = CommittedSummary(
-                    scenario=scenario_id,
-                    engine_version=ENGINE_VERSION,
-                    schema_version=SCHEMA_VERSION,
-                    watermark=watermark,
-                    summary=run.summary(),
-                )
-
-            state = build_state(self.config_state(watermark_from_ledger=True))
-            write_working_tree(self.root, state)
-            revision = self.revisions.write_revision(
-                state,
-                message=message,
-                author=author,
-                metadata={
-                    "engine-version": ENGINE_VERSION,
-                    "schema-version": str(SCHEMA_VERSION),
-                    "watermark": "" if watermark is None else watermark.content_hash,
-                },
-                timestamp=timestamp,
-            )
-
-        if revision is None:
-            return CommitReport(
-                target=message,
-                revision=None,
-                diagnostics=tuple(notes) + (make_diagnostic("CK-I002"),),
-            )
-        # The stamped watermark is now part of the committed book; adopt it so a
-        # second commit with no other change is correctly reported as empty.
-        self.scenarios.book = self.book.model_copy(
-            update={"ledger_watermark": watermark}
-        )
-        return CommitReport(
-            target=message,
-            revision=revision,
-            created=(revision.id,),
-            changed=tuple(sorted(state.paths())),
-            diagnostics=tuple(notes),
-        )
-
-    def status(self) -> WorkingState:
-        """The uncommitted difference between the working state and HEAD.
-
-        Structured, never a git porcelain string (PRD §6.6). Compares the
-        in-memory state to the revision it was last committed at, item by item
-        and param by param, so an agent can say *what* is uncommitted rather
-        than *that something* is. Diagnostics: ``CK-E025``/``CK-E026`` when the
-        committed state cannot be read back.
-        """
-        head = self.revisions.head()
-        current = build_state(self.config_state())
-        if head is None:
-            return WorkingState(
-                revision=None,
-                clean=False,
-                items_added=tuple(sorted(self.book.items)),
-                scenarios_changed=tuple(sorted(self.scenarios.scenarios)),
-                paths_changed=current.paths(),
-            )
-
-        stored, reason = self.revisions.read_state(head.id)
-        if stored is None:
-            return WorkingState(
-                revision=head.id,
-                clean=False,
-                diagnostics=(
-                    make_diagnostic("CK-E027", ref=head.id, reason=reason or "unreadable"),
-                ),
-            )
-        committed, problems = load_state(stored)
-        if committed is None:
-            return WorkingState(revision=head.id, clean=False, diagnostics=problems)
-
-        paths = diff_states(stored, current)
-        mine = self.config_state()
-        state = _compare_states(committed, mine)
-        return WorkingState(
-            revision=head.id,
-            clean=not (
-                state["items_added"]
-                or state["items_removed"]
-                or state["items_changed"]
-                or state["params_changed"]
-                or state["book_fields_changed"]
-                or state["scenarios_changed"]
-                or state["settings_changed"]
-            ),
-            paths_changed=tuple(
-                sorted(set(paths.added) | set(paths.removed) | set(paths.changed))
-            ),
-            diagnostics=problems,
-            **state,
-        )
-
-    def discard(self, items: Iterable[ItemId] | None = None) -> ChangeReport:
-        """Throw uncommitted work away, restoring from HEAD (PRD §6.6).
-
-        ``items=None`` restores everything — book, params, scenarios, settings.
-        Naming items restores only those, leaving every other uncommitted change
-        in place. Returns a :class:`ChangeReport` listing what was restored;
-        ``CK-I002`` when nothing was uncommitted, ``CK-E027`` when HEAD does not
-        resolve (a history with no revisions has nothing to discard *to*).
-        """
-        if self.bound_to is not None:
-            return ChangeReport(target="discard", diagnostics=(_read_only(self.bound_to),))
-        head = self.revisions.head()
-        if head is None:
-            return ChangeReport(
-                target="discard",
-                diagnostics=(
-                    make_diagnostic(
-                        "CK-E027",
-                        ref="HEAD",
-                        reason="the history has no revisions to discard back to",
-                    ),
-                ),
-            )
-        stored, reason = self.revisions.read_state(head.id)
-        if stored is None:  # pragma: no cover - head always reads back
-            return ChangeReport(
-                target="discard",
-                diagnostics=(
-                    make_diagnostic("CK-E027", ref=head.id, reason=reason or "unreadable"),
-                ),
-            )
-        committed, problems = load_state(stored)
-        if committed is None:
-            return ChangeReport(target="discard", diagnostics=problems)
-
-        if items is None:
-            before = self.config_state()
-            self.scenarios = ScenarioSet(
-                book=committed.book, scenarios=committed.scenarios
-            )
-            self.settings = committed.settings
-            self.summaries = dict(committed.summaries)
-            restored = _restored_names(_compare_states(committed, before))
-        else:
-            wanted = sorted(set(items))
-            merged = dict(self.book.items)
-            restored = []
-            for item_id in wanted:
-                stored_item = committed.book.items.get(item_id)
-                if stored_item == merged.get(item_id):
-                    continue
-                if stored_item is None:
-                    merged.pop(item_id, None)
-                else:
-                    merged[item_id] = stored_item
-                restored.append(item_id)
-            self.scenarios.book = self.book.model_copy(update={"items": merged})
-
-        self.save()
-        if not restored:
-            return ChangeReport(target="discard", diagnostics=(make_diagnostic("CK-I002"),))
-        return ChangeReport(target="discard", changed=tuple(restored))
+    # -- history, read ------------------------------------------------------ #
 
     def history(
         self,
@@ -812,9 +502,12 @@ class CashKit:
 
         ``item`` and ``scenario`` narrow to revisions that touched that file;
         ``field`` narrows further, to revisions in which that field of that item
-        actually changed value — which is what makes ``blame()`` a one-liner on
-        top of this. Produces no diagnostics.
+        actually changed value — which is what PRD §6.6 calls ``blame``. An
+        unknown field name simply never changes and returns nothing, because a
+        typo must not look like a fact about the model. Produces no diagnostics.
         """
+        if field is not None and field not in OVERLAY_FIELDS:
+            return []
         path = _path_for(item=item, scenario=scenario)
         revisions = self.revisions.list_revisions(
             limit=limit if field is None else max(limit, 1000), path=path
@@ -851,33 +544,18 @@ class CashKit:
             return _MISSING
         return getattr(stored, field_name, _MISSING)
 
-    def blame(self, item: ItemId, field_name: str) -> list[Revision]:
-        """Every revision in which one field of one item changed (PRD §6.6).
-
-        Newest first. An empty list means the field has never moved, which is a
-        different statement from the item never having existed — use
-        :meth:`history` with ``item=`` for that. Produces no diagnostics; an
-        unknown field name simply never changes and returns nothing, because a
-        typo must not look like a fact about the model.
-        """
-        if field_name not in OVERLAY_FIELDS:
-            return []
-        return self.history(item=item, field=field_name, limit=10_000)
-
-    def at(self, ref: str) -> tuple["CashKit | None", tuple[Diagnostic, ...]]:
-        """A read-only kit bound to a past revision (PRD §6.6).
+    def at(self, ref: str) -> tuple["ReadOnlyKit | None", tuple[Diagnostic, ...]]:
+        """A read-only kit bound to a past revision (PRD §6.6, ADR-0033).
 
         The returned kit runs against the config **as committed at that
         revision** — migrated forward if it comes from an older schema
         generation (PRD §8.5) — and against the ledger truncated to that
         revision's watermark, so a correction appended afterwards is invisible
-        to it. That is deliberate: ``at()`` reproduces what was believed then,
-        errors included (ADR-0012).
+        to it. It has no write methods.
 
         Returns ``(kit, diagnostics)``; ``kit`` is ``None`` when the ref does
         not resolve (``CK-E027``) or the stored state cannot be read
-        (``CK-E025``/``CK-E026``). Every write on the returned kit refuses with
-        ``CK-E030``.
+        (``CK-E025``/``CK-E026``).
         """
         revision, reason = self.revisions.resolve(ref)
         if revision is None:
@@ -889,14 +567,16 @@ class CashKit:
         if config is None:
             return None, problems
         return (
-            CashKit(
+            ReadOnlyKit(
                 root=self.root,
-                scenarios=ScenarioSet(book=config.book, scenarios=config.scenarios),
+                state=ScenarioSet(
+                    book=config.book, scenarios=config.scenarios, base_id=self.state.base_id
+                ),
                 revisions=self.revisions,
                 ledger=self.ledger,
                 settings=config.settings,
                 summaries=config.summaries,
-                bound_to=revision.id,
+                revision=revision.id,
                 diagnostics=problems,
             ),
             problems,
@@ -924,8 +604,8 @@ class CashKit:
                 left=left, right=right, scenario=scenario, diagnostics=problems + more
             )
 
-        left_book = _resolved(left_config, scenario)
-        right_book = _resolved(right_config, scenario)
+        left_book = _resolved(left_config, scenario, self.state.base_id)
+        right_book = _resolved(right_config, scenario, self.state.base_id)
         items: list[ItemDiff] = []
         for item_id in sorted(set(left_book.items) | set(right_book.items)):
             here = left_book.items.get(item_id)
@@ -1003,11 +683,7 @@ class CashKit:
         config, problems = load_state(state)
         return config, state, problems
 
-    # -- reproduction ------------------------------------------------------- #
-
-    def reproduce(
-        self, ref: str, scenario_id: ScenarioId = BASE_SCENARIO
-    ) -> Reproduction:
+    def reproduce(self, ref: str, scenario: ScenarioId = BASE_SCENARIO) -> Reproduction:
         """Re-run a past revision and compare against the snapshot committed with it.
 
         This is the ADR-0006 guarantee made checkable. At **matching** engine
@@ -1028,20 +704,20 @@ class CashKit:
             return Reproduction(
                 ref=ref,
                 revision="",
-                scenario=scenario_id,
+                scenario=scenario,
                 engine_version_recorded="",
                 engine_version_current=ENGINE_VERSION,
                 engine_version_matches=False,
                 reproduced=False,
                 diagnostics=problems,
             )
-        assert past.bound_to is not None
-        committed = past.summaries.get(scenario_id)
+        assert past.revision is not None
+        committed = past.summaries.get(scenario)
         if committed is None:
             return Reproduction(
                 ref=ref,
-                revision=past.bound_to,
-                scenario=scenario_id,
+                revision=past.revision,
+                scenario=scenario,
                 engine_version_recorded="",
                 engine_version_current=ENGINE_VERSION,
                 engine_version_matches=False,
@@ -1050,14 +726,14 @@ class CashKit:
                 + (
                     make_diagnostic(
                         "CK-E025",
-                        field=f"{SNAPSHOTS_DIR}/{scenario_id}.summary.yaml",
-                        path=f"{SNAPSHOTS_DIR}/{scenario_id}.summary.yaml",
+                        field=f"{SNAPSHOTS_DIR}/{scenario}.summary.yaml",
+                        path=f"{SNAPSHOTS_DIR}/{scenario}.summary.yaml",
                         reason="this revision committed no snapshot for that scenario",
                     ),
                 ),
             )
 
-        recomputed = past.run(scenario_id).summary()
+        recomputed = past.run(scenario).summary()
         deltas = tuple(
             (name, str(getattr(committed.summary, name)), str(getattr(recomputed, name)))
             for name in _SUMMARY_FIELDS
@@ -1069,7 +745,7 @@ class CashKit:
             notes.append(
                 make_diagnostic(
                     "CK-W011",
-                    ref=past.bound_to,
+                    ref=past.revision,
                     recorded=committed.engine_version,
                     current=ENGINE_VERSION,
                 )
@@ -1078,8 +754,8 @@ class CashKit:
             notes.append(
                 make_diagnostic(
                     "CK-E028",
-                    ref=past.bound_to,
-                    scenario=scenario_id,
+                    ref=past.revision,
+                    scenario=scenario,
                     reason="; ".join(
                         f"{name}: committed {was}, recomputed {now}"
                         for name, was, now in deltas
@@ -1088,8 +764,8 @@ class CashKit:
             )
         return Reproduction(
             ref=ref,
-            revision=past.bound_to,
-            scenario=scenario_id,
+            revision=past.revision,
+            scenario=scenario,
             engine_version_recorded=committed.engine_version,
             engine_version_current=ENGINE_VERSION,
             engine_version_matches=matches,
@@ -1099,6 +775,591 @@ class CashKit:
             recomputed=recomputed,
             diagnostics=tuple(notes),
         )
+
+
+# --------------------------------------------------------------------------- #
+# The live kit: everything above, plus writes
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class CashKit(ReadOnlyKit):
+    """A book, its stores and its history, open for writing (PRD §6).
+
+    Open one with :meth:`open` or create one with
+    :func:`~cashkit.sdk.construction.create_book`. Every write here goes
+    through :attr:`state` (the one owner of the authored book and its
+    overlays), is validated at call time, returns a
+    :class:`~cashkit.model.ChangeReport`, and — when it changed anything — is
+    written to the §3.3 working tree before returning (ADR-0031).
+    """
+
+    # -- construction ------------------------------------------------------- #
+
+    @classmethod
+    def init(
+        cls,
+        root: str | Path,
+        book: Book,
+        *,
+        settings: EngineSettings | None = None,
+        ledger: LedgerStore | None = None,
+        revisions: RevisionStore | None = None,
+        base_id: ScenarioId = BASE_SCENARIO,
+    ) -> "CashKit":
+        """Create the §3.3 layout at ``root`` and return the kit on it.
+
+        Writes the working tree and opens the ledger, but does **not** commit —
+        the caller decides whether an empty book deserves a revision, and
+        ``cashkit init`` makes that call for the CLI. Raises ``ValueError`` when
+        ``book`` carries engine-synthesized items (programmer error: that is the
+        engine's book, not the authored one).
+        """
+        root = Path(root)
+        root.mkdir(parents=True, exist_ok=True)
+        kit = cls(
+            root=root,
+            state=ScenarioSet.new(book, base_id=base_id),
+            revisions=revisions if revisions is not None else _default_store(root),
+            ledger=ledger if ledger is not None else SqliteLedger(root / "ledger.sqlite"),
+            settings=settings or EngineSettings(),
+        )
+        kit._save()
+        return kit
+
+    @classmethod
+    def open(
+        cls,
+        root: str | Path,
+        *,
+        ledger: LedgerStore | None = None,
+        revisions: RevisionStore | None = None,
+    ) -> tuple["CashKit | None", tuple[Diagnostic, ...]]:
+        """Open the book at ``root``.
+
+        Returns ``(kit, diagnostics)``; ``kit`` is ``None`` when the layout
+        cannot be read. Diagnostics: ``CK-E029`` when there is no book there,
+        ``CK-E025``/``CK-E026`` when a stored file is malformed or comes from a
+        newer schema generation. Never raises on stored content.
+        """
+        root = Path(root)
+        if not is_book_root(root):
+            return None, (make_diagnostic("CK-E029", path=str(root)),)
+        config, problems = load_state(read_working_tree(root))
+        if config is None:
+            return None, problems
+        return (
+            cls(
+                root=root,
+                state=ScenarioSet(book=config.book, scenarios=config.scenarios),
+                revisions=revisions if revisions is not None else _default_store(root),
+                ledger=(
+                    ledger if ledger is not None else SqliteLedger(root / "ledger.sqlite")
+                ),
+                settings=config.settings,
+                summaries=config.summaries,
+                diagnostics=problems,
+            ),
+            problems,
+        )
+
+    def _save(self) -> None:
+        """Write the working state to the §3.3 layout on disk."""
+        write_working_tree(self.root, build_state(self.config_state()))
+
+    def _persisted(self, report: ChangeReport, extra: tuple[Diagnostic, ...] = ()) -> ChangeReport:
+        """Persist after a write that recorded something; attach ``extra``."""
+        if report.changed or report.created:
+            self._save()
+        if not extra:
+            return report
+        return report.model_copy(update={"diagnostics": tuple(report.diagnostics) + extra})
+
+    def _unknown_scenario(self, scenario: ScenarioId, target: str) -> ChangeReport | None:
+        if scenario in self.state.scenarios:
+            return None
+        return ChangeReport(
+            target=target,
+            diagnostics=(
+                make_diagnostic(
+                    "CK-E021",
+                    scenario_id=scenario,
+                    reason="no scenario with that id exists in this book",
+                ),
+            ),
+        )
+
+    # -- authoring (PRD §6.1, §6.3 — one write path, ADR-0031) -------------- #
+
+    def set_item(
+        self, item: Item, *, scenario: ScenarioId = BASE_SCENARIO, note: str = ""
+    ) -> ChangeReport:
+        """Write ``item`` by value into ``scenario`` (PRD §6.1, §6.3).
+
+        ``item`` is the whole item as you want it — a flow with segments, a
+        derived or stock item with a formula. An id already present is
+        **re-authored**, so a construction script is idempotent; a second
+        identical call reports ``CK-I002``. In base the write lands in the
+        authored book; in any other scenario only the fields differing from the
+        resolved parent are recorded (ADR-0009).
+
+        Refuses, writing nothing: ``CK-E003`` (a formula that does not parse, a
+        formula on a flow, a missing formula on a derived item, segments on a
+        derived one), ``CK-E004`` / ``CK-E005`` (a settlement term list that
+        cannot mean anything), ``CK-E011`` (an amount whose sign contradicts
+        ``direction``), ``CK-E012`` (a generative stock), ``CK-E021`` (unknown
+        scenario).
+
+        Writes and reports: ``CK-E001`` (an unknown reference or a selector
+        matching nothing), ``CK-E002`` (a cycle with no ``prev()`` edge),
+        ``CK-E008`` (an unknown param), ``CK-E019``, ``CK-E020`` — each a
+        statement about the book as a whole, which a later write can settle.
+
+        ``note`` is accepted for signature parity and not stored; the revision
+        message is where a change's reason lives. Returns a
+        :class:`~cashkit.model.ChangeReport` whose ``created`` names the item
+        when it is new and whose ``changed`` names the fields that moved.
+        """
+        missing = self._unknown_scenario(scenario, item.id)
+        if missing is not None:
+            return missing
+        refusing = isolated_problems(item)
+        if refusing:
+            return ChangeReport(target=item.id, diagnostics=refusing)
+        before = self.resolve(scenario).book
+        report = self.state.set_item(scenario, item, note=note)
+        if not (report.changed or report.created):
+            return report
+        reporting = new_compile_problems(before, self.resolve(scenario).book)
+        return self._persisted(report, reporting)
+
+    def remove_item(self, item_id: ItemId, *, scenario: ScenarioId = BASE_SCENARIO) -> ChangeReport:
+        """Remove ``item_id`` from ``scenario`` and its descendants (PRD §6.3).
+
+        In base the item leaves the authored book; elsewhere an inherited item
+        is recorded as removed and an added one is dropped. Returns a
+        :class:`~cashkit.model.ChangeReport`; ``CK-E021`` for an unknown
+        scenario, ``CK-I002`` when the item is already absent. Items that read
+        the removed one report ``CK-E001`` on their next run.
+        """
+        missing = self._unknown_scenario(scenario, item_id)
+        if missing is not None:
+            return missing
+        return self._persisted(self.state.remove_item(scenario, item_id))
+
+    def unset(self, item_id: ItemId, *, scenario: ScenarioId) -> ChangeReport:
+        """Drop what ``scenario`` recorded about ``item_id``, reverting to the parent.
+
+        Returns a :class:`~cashkit.model.ChangeReport` listing what was
+        dropped; ``CK-E021`` for an unknown scenario, ``CK-I002`` when the
+        scenario recorded nothing about the item — always the answer in base,
+        which records nothing sparsely.
+        """
+        missing = self._unknown_scenario(scenario, item_id)
+        if missing is not None:
+            return missing
+        return self._persisted(self.state.unset(scenario, item_id))
+
+    def set_param(
+        self,
+        key: str,
+        value: Decimal,
+        *,
+        scenario: ScenarioId = BASE_SCENARIO,
+        note: str = "",
+    ) -> ChangeReport:
+        """Set a named scalar in ``scenario`` (PRD §6.1, §6.3).
+
+        ``params`` is the lever surface: anything an agent might sweep must be a
+        param rather than a literal inside a formula. In base this sets what
+        every override falls through to; elsewhere it is recorded sparsely,
+        only when it differs from the resolved parent's value.
+        ``opening_balance`` is the reserved key that overrides the Book field
+        (PRD §4.1) and is checked as money at the door.
+
+        Returns a :class:`~cashkit.model.ChangeReport` whose ``changed`` is
+        ``("params.<key>",)``. Diagnostics: ``CK-E007`` for a key formulas
+        could not address as ``p.<key>``, ``CK-E021`` for an unknown scenario,
+        ``CK-E024`` when ``opening_balance`` is not valid money, ``CK-I002``
+        when the value was already this.
+        """
+        target = f"params.{key}"
+        missing = self._unknown_scenario(scenario, target)
+        if missing is not None:
+            return missing
+        try:
+            validated_params({key: value})
+        except (ValidationError, ValueError) as exc:
+            return ChangeReport(
+                target=target,
+                diagnostics=(make_diagnostic("CK-E007", field=key, key=key, reason=reason_of(exc)),),
+            )
+        if key == OPENING_BALANCE_PARAM:
+            try:
+                _require_money(value)
+            except ValueError as exc:
+                return ChangeReport(
+                    target=target,
+                    diagnostics=(
+                        make_diagnostic(
+                            "CK-E024", field=key, key=key, scenario_id=scenario, reason=str(exc)
+                        ),
+                    ),
+                )
+        return self._persisted(self.state.set_param(scenario, key, value, note=note))
+
+    def apply_macro(
+        self, macro: Macro, *, scenario: ScenarioId = BASE_SCENARIO, note: str = ""
+    ) -> ChangeReport:
+        """Expand a macro into concrete item writes, immediately (PRD §6.3).
+
+        ``ShiftItems``, ``ScaleItems`` and ``RetagItems`` rewrite every item
+        their selector matches in the resolved scenario, and each rewritten item
+        goes through :meth:`set_item` — so nothing is deferred, nothing is
+        stored as a rule, and the post-macro state is indistinguishable from
+        having typed the items out. ``RetagItems`` on base is what PRD §6.1
+        calls ``retag``.
+
+        Returns a :class:`~cashkit.model.ChangeReport` whose ``changed``
+        entries are ``"<item_id>.<field>"``. Diagnostics: ``CK-E021``,
+        ``CK-E003`` for a malformed selector, ``CK-I002`` when the macro changed
+        nothing (including when the selector matched nothing).
+        """
+        missing = self._unknown_scenario(scenario, scenario)
+        if missing is not None:
+            return missing
+        before = self.resolve(scenario).book
+        report = self.state.apply_macro(scenario, macro, note=note)
+        if not (report.changed or report.created):
+            return report
+        reporting = new_compile_problems(before, self.resolve(scenario).book)
+        return self._persisted(report, reporting)
+
+    def set_book(self, **fields: object) -> ChangeReport:
+        """Write book-level fields of the authored book (PRD §6.1).
+
+        Accepts ``cutover``, ``opening_balance``, ``horizon``, ``calendar`` and
+        ``tax_regimes`` (the whole list, by value — a regime is replaced by
+        giving the list again, the way ``segments`` is atomic). ``params`` and
+        ``items`` have their own verbs; ``id`` and ``base_grain`` are fixed at
+        creation. An unknown field name raises ``ValueError`` (programmer
+        error).
+
+        ``cutover`` is authored, never ``today()`` — nothing in this package
+        reads the clock (ADR-0010). A cutover outside the horizon is recorded
+        and warned about with ``CK-W006``, never refused: both directions are
+        states an agent can mean and neither is legible from the numbers.
+
+        Refuses, writing nothing: ``CK-E024`` (``opening_balance`` not valid
+        money), ``CK-E032`` (a value that cannot make a Book — a horizon that
+        is not ``start < end``, a malformed calendar), ``CK-E019`` (a regime
+        unusable on its own terms). Writes and reports: ``CK-E019`` when a
+        regime's selector matches nothing yet, plus any compile problem the
+        change introduces. Returns a :class:`~cashkit.model.ChangeReport` whose
+        ``changed`` names the fields that moved, ``CK-I002`` when none did.
+        """
+        unknown = sorted(set(fields) - set(BOOK_FIELDS))
+        if unknown:
+            raise ValueError(f"set_book accepts {BOOK_FIELDS}; got {unknown}")
+        target = "book"
+        refusing: list[Diagnostic] = []
+        if "opening_balance" in fields:
+            try:
+                _require_money(fields["opening_balance"])  # type: ignore[arg-type]
+            except (ValueError, TypeError) as exc:
+                refusing.append(
+                    make_diagnostic(
+                        "CK-E024",
+                        field="opening_balance",
+                        key="opening_balance",
+                        scenario_id=self.book.id,
+                        reason=str(exc),
+                    )
+                )
+        for regime in fields.get("tax_regimes", ()) or ():  # type: ignore[union-attr]
+            problem = regime_problem(regime)
+            if problem is not None:
+                refusing.append(problem)
+        if refusing:
+            return ChangeReport(target=target, diagnostics=tuple(refusing))
+        try:
+            candidate = Book.model_validate({**self.book.model_dump(), **fields})
+        except (ValidationError, ValueError) as exc:
+            return ChangeReport(
+                target=target,
+                diagnostics=(make_diagnostic("CK-E032", reason=reason_of(exc)),),
+            )
+        before = self.book
+        moved = self.state.set_book(**{name: getattr(candidate, name) for name in fields})
+        if not moved:
+            return ChangeReport(
+                target=target,
+                diagnostics=(make_diagnostic("CK-I002", field=", ".join(sorted(fields))),),
+            )
+        # The compile delta carries CK-W006 for a cutover that left the horizon
+        # (the same check every run makes) and CK-E019 for a regime whose
+        # selector matches nothing yet, alongside anything else the change
+        # introduced — one source for the warning, never two copies of it.
+        reporting = new_compile_problems(before, self.book)
+        return self._persisted(ChangeReport(target=target, changed=moved), reporting)
+
+    def fork(self, new_id: ScenarioId, *, parent: ScenarioId = BASE_SCENARIO, note: str = "") -> ChangeReport:
+        """Fork ``parent`` into a new empty scenario ``new_id`` (PRD §6.3).
+
+        Returns a :class:`~cashkit.model.ChangeReport` whose ``created`` names
+        the new scenario. Diagnostics: ``CK-E021`` when the parent does not
+        exist, ``CK-E022`` when ``new_id`` is taken. Forking base is the same
+        operation as forking anything else.
+        """
+        return self._persisted(self.state.fork(parent, new_id, note=note))
+
+    def flatten(self, new_id: ScenarioId, *, scenario: ScenarioId, note: str = "") -> ChangeReport:
+        """Collapse ``scenario``'s chain into a standalone ``new_id`` (PRD §6.3).
+
+        The result has ``parent=None`` and resolves to exactly the same Book.
+        Returns a :class:`~cashkit.model.ChangeReport`; ``CK-E021`` for an
+        unknown source, ``CK-E022`` when ``new_id`` is taken.
+        """
+        return self._persisted(self.state.flatten(scenario, new_id, note=note))
+
+    # -- ledger (PRD §6.2) --------------------------------------------------- #
+    #
+    # The store owns append-only-ness and ``UNIQUE(source, ext_id)``; the kit
+    # passes through so the ledger is reached from the one object an agent
+    # holds, and so a read-only kit — which shares the live ledger — has no
+    # path to it (ADR-0033).
+
+    def _ledger(self) -> LedgerStore:
+        if self.ledger is None:
+            raise ValueError(
+                "this kit has no ledger store; ledger operations need one "
+                "(construct the kit with ledger=..., or open a book root)"
+            )
+        return self.ledger
+
+    def add_event(self, event: Event) -> ChangeReport:
+        """Append one event to the ledger (PRD §6.2).
+
+        Returns the store's :class:`~cashkit.model.ChangeReport`. Diagnostics:
+        ``CK-E010`` for a taken ``(source, ext_id)``, ``CK-E015`` for a taken
+        id, ``CK-I002`` for an identical re-add.
+        """
+        return self._ledger().add_event(event)
+
+    def import_events(self, rows: Iterable[Event], source: str) -> ChangeReport:
+        """Idempotent batch import keyed on ``(source, ext_id)`` (PRD §6.2).
+
+        Returns the store's :class:`~cashkit.model.ImportReport`; any conflict
+        aborts the whole batch (ADR-0008). Diagnostics: ``CK-E010``, ``CK-E017``.
+        """
+        return self._ledger().import_events(rows, source)
+
+    def void_event(self, event_id: EventId, note: str) -> ChangeReport:
+        """Tombstone a committed/forecast event (PRD §6.2).
+
+        Diagnostics: ``CK-E014``, ``CK-E015``, ``CK-E016`` (an actual is
+        corrected, never voided — ADR-0012).
+        """
+        return self._ledger().void_event(event_id, note)
+
+    def correct_event(self, event_id: EventId, corrected: Event, note: str) -> ChangeReport:
+        """Tombstone an event and append its correction, atomically (ADR-0012).
+
+        Diagnostics: ``CK-E014``, ``CK-E015``.
+        """
+        return self._ledger().correct_event(event_id, corrected, note)
+
+    # -- version control ---------------------------------------------------- #
+
+    def commit(
+        self,
+        message: str,
+        *,
+        scenarios: Sequence[ScenarioId] | None = None,
+        author: str = "agent",
+        timestamp: Timestamp | None = None,
+    ) -> CommitReport:
+        """Serialize state, recompute snapshots, record a revision (PRD §6.6).
+
+        Takes the single-writer lock for the whole operation (ADR-0010): the
+        config store, the ledger watermark and the snapshots are one consistency
+        domain, and a second writer interleaving between them is exactly the
+        silent merge this refuses to do. Stamps the ledger watermark — only
+        ``commit()`` ever does (ADR-0006) — and recomputes the affected
+        scenarios' snapshots so the config diff and the outcome diff land in the
+        same revision.
+
+        Returns a :class:`CommitReport` whose ``revision`` is ``None`` when the
+        tree was unchanged. Diagnostics: ``CK-E013`` when another writer holds
+        the lock (the second writer fails loudly and never merges), ``CK-W010``
+        when a dead writer's lock was reclaimed, ``CK-I002`` when nothing
+        changed, plus every error-severity diagnostic of a recomputed run.
+        """
+        with WriterLock(self.root, timestamp=timestamp) as lock:
+            if not lock.acquired:
+                return CommitReport(target=message, diagnostics=lock.diagnostics)
+            notes = list(lock.diagnostics)
+
+            targets = list(scenarios) if scenarios is not None else sorted(
+                self.state.scenarios
+            )
+            watermark = self.ledger.watermark() if self.ledger is not None else None
+            for scenario_id in targets:
+                run = self.run(scenario_id)
+                notes.extend(d for d in run.diagnostics if d.severity == "error")
+                self.summaries[scenario_id] = CommittedSummary(
+                    scenario=scenario_id,
+                    engine_version=ENGINE_VERSION,
+                    schema_version=SCHEMA_VERSION,
+                    watermark=watermark,
+                    summary=run.summary(),
+                )
+
+            state = build_state(self.config_state(watermark_from_ledger=True))
+            write_working_tree(self.root, state)
+            revision = self.revisions.write_revision(
+                state,
+                message=message,
+                author=author,
+                metadata={
+                    "engine-version": ENGINE_VERSION,
+                    "schema-version": str(SCHEMA_VERSION),
+                    "watermark": "" if watermark is None else watermark.content_hash,
+                },
+                timestamp=timestamp,
+            )
+
+        if revision is None:
+            return CommitReport(
+                target=message,
+                revision=None,
+                diagnostics=tuple(notes) + (make_diagnostic("CK-I002"),),
+            )
+        # The stamped watermark is now part of the committed book; adopt it so a
+        # second commit with no other change is correctly reported as empty.
+        self.state.book = self.book.model_copy(update={"ledger_watermark": watermark})
+        return CommitReport(
+            target=message,
+            revision=revision,
+            created=(revision.id,),
+            changed=tuple(sorted(state.paths())),
+            diagnostics=tuple(notes),
+        )
+
+    def status(self) -> WorkingState:
+        """The uncommitted difference between the working state and HEAD.
+
+        Structured, never a git porcelain string (PRD §6.6). Compares the
+        in-memory state to the revision it was last committed at, item by item
+        and param by param, so an agent can say *what* is uncommitted rather
+        than *that something* is. Diagnostics: ``CK-E025``/``CK-E026`` when the
+        committed state cannot be read back.
+        """
+        head = self.revisions.head()
+        current = build_state(self.config_state())
+        if head is None:
+            return WorkingState(
+                revision=None,
+                clean=False,
+                items_added=tuple(sorted(self.book.items)),
+                scenarios_changed=tuple(sorted(self.state.scenarios)),
+                paths_changed=current.paths(),
+            )
+
+        stored, reason = self.revisions.read_state(head.id)
+        if stored is None:
+            return WorkingState(
+                revision=head.id,
+                clean=False,
+                diagnostics=(
+                    make_diagnostic("CK-E027", ref=head.id, reason=reason or "unreadable"),
+                ),
+            )
+        committed, problems = load_state(stored)
+        if committed is None:
+            return WorkingState(revision=head.id, clean=False, diagnostics=problems)
+
+        paths = diff_states(stored, current)
+        mine = self.config_state()
+        state = _compare_states(committed, mine)
+        return WorkingState(
+            revision=head.id,
+            clean=not (
+                state["items_added"]
+                or state["items_removed"]
+                or state["items_changed"]
+                or state["params_changed"]
+                or state["book_fields_changed"]
+                or state["scenarios_changed"]
+                or state["settings_changed"]
+            ),
+            paths_changed=tuple(
+                sorted(set(paths.added) | set(paths.removed) | set(paths.changed))
+            ),
+            diagnostics=problems,
+            **state,
+        )
+
+    def discard(self, items: Iterable[ItemId] | None = None) -> ChangeReport:
+        """Throw uncommitted work away, restoring from HEAD (PRD §6.6).
+
+        ``items=None`` restores everything — book, params, scenarios, settings.
+        Naming items restores only those, leaving every other uncommitted change
+        in place. Returns a :class:`ChangeReport` listing what was restored;
+        ``CK-I002`` when nothing was uncommitted, ``CK-E027`` when HEAD does not
+        resolve (a history with no revisions has nothing to discard *to*).
+        """
+        head = self.revisions.head()
+        if head is None:
+            return ChangeReport(
+                target="discard",
+                diagnostics=(
+                    make_diagnostic(
+                        "CK-E027",
+                        ref="HEAD",
+                        reason="the history has no revisions to discard back to",
+                    ),
+                ),
+            )
+        stored, reason = self.revisions.read_state(head.id)
+        if stored is None:  # pragma: no cover - head always reads back
+            return ChangeReport(
+                target="discard",
+                diagnostics=(
+                    make_diagnostic("CK-E027", ref=head.id, reason=reason or "unreadable"),
+                ),
+            )
+        committed, problems = load_state(stored)
+        if committed is None:
+            return ChangeReport(target="discard", diagnostics=problems)
+
+        if items is None:
+            before = self.config_state()
+            self.state = ScenarioSet(
+                book=committed.book, scenarios=committed.scenarios, base_id=self.state.base_id
+            )
+            self.settings = committed.settings
+            self.summaries = dict(committed.summaries)
+            restored = _restored_names(_compare_states(committed, before))
+        else:
+            wanted = sorted(set(items))
+            merged = dict(self.book.items)
+            restored = []
+            for item_id in wanted:
+                stored_item = committed.book.items.get(item_id)
+                if stored_item == merged.get(item_id):
+                    continue
+                if stored_item is None:
+                    merged.pop(item_id, None)
+                else:
+                    merged[item_id] = stored_item
+                restored.append(item_id)
+            self.state.book = self.book.model_copy(update={"items": merged})
+
+        self._save()
+        if not restored:
+            return ChangeReport(target="discard", diagnostics=(make_diagnostic("CK-I002"),))
+        return ChangeReport(target="discard", changed=tuple(restored))
 
 
 # --------------------------------------------------------------------------- #
@@ -1115,10 +1376,6 @@ def _default_store(root: Path) -> RevisionStore:
     return GitRevisionStore(root)
 
 
-def _read_only(ref: str) -> Diagnostic:
-    return make_diagnostic("CK-E030", ref=ref)
-
-
 def _path_for(*, item: ItemId | None, scenario: ScenarioId | None) -> str | None:
     if item is not None:
         return f"{ITEMS_DIR}/{item}.yaml"
@@ -1127,11 +1384,13 @@ def _path_for(*, item: ItemId | None, scenario: ScenarioId | None) -> str | None
     return None
 
 
-def _resolved(config: ConfigState, scenario: ScenarioId | None) -> Book:
+def _resolved(config: ConfigState, scenario: ScenarioId | None, base_id: ScenarioId) -> Book:
     """The book a diff should compare: the authored one, or a resolved scenario."""
     if scenario is None:
         return config.book
-    return ScenarioSet(book=config.book, scenarios=config.scenarios).resolve(scenario)
+    return ScenarioSet(
+        book=config.book, scenarios=config.scenarios, base_id=base_id
+    ).resolve(scenario).book
 
 
 def _outcome_diffs(

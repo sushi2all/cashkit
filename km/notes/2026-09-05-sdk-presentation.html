@@ -181,7 +181,7 @@
 <section class="slide title" id="s1">
   <p class="eyebrow">CashKit · Python ≥ 3.11 · Pydantic v2 · numpy int64</p>
   <h1>The SDK, under the hood</h1>
-  <p class="lede">One object, six method groups, one engine, three stores. Every fallible call returns a <code>Diagnostic</code>, never a stack trace.</p>
+  <p class="lede">One object, one write path, one engine, three stores. Every write returns a <code>ChangeReport</code>; every fallible call returns a <code>Diagnostic</code>, never a stack trace.</p>
   <div class="three">
     <div><b>Time is an axis</b><span>Every value is a column over the horizon. <code>prev()</code> is the only sequential dependency.</span></div>
     <div><b>Runs reproduce</b><span>A run is <code>(revision, scenario, engine_version, ledger_watermark)</code>. Nothing reads the clock.</span></div>
@@ -262,24 +262,27 @@
 <!-- 3 · The kit object -->
 <section class="slide" id="s3">
   <p class="eyebrow">The object an agent holds <span class="sec">cashkit/sdk/kit.py</span></p>
-  <h2>A <code>CashKit</code> is a book root, three stores and an in-memory working state</h2>
+  <h2>Two types, one shape: <code>ReadOnlyKit</code> reads, <code>CashKit</code> adds writes</h2>
   <div class="cols wide-left">
     <pre class="code">@dataclass
-class CashKit:
+class ReadOnlyKit:                      # what at(ref) returns — no write methods
     root: Path                          # &lt;book_root&gt;/ — the PRD §3.3 layout
-    scenarios: ScenarioSet              # the AUTHORED book + overlays, in memory
+    state: ScenarioSet                  # the AUTHORED book + overlays, in memory
     revisions: RevisionStore            # history; git never in a signature
     ledger: LedgerStore | None          # events; the engine never opens it
     frames: FrameStore | None = None    # opened on first frame(), never before
     settings: EngineSettings            # rounding policy — tracked, travels with history
     summaries: dict[ScenarioId, CommittedSummary]   # snapshots/ = outcome diff
-    bound_to: str | None = None         # set by at(ref): read-only twin
-    diagnostics: tuple[Diagnostic, ...] # what open() could not read
+    revision: str | None = None         # bound to a past revision, or live
+    # reads: book · scenarios · resolve · provenance · diff · describe_book
+    #        run · validate · compare · query_events · reconcile
+    #        history · at · diff_revisions · reproduce
 
-    @classmethod
-    def init(root, book, *, settings, ledger, revisions) -> CashKit
-    @classmethod
-    def open(root, *, ledger, revisions) -> (CashKit | None, diagnostics)</pre>
+@dataclass
+class CashKit(ReadOnlyKit):             # the live kit: everything above, plus
+    init · open                         # writes — set_item · set_param · remove_item
+    # unset · apply_macro · set_book · fork · flatten · add_event · import_events
+    # void_event · correct_event · commit · status · discard</pre>
     <div>
       <pre class="code">@dataclass(frozen=True)
 class RunRef:                 # what run() returns
@@ -287,74 +290,70 @@ class RunRef:                 # what run() returns
     book: Book                # resolved, no overlays
     result: RunResult         # int64 columns
     engine: Engine            # compiled graph kept
+    kit: ReadOnlyKit          # the store it can reach
     revision: str | None      # None while live
     policy: RoundingPolicy
 
-    summary()   trace()   why_zero()
-    depends_on()   dependents_of()</pre>
-      <p class="note"><strong>Two books exist.</strong> The kit holds the authored one. The engine augments it with synthetic items (<code>_tax:*</code>, <code>_event:*</code>) that never leave a run.</p>
+    summary()  frame()  pivot()  export()
+    trace()  why_zero()
+    depends_on()  dependents_of()</pre>
+      <p class="note"><strong>Two books exist.</strong> The kit holds the authored one. The engine augments it with synthetic items (<code>_tax:*</code>, <code>_event:*</code>) that never leave a run. <strong>A past revision is a type</strong> (ADR-0033): a write on it is a method that does not exist, not a diagnostic to remember.</p>
     </div>
   </div>
 </section>
 
 <!-- 4 · Method map -->
 <section class="slide" id="s4">
-  <p class="eyebrow">Method map <span class="sec">PRD §6 · everything returns structured data</span></p>
-  <h2>Six groups, one object</h2>
+  <p class="eyebrow">Method map <span class="sec">PRD §6 as narrowed by ADR-0031…0034 · everything returns structured data</span></p>
+  <h2>One object, addressed by scenario</h2>
   <div class="method-grid">
-    <div class="mbox"><h3>Construction <span class="sec">§6.1</span></h3><ul>
-      <li><code>create_book(root, id, horizon, …)</code><span class="ret">BookRef</span></li>
-      <li><code>kit.add_item(spec)</code><span class="ret">ItemRef</span></li>
-      <li><code>kit.add_derived(id, formula)</code><span class="ret">ItemRef</span></li>
-      <li><code>kit.set_param(key, value)</code><span class="ret">ChangeReport</span></li>
-      <li><code>kit.retag(selector, tags)</code><span class="ret">AffectedCount</span></li>
-      <li><code>kit.add_tax_regime(regime)</code><span class="ret">ChangeReport</span></li>
-      <li><code>kit.set_cutover(day)</code><span class="ret">ChangeReport</span></li>
-      <li><code>kit.validate(scenario)</code><span class="ret">list[Diagnostic]</span></li>
+    <div class="mbox"><h3>Handles <span class="sec">(kit, diagnostics)</span></h3><ul>
+      <li><code>create_book(root, id, horizon, …)</code><span class="ret">CashKit | None</span></li>
+      <li><code>CashKit.open(root)</code><span class="ret">CashKit | None</span></li>
+      <li><code>kit.at(ref)</code><span class="ret">ReadOnlyKit | None</span></li>
+      <li><code>kit.run(scenario)</code><span class="ret">RunRef</span></li>
+    </ul></div>
+    <div class="mbox"><h3>Authoring <span class="sec">§6.1 + §6.3 · scenario="base"</span></h3><ul>
+      <li><code>kit.set_item(item, scenario=)</code><span class="ret">ChangeReport</span></li>
+      <li><code>kit.set_param(key, value, scenario=)</code><span class="ret">ChangeReport</span></li>
+      <li><code>kit.remove_item(id, scenario=)</code><span class="ret">ChangeReport</span></li>
+      <li><code>kit.unset(id, scenario=)</code><span class="ret">ChangeReport</span></li>
+      <li><code>kit.apply_macro(macro, scenario=)</code><span class="ret">ChangeReport</span></li>
+      <li><code>kit.set_book(cutover=, horizon=, …)</code><span class="ret">ChangeReport</span></li>
+      <li><code>kit.fork(new_id, parent=)</code><span class="ret">ChangeReport</span></li>
+      <li><code>kit.flatten(new_id, scenario=)</code><span class="ret">ChangeReport</span></li>
     </ul></div>
     <div class="mbox"><h3>Ledger <span class="sec">§6.2</span></h3><ul>
       <li><code>kit.add_event(event)</code><span class="ret">ChangeReport</span></li>
       <li><code>kit.import_events(rows, source)</code><span class="ret">ImportReport</span></li>
       <li><code>kit.void_event(id, note)</code><span class="ret">ChangeReport</span></li>
-      <li><code>kit.correct_event(id, event)</code><span class="ret">ChangeReport</span></li>
+      <li><code>kit.correct_event(id, event, note)</code><span class="ret">ChangeReport</span></li>
       <li><code>kit.query_events(where, since)</code><span class="ret">Table</span></li>
       <li><code>kit.reconcile(until)</code><span class="ret">ReconciliationReport</span></li>
     </ul></div>
-    <div class="mbox"><h3>Scenarios <span class="sec">§6.3 · kit.scenarios</span></h3><ul>
-      <li><code>fork(id, new_id)</code><span class="ret">ChangeReport</span></li>
-      <li><code>set_item(id, item)</code><span class="ret">ChangeReport</span></li>
-      <li><code>set_param(id, key, value)</code><span class="ret">ChangeReport</span></li>
-      <li><code>unset(id, item)</code><span class="ret">ChangeReport</span></li>
-      <li><code>remove_item(id, item)</code><span class="ret">ChangeReport</span></li>
-      <li><code>apply_macro(id, macro)</code><span class="ret">ChangeReport</span></li>
-      <li><code>resolve(id)</code><span class="ret">Book</span></li>
-      <li><code>diff(a, b)</code><span class="ret">ScenarioDiff</span></li>
-      <li><code>provenance(id, item)</code><span class="ret">Provenance</span></li>
-      <li><code>flatten(id, new_id)</code><span class="ret">ChangeReport</span></li>
-    </ul></div>
-    <div class="mbox"><h3>Execution <span class="sec">§6.4</span></h3><ul>
-      <li><code>kit.run(scenario)</code><span class="ret">RunRef</span></li>
-      <li><code>run.summary(grain)</code><span class="ret">RunSummary</span></li>
-      <li><code>kit.frame(run, grain, where, …)</code><span class="ret">Table</span></li>
-      <li><code>kit.pivot(run, index, columns)</code><span class="ret">Table</span></li>
+    <div class="mbox"><h3>Reads on the kit <span class="sec">§6.3 · §6.5</span></h3><ul>
+      <li><code>kit.resolve(scenario)</code><span class="ret">Resolution</span></li>
+      <li><code>kit.provenance(item, scenario=)</code><span class="ret">Provenance</span></li>
+      <li><code>kit.diff(a, b)</code><span class="ret">ScenarioDiff</span></li>
+      <li><code>kit.validate(scenario)</code><span class="ret">= run().diagnostics</span></li>
+      <li><code>kit.describe_book(scenario)</code><span class="ret">BookDescription</span></li>
       <li><code>kit.compare(runs, metric)</code><span class="ret">Table</span></li>
-      <li><code>kit.export(run, path, format)</code><span class="ret">ExportReport</span></li>
     </ul></div>
-    <div class="mbox"><h3>Introspection <span class="sec">§6.5</span></h3><ul>
+    <div class="mbox"><h3>Reads on the run <span class="sec">§6.4 · §6.5</span></h3><ul>
+      <li><code>run.summary(grain)</code><span class="ret">RunSummary</span></li>
+      <li><code>run.frame(grain, where, …)</code><span class="ret">Table</span></li>
+      <li><code>run.pivot(index, columns)</code><span class="ret">Table</span></li>
+      <li><code>run.export(path, format)</code><span class="ret">ExportReport</span></li>
       <li><code>run.trace(item, period, depth)</code><span class="ret">Trace</span></li>
       <li><code>run.why_zero(item, period)</code><span class="ret">Explanation</span></li>
       <li><code>run.depends_on(item)</code><span class="ret">DependencyGraph</span></li>
       <li><code>run.dependents_of(item)</code><span class="ret">DependencyGraph</span></li>
-      <li><code>kit.describe_book(scenario)</code><span class="ret">BookDescription</span></li>
-      <li><code>render_expr(expr)</code><span class="ret">str</span></li>
     </ul></div>
     <div class="mbox"><h3>Version control <span class="sec">§6.6</span></h3><ul>
       <li><code>kit.commit(message, scenarios)</code><span class="ret">CommitReport</span></li>
       <li><code>kit.status()</code><span class="ret">WorkingState</span></li>
       <li><code>kit.discard(items)</code><span class="ret">ChangeReport</span></li>
       <li><code>kit.history(item, field, …)</code><span class="ret">list[Revision]</span></li>
-      <li><code>kit.blame(item, field)</code><span class="ret">list[Revision]</span></li>
-      <li><code>kit.at(ref)</code><span class="ret">(CashKit, diagnostics)</span></li>
       <li><code>kit.diff_revisions(a, b)</code><span class="ret">RevisionDiff</span></li>
       <li><code>kit.reproduce(ref, scenario)</code><span class="ret">Reproduction</span></li>
     </ul></div>
@@ -366,12 +365,11 @@ class RunRef:                 # what run() returns
   <p class="eyebrow">A session, end to end</p>
   <h2>Author → validate → run → ask why → commit</h2>
   <div class="cols wide-left">
-    <pre class="code">ref = create_book("./acme", id="acme", grain=Grain.DAY,
-                  horizon=PeriodRange(start=2026-01-01, end=2031-01-01),
-                  opening_balance=Decimal("250000"), calendar="IT")
-kit = ref.kit                                   # CashKit on ./acme
+    <pre class="code">kit, problems = create_book("./acme", id="acme", grain=Grain.DAY,
+                            horizon=PeriodRange(start=2026-01-01, end=2031-01-01),
+                            opening_balance=Decimal("250000"), calendar="IT")
 
-kit.add_item(Item(id="acme_impl", kind="flow", direction="in",
+kit.set_item(Item(id="acme_impl", kind="flow", direction="in",
                   tags={"cat": "revenue", "customer": "acme"},
                   segments=[Segment(start=2026-03-01, end=2027-03-01,
                       recurrence=Recurrence(every=1, unit=MONTH, anchor="eom"),
@@ -380,18 +378,21 @@ kit.add_item(Item(id="acme_impl", kind="flow", direction="in",
                   settlement=Settlement(due=[DueTerm(share=1, offset="60d")]),
                   vat=VatSpec(rate="vat_standard")))
 kit.set_param("acme_escalation", Decimal("0.05"))
-kit.add_derived("net",  'agg(tag="cat:revenue") + agg(tag="cat:cost")')
-kit.add_derived("cash", 'prev("cash", init=p.opening_balance) + it("net")', kind="stock")
+kit.set_item(Item(id="net",  kind="derived", formula='agg(tag="cat:revenue") + agg(tag="cat:cost")'))
+kit.set_item(Item(id="cash", kind="stock",   formula='prev("cash", init=p.opening_balance) + it("net")'))
 
-problems = kit.validate()                       # whole §10.1 catalogue, errors first
-run      = kit.run()                            # RunRef, deterministic
+kit.fork("downside")                                   # same verbs, scenario="downside"
+kit.apply_macro(ScaleItems(selector="cat:revenue", factor=Decimal("0.8")), scenario="downside")
+
+problems = kit.validate()                       # = run().diagnostics, errors first
+run      = kit.run("downside")                  # RunRef, deterministic
 run.summary().min_cash_period                   # when do we run out of cash
 run.trace("cash", date(2026, 9, 30), depth=3)   # formula → bindings → arithmetic
 kit.commit("Acme terms as signed")              # snapshot + revision, or None</pre>
     <dl class="dl">
-      <dt>create_book</dt><dd>writes the §3.3 layout, resolves holidays for the horizon and commits them (ADR-0010)</dd>
-      <dt>add_item / add_derived</dt><dd>formula parsed and DAG-checked <em>now</em>; refuses what is wrong in isolation, records the rest with diagnostics</dd>
-      <dt>validate</dt><dd>runs the engine, then adds what a run cannot see (sign vs direction, cutover outside horizon)</dd>
+      <dt>create_book</dt><dd>writes the §3.3 layout, resolves holidays for the horizon and commits them (ADR-0010); returns <code>(kit, diagnostics)</code></dd>
+      <dt>set_item / set_param</dt><dd>one verb per thing, addressed by scenario; formula parsed and DAG-checked <em>now</em>; refuses what is wrong in isolation, records the rest with diagnostics; persists to disk</dd>
+      <dt>validate</dt><dd>the run's own diagnostics, ordered errors-first: one implementation of "what is wrong with this book"</dd>
       <dt>run</dt><dd>resolve scenario → ledger view → <code>Engine</code> → <code>RunRef</code></dd>
       <dt>commit</dt><dd>lock → re-run every scenario → snapshots → stamp watermark → revision</dd>
     </dl>
@@ -496,27 +497,29 @@ kit.commit("Acme terms as signed")              # snapshot + revision, or None</
 <!-- 7 · Construction: admit -->
 <section class="slide" id="s7">
   <p class="eyebrow">Construction <span class="sec">cashkit/sdk/construction.py</span></p>
-  <h2>Two tiers at write time: refuse what is wrong alone, record what the book may fix later</h2>
+  <h2>One write path, two tiers: refuse what is wrong alone, record what the book may fix later</h2>
   <div class="cols two">
-    <pre class="code">def _admit(kit, item) -> ItemRef:
-    refusing = _isolated_problems(item)        # E003 formula won't parse
+    <pre class="code">def set_item(self, item, *, scenario="base") -> ChangeReport:
+    if scenario not in self.state.scenarios: return CK-E021
+    refusing = isolated_problems(item)         # E003 formula won't parse
     if refusing:                               # E004/E005 settlement can't mean anything
-        return ItemRef(diagnostics=refusing)   # E011 sign contradicts direction
-                                               # E012 generative stock
-    candidate = kit.book + {item.id: item}
-    reporting = compile_book(candidate).diagnostics \
-              - compile_book(kit.book).diagnostics   # only the NEW problems:
-                                               # E001 unknown ref · E002 cycle
-    report = _write_item(kit, item)            # E008 unknown param · E020
-    kit.save()                                 # working tree on disk, not a revision
-    return report + reporting
+        return ChangeReport(diagnostics=refusing)   # E011 sign vs direction · E012 stock
 
-def _write_item(kit, item) -> ItemRef:
-    existing = kit.book.items.get(item.id)
-    if existing == item:  return ItemRef(CK-I002)   # nothing moved: say so
-    kit.scenarios.set_book(items={**kit.book.items, item.id: item})
-    return ItemRef(created=(id,)) if existing is None \
-      else ItemRef(changed=fields_that_differ(existing, item))</pre>
+    before = self.resolve(scenario).book
+    report = self.state.set_item(scenario, item)    # base → authored book
+    if report.empty: return report                  # other → field-sparse overlay
+    reporting = compile_book(self.resolve(scenario).book).diagnostics \
+              - compile_book(before).diagnostics    # only the NEW problems:
+    self._save()                                    # E001 unknown ref · E002 cycle
+    return report + reporting                       # E008 unknown param · E020
+
+# ScenarioSet.set_item — the ONE place that knows base's id (ADR-0031)
+def set_item(self, scenario_id, item):
+    if scenario_id == self.base_id:
+        self.set_book(items={**self.book.items, item.id: item})   # top-level files
+        return ChangeReport(created | changed=fields that moved)
+    overlay = diff(item, self._parent_view(scenario))            # record only the delta
+    ...</pre>
     <div>
       <figure>
         <svg viewBox="0 0 440 230" role="img" aria-label="An item spec goes through isolated checks; failures refuse the write. Then a compile of the candidate book yields diagnostics that are recorded alongside the write.">
@@ -543,7 +546,7 @@ def _write_item(kit, item) -> ItemRef:
         </svg>
         <figcaption>A <code>prev()</code> feedback pair references each other. Under a refusing rule neither could be added first.</figcaption>
       </figure>
-      <p class="note"><strong>Every write goes through <code>ScenarioSet</code></strong>, the one owner of the authored book. Construction writes base's content (top-level files); scenario verbs write overlays. Same path, other half.</p>
+      <p class="note"><strong>Every write goes through <code>ScenarioSet</code></strong>, the one owner of the authored book, and every write that recorded something reaches the working tree before it returns. The caller never chooses a verb by whether the target is base.</p>
     </div>
   </div>
 </section>
@@ -553,25 +556,27 @@ def _write_item(kit, item) -> ItemRef:
   <p class="eyebrow">Execution <span class="sec">CashKit.run</span></p>
   <h2><code>run()</code> is four lines. Everything deterministic is upstream of it.</h2>
   <div class="cols two">
-    <pre class="code">def run(self, scenario_id="base", *, cutover_override=None) -> RunRef:
-    resolution = self.scenarios.resolution(scenario_id)   # chain → concrete Book
+    <pre class="code">def run(self, scenario="base", *, cutover_override=None) -> RunRef:
+    resolution = self.resolve(scenario)                   # chain → Book + diagnostics
     book = resolution.book
     if cutover_override is not None:                      # a query, not a model change:
         book = book.copy(cutover=cutover_override)        # never cached, never snapshotted
 
-    events, event_diags = self.events_for(scenario_id)    # ledger view for this scenario
+    events, event_diags = self.events_for(scenario)       # ledger view for this scenario
     engine = Engine(book, self.policy, events)            # compile: facts ∪ graph ∪ SCC
     result = engine.run()                                 # int64 columns
 
-    return RunRef(scenario_id, book, result, engine,
-                  revision=self.bound_to, policy=self.policy,
+    return RunRef(scenario, book, result, engine, kit=self,
+                  revision=self.revision, policy=self.policy,
                   diags=resolution.diags + event_diags + result.diags)
 
-def events_for(self, scenario_id):
-    watermark = self.book.ledger_watermark if self.bound_to else None
+def validate(self, scenario="base") -> list[Diagnostic]:
+    return ordered(self.run(scenario).diagnostics)        # one source of truth
+
+def events_for(self, scenario):
+    watermark = self.book.ledger_watermark if self.revision else None
     #           ↑ at(ref) truncates the ledger; a live kit sees all of it
-    facts = self.ledger.facts(watermark)
-    return self.scenarios.resolve_events(scenario_id, facts)</pre>
+    return self.state.resolve_events(scenario, self.ledger.facts(watermark))</pre>
     <figure>
       <svg viewBox="0 0 460 300" role="img" aria-label="Scenario resolution and the ledger view feed the engine; the engine emits a RunRef carrying result, engine and diagnostics.">
         <defs><marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
@@ -906,8 +911,8 @@ compile_cell(expr, window, policy) -> fn(t)     # fold tier
           <text x="22" y="250">params = book.params ∪ {churn: 0.1}</text><text x="330" y="250" fill="var(--muted)">← downside</text>
           <text x="22" y="266" font-family="Archivo, sans-serif" font-size="10.5" fill="var(--muted)">a later fix to tags in the book reaches every scenario that did not record tags</text>
 
-          <text x="10" y="300" font-family="Archivo, sans-serif" font-size="11" fill="var(--muted)">set_item(scenario, item) is by value: the Item as you want it; only fields differing from the resolved parent are recorded.</text>
-          <text x="10" y="318" font-family="Archivo, sans-serif" font-size="11" fill="var(--muted)">apply_macro(ShiftItems | ScaleItems | RetagItems) expands NOW into the same set_item path. No rule is ever stored.</text>
+          <text x="10" y="300" font-family="Archivo, sans-serif" font-size="11" fill="var(--muted)">kit.set_item(item, scenario=…) is by value: the Item as you want it; in base it is the authored book, elsewhere only the differing fields are recorded.</text>
+          <text x="10" y="318" font-family="Archivo, sans-serif" font-size="11" fill="var(--muted)">kit.apply_macro(ShiftItems | ScaleItems | RetagItems, scenario=…) expands NOW into the same set_item path. No rule is ever stored.</text>
         </g>
       </svg>
     </figure>
@@ -1000,7 +1005,7 @@ compile_cell(expr, window, policy) -> fn(t)     # fold tier
 <!-- 15 · Execution surface -->
 <section class="slide" id="s15">
   <p class="eyebrow">Execution surface <span class="sec">cashkit/sdk/execution.py · views.py · stores/frames.py</span></p>
-  <h2><code>summary()</code> reads the int64 columns. The four table verbs go through a frame store.</h2>
+  <h2>Every read of a run lives on the run. <code>summary()</code> needs no store; the table verbs materialize first.</h2>
   <div class="cols two">
     <figure>
       <svg viewBox="0 0 480 300" role="img" aria-label="A RunRef feeds summary directly. frame, pivot, compare and export first materialize the run into DuckDB under a key built from revision, scenario, engine version, watermark and cutover.">
@@ -1038,14 +1043,14 @@ compile_cell(expr, window, policy) -> fn(t)     # fold tier
         </g>
       </svg>
     </figure>
-    <pre class="code">kit.frame(run, grain=MONTH, measures=["cash"],
+    <pre class="code">run.frame(grain=MONTH, measures=["cash"],
           where="cat:revenue customer:acme", status="forecast")
 # period_start | period_end | item_id | measure | value | currency | status
 # flows sum, stocks take last-in-period (Item.agg_rule)
 
-kit.pivot(run, index="period", columns="tag:customer", values="cash")
+run.pivot(index="period", columns="tag:customer", values="cash")
 kit.compare([kit.run("base"), kit.run("downside")], metric="cash")
-kit.export(run, "q3.parquet")            # ExportReport(path | None)
+run.export("q3.parquet")                 # ExportReport(path | None)
 
 run.summary(grain=Grain.MONTH)
 # RunSummary(min_cash, min_cash_period,   ← always at BASE grain
@@ -1087,10 +1092,10 @@ kit.reconcile(until=date(2026, 8, 31))   # two engine runs, no re-derivation:
           <text x="80" y="234">segment[0] occurrence 2026-03-31 (eom, adjust=prev)</text>
           <text x="80" y="250">steps  base 12 000 → escalation ×1.05^0 → probability ×1</text>
           <text x="80" y="266">       → share 1.0 due +60d → withholding 0 → VAT 22%</text>
-          <text x="80" y="282" fill="var(--accent)">reconciles=True  ← steps re-summed vs the engine's cell</text>
+          <text x="80" y="282" fill="var(--accent)">reconciles=True  ← the engine's own record, re-summed vs the cell</text>
         </g>
       </svg>
-      <figcaption>Values are read from the run's columns; sub-expressions evaluate through the engine's own <code>ColumnEvaluator</code> on a one-period window. Never re-derived.</figcaption>
+      <figcaption>Values are read from the run's columns; formula sub-expressions evaluate through the engine's own <code>ColumnEvaluator</code>, and generated steps come from the <code>OccurrenceRecord</code> the engine kept while expanding (ADR-0035). Never re-derived.</figcaption>
     </figure>
     <div>
       <pre class="code">run.why_zero("acme_impl", date(2026, 2, 15)) -> Explanation
@@ -1122,7 +1127,6 @@ kit.describe_book() -> BookDescription
   <h2><code>commit()</code> snapshots outcomes with config. <code>at(ref)</code> returns a kit, not a book.</h2>
   <div class="cols wide-left">
     <pre class="code">def commit(self, message, *, scenarios=None, author="agent") -> CommitReport:
-    if self.bound_to: return CK-E030                 # a past kit is read-only
     with WriterLock(self.root) as lock:              # O_EXCL .cashkit/lock
         if not lock.acquired: return CK-E013 (holder pid, since)
         watermark = self.ledger.watermark()          # stamped HERE only
@@ -1136,14 +1140,15 @@ kit.describe_book() -> BookDescription
             metadata={"engine-version", "schema-version", "watermark"})
     return CommitReport(revision)                    # revision=None + CK-I002 if unchanged
 
-def at(self, ref) -> (CashKit | None, diagnostics):  # "HEAD" · "HEAD~n" · id
+def at(self, ref) -> (ReadOnlyKit | None, diagnostics):  # "HEAD" · "HEAD~n" · id
     revision = self.revisions.resolve(ref)  or CK-E027
     config   = load_state(self.revisions.read_state(revision))   # migrated forward
-    return CashKit(root, ScenarioSet(config.book, config.scenarios),
-                   revisions=self.revisions, ledger=self.ledger,  # same stores
-                   settings=config.settings, bound_to=revision.id) # ledger truncated
+    return ReadOnlyKit(root, ScenarioSet(config.book, config.scenarios),
+                       revisions=self.revisions, ledger=self.ledger,  # same stores
+                       settings=config.settings, revision=revision.id) # ledger truncated
 
-kit.at("HEAD~5").run("downside").summary()   # eras compare through one API</pre>
+kit.at("HEAD~5").run("downside").summary()   # eras compare through one API
+kit.at("HEAD~5").set_item(...)               # AttributeError: the past has no writes</pre>
     <div>
       <figure>
         <svg viewBox="0 0 460 210" role="img" aria-label="reproduce re-runs a past revision and compares its summary to the committed snapshot: equal at matching engine version, CK-E028 if different at the same version, CK-W011 reported delta at a different version.">
@@ -1180,7 +1185,7 @@ kit.at("HEAD~5").run("downside").summary()   # eras compare through one API</pre
 <!-- 18 · Diagnostics -->
 <section class="slide" id="s18">
   <p class="eyebrow">Errors are data <span class="sec">PRD §6.5 · §10.1 · cashkit/model/diagnostics.py</span></p>
-  <h2>One <code>Diagnostic</code> shape, one catalogue, partitioned by where a code can come from</h2>
+  <h2>One <code>Diagnostic</code> shape, one catalogue. <code>validate()</code> is the run.</h2>
   <div class="cols wide-right">
     <div>
       <pre class="code">class Diagnostic(CashKitModel):
@@ -1197,16 +1202,15 @@ class ChangeReport:
     created: (id, …)
     diagnostics: (…)
     ok = no error-severity</pre>
-      <p class="note">An agent loops on structured codes. Exceptions are reserved for programmer error: bad types, a missing store, <code>MoneyOverflowError</code>.</p>
+      <p class="note">An agent loops on structured codes and one report shape (ADR-0032). Exceptions are reserved for programmer error: bad types, a missing store, <code>MoneyOverflowError</code>. A write on a past revision is not a code at all: the type has no such method.</p>
     </div>
     <table class="methods">
       <tr><th>Reachable from</th><th>Codes</th><th>Emitted by</th></tr>
-      <tr><td class="m"><span class="pill acc">validate()</span> compile</td><td class="mono">E001 E002 E003 E008 E019 E020</td><td class="r">compile_book: unknown ref, cycle w/o prev, formula rejected, unknown param, regime, currencies</td></tr>
-      <tr><td class="m"><span class="pill acc">validate()</span> expansion</td><td class="mono">E004 E005 W001 W002 W005</td><td class="r">settlement structure, remainder clamped, negative through remainder, zero-division selected</td></tr>
-      <tr><td class="m"><span class="pill acc">validate()</span> only</td><td class="mono">E011 E012 E018 W003 W004 W006 I001</td><td class="r">sign vs direction, generative stock, event on derived, actual after cutover, withholding w/o tax leg, cutover outside horizon</td></tr>
+      <tr><td class="m"><span class="pill acc">run()</span> compile</td><td class="mono">E001 E002 E003 E008 E011 E012 E019 E020 W004 W006 I001</td><td class="r">compile_book: unknown ref, cycle w/o prev, formula rejected, unknown param, sign vs direction, generative stock, regime, currencies, withholding w/o tax leg, cutover outside horizon</td></tr>
+      <tr><td class="m"><span class="pill acc">run()</span> expansion</td><td class="mono">E004 E005 E018 W001 W002 W003 W005</td><td class="r">settlement structure, event on derived, remainder clamped, negative through remainder, actual after cutover, zero-division selected</td></tr>
       <tr><td class="m"><span class="pill diag">operation</span> ledger</td><td class="mono">E010 E014 E015 E016 E017</td><td class="r">import conflict, row missing, wrong state, void refuses actual, no ext_id</td></tr>
       <tr><td class="m"><span class="pill diag">operation</span> scenarios</td><td class="mono">E006 E021 E022 E023 E024</td><td class="r">overlay on actual, unknown scenario, id taken, overlay on undefined item, bad opening_balance</td></tr>
-      <tr><td class="m"><span class="pill diag">operation</span> vcs / stores</td><td class="mono">E013 E025 E026 E027 E028 E029 E030 E031 E032 E033 W010 W011</td><td class="r">lock held, unreadable state, newer schema, bad ref, reproduction mismatch, no book, read-only kit, exists, refused, no duckdb, stale lock, engine moved</td></tr>
+      <tr><td class="m"><span class="pill diag">operation</span> vcs / stores</td><td class="mono">E013 E025 E026 E027 E028 E029 E031 E032 E033 W010 W011</td><td class="r">lock held, unreadable state, newer schema, bad ref, reproduction mismatch, no book, exists, refused, no duckdb, stale lock, engine moved</td></tr>
       <tr><td class="m"><span class="pill acc">every write</span></td><td class="mono">I002</td><td class="r">ChangeReport empty: the write recorded nothing</td></tr>
       <tr><td class="m">model boundary</td><td class="mono">E007 E009</td><td class="r">invalid param key, invalid Recurrence: structurally impossible on a built model</td></tr>
     </table>
@@ -1248,7 +1252,7 @@ class LedgerStore(Protocol):              # SqliteLedger
 
 class FrameStore(Protocol):               # DuckdbFrameStore
     materialize(run_id, result, book) · frame · pivot · compare · export</pre>
-      <p class="note"><strong>One driver import per module</strong>: pygit2 in <code>git_store.py</code>, sqlite3 in <code>ledger.py</code>, duckdb in <code>frames.py</code>. A structural test greps the package. The wall clock is read in <code>stores/clock.py</code> alone, for commit and lock timestamps, unreachable from engine or model.</p>
+      <p class="note"><strong>Every kit write that recorded something is on disk before it returns</strong> (ADR-0031); the working tree is the working state, and <code>commit()</code> is the only thing that makes a revision. <strong>One driver import per module</strong>: pygit2 in <code>git_store.py</code>, sqlite3 in <code>ledger.py</code>, duckdb in <code>frames.py</code>. A structural test greps the package. The wall clock is read in <code>stores/clock.py</code> alone, for commit and lock timestamps, unreachable from engine or model.</p>
     </div>
   </div>
 </section>

@@ -53,7 +53,7 @@ def resolve_scenario(kit: CashKit, book: BookRow, requested: str | None) -> str:
     ``?scenario=`` overrides it for this read only (SPEC §2.4).
     """
     scenario = requested or book.active_scenario
-    if scenario not in kit.scenarios.scenarios:
+    if scenario not in kit.scenarios:
         raise not_found("NO_SCENARIO", f"No scenario named {scenario!r} in this book.")
     return scenario
 

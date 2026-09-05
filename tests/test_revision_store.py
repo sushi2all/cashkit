@@ -162,7 +162,7 @@ def _bump_rent(kit: CashKit, amount: str) -> None:
             ]
         }
     )
-    kit.scenarios.book = kit.book.model_copy(
+    kit.state.book = kit.book.model_copy(
         update={"items": {**kit.book.items, "rent": updated}}
     )
 
@@ -202,7 +202,7 @@ class TestCommitAndStatus:
     def test_discard_can_name_one_item(self, kit: CashKit) -> None:
         _commit(kit, "initial")
         _bump_rent(kit, "-9999.00")
-        kit.scenarios.book = kit.book.model_copy(
+        kit.state.book = kit.book.model_copy(
             update={"params": {**kit.book.params, "margin": Decimal("0.9")}}
         )
         report = kit.discard(items=["rent"])
@@ -222,7 +222,7 @@ class TestCommitAndStatus:
         _commit(kit, "initial")
         _bump_rent(kit, "-4200.00")
         _commit(kit, "rent up", offset=1)
-        kit.scenarios.book = kit.book.model_copy(
+        kit.state.book = kit.book.model_copy(
             update={"params": {**kit.book.params, "margin": Decimal("0.25")}}
         )
         _commit(kit, "margin up", offset=2)
@@ -233,7 +233,7 @@ class TestCommitAndStatus:
             "initial",
         ]
         assert [r.message for r in kit.history(item="rent")] == ["rent up", "initial"]
-        assert [r.message for r in kit.blame("rent", "segments")] == [
+        assert [r.message for r in kit.history(item="rent", field="segments")] == [
             "rent up",
             "initial",
         ]
@@ -241,8 +241,8 @@ class TestCommitAndStatus:
         # revision that introduced it — creation is a change — and to nothing
         # since. A field name that does not exist blames to nothing at all,
         # because a typo must never read as a fact about the model.
-        assert [r.message for r in kit.blame("rent", "tags")] == ["initial"]
-        assert kit.blame("rent", "not_a_field") == []
+        assert [r.message for r in kit.history(item="rent", field="tags")] == ["initial"]
+        assert kit.history(item="rent", field="not_a_field") == []
 
 
 class TestReadOnlyPast:
@@ -252,13 +252,17 @@ class TestReadOnlyPast:
         assert past is not None and not diagnostics
         assert past.run("base").summary().book_id == "history-book"
 
-    def test_a_bound_kit_refuses_to_write(self, kit: CashKit) -> None:
+    def test_a_bound_kit_has_no_write_methods(self, kit: CashKit) -> None:
+        """ADR-0033: the past is a type, not a flag. A write on it is not a
+        diagnostic to remember to return but a method that does not exist."""
         _commit(kit, "initial")
         past, _ = kit.at("HEAD")
         assert past is not None
-        report = past.commit("nope")
-        assert [d.code for d in report.diagnostics] == ["CK-E030"]
-        assert [d.code for d in past.discard().diagnostics] == ["CK-E030"]
+        assert not isinstance(past, CashKit)
+        for verb in ("commit", "discard", "set_item", "set_param", "set_book",
+                     "apply_macro", "fork", "add_event", "import_events"):
+            assert not hasattr(past, verb), verb
+        assert past.run().summary().periods > 0
         assert len(kit.history()) == 1
 
     def test_an_unresolvable_ref_is_a_diagnostic_not_an_exception(
@@ -364,7 +368,7 @@ class TestGateHistoricalReproduction:
         )
         store.write_revision(state, message="no snapshot", author="t", timestamp=FIXED_TIME)
         bare = CashKit(
-            root=kit.root, scenarios=kit.scenarios, revisions=store, ledger=kit.ledger
+            root=kit.root, state=kit.state, revisions=store, ledger=kit.ledger
         )
         outcome = bare.reproduce("HEAD", "base")
         assert not outcome.reproduced
@@ -449,7 +453,7 @@ class TestGateSchemaMigration:
         live_book = build_history_book()
         kit = CashKit(
             root=root,
-            scenarios=CashKit.init(tmp_path / "scratch", live_book).scenarios,
+            state=CashKit.init(tmp_path / "scratch", live_book).state,
             revisions=store,
             ledger=None,
         )
@@ -622,7 +626,7 @@ class TestConfigStore:
         loaded, diagnostics = load_state(state)
         assert not diagnostics and loaded is not None
         assert loaded.book == kit.book
-        assert loaded.scenarios == kit.scenarios.scenarios
+        assert loaded.scenarios == dict(kit.scenarios)
 
     def test_the_same_state_always_produces_the_same_bytes(self, kit: CashKit) -> None:
         assert build_state(kit.config_state()).digest() == build_state(
@@ -662,7 +666,7 @@ class TestConfigStore:
         stray = kit.root / ITEMS_DIR / "ghost.yaml"
         stray.write_text("id: ghost\n", encoding="utf-8")
         assert "items/ghost.yaml" in read_working_tree(kit.root).paths()
-        kit.save()
+        kit._save()
         assert not stray.exists()
 
     def test_derived_stores_are_git_ignored(self, kit: CashKit) -> None:

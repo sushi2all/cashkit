@@ -76,11 +76,15 @@ def test_every_item_and_measure_is_covered_for_each_verified_period() -> None:
         assert covered == wanted, f"incomplete coverage for {period_start}"
 
 
-def test_gate_book_diagnostics_are_exactly_the_expected_three() -> None:
+def test_gate_book_diagnostics_are_exactly_the_expected_four() -> None:
+    """Three expansion warnings, plus CK-W004: the consultant withholds and the
+    gate book carries no ``cat:tax`` remittance leg (compile-time since
+    ADR-0034, so a run reports it as ``validate()`` always did)."""
     result = reference.run(build_gate_book())
     assert result.diagnostic_keys() == (
         ("CK-W001", "partial_delivery", "settlement.due"),
         ("CK-W002", "credit_note", "settlement.due"),
+        ("CK-W004", "consultant", None),
         ("CK-W005", "zero_guard", "formula"),
     ), result.diagnostic_keys()
     assert not [d for d in result.diagnostics if d.severity == "error"]

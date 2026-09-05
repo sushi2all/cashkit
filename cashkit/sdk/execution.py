@@ -27,10 +27,13 @@ a store cannot do for itself:
   layer — ``where=`` goes through the one §5.4 grammar and comes back as
   ``CK-E003``.
 
-A **revision-bound kit reads normally**. ``at(ref)`` refuses writes with
-``CK-E030``; a frame is a read, and the run key carries the revision, so
-``kit.at(ref).frame(kit.at(ref).run())`` tabulates that revision's numbers and
-cannot collide with the live ones.
+A **revision-bound kit reads normally**. ``at(ref)`` returns a
+:class:`~cashkit.sdk.kit.ReadOnlyKit`; a frame is a read, and the run key
+carries the revision, so ``kit.at(ref).run().frame()`` tabulates that
+revision's numbers and cannot collide with the live ones. Since ADR-0034 these
+verbs are reached from the :class:`~cashkit.sdk.kit.RunRef` itself
+(``run.frame()``, ``run.pivot()``, ``run.export()``); the functions here take
+the kit the run came from, which is what holds the store.
 """
 
 from __future__ import annotations
@@ -47,7 +50,7 @@ from .macros import resolve_selector
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from cashkit.stores.frames import FrameStore
 
-    from .kit import CashKit, RunRef
+    from .kit import ReadOnlyKit as CashKit, RunRef
 
 __all__ = ["EXPORTS_DIR", "ExportReport", "compare", "export", "frame", "pivot"]
 

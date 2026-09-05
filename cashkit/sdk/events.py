@@ -42,7 +42,7 @@ from cashkit.model import (
 from .kit import BASE_SCENARIO
 
 if TYPE_CHECKING:  # pragma: no cover - annotations only; kit imports this lazily
-    from .kit import CashKit
+    from .kit import ReadOnlyKit as CashKit
 
 __all__ = ["EVENT_COLUMNS", "query_events", "reconcile"]
 
@@ -90,7 +90,7 @@ def query_events(
     """
     if book.ledger is None:
         return Table(columns=EVENT_COLUMNS)
-    watermark = book.book.ledger_watermark if book.bound_to is not None else None
+    watermark = book.book.ledger_watermark if book.revision is not None else None
     rows = book.ledger.query_events(
         where=where,
         since=since,
@@ -179,7 +179,7 @@ def reconcile(
 
     ``suggested_cutover`` is the day after ``until``: once the ledger is the
     complete record through ``until``, generation should resume the next day.
-    Feed it straight to :func:`~cashkit.sdk.construction.set_cutover`.
+    Feed it straight to ``set_book(cutover=…)``.
 
     Returns a :class:`~cashkit.model.ReconciliationReport`. Diagnostics: the
     scenario-resolution and event-overlay problems the window's events raise
@@ -187,7 +187,7 @@ def reconcile(
     diagnostic of either run — a reconciliation computed over a book the engine
     refused part of is not one anyone should act on.
     """
-    resolution = book.scenarios.resolution(scenario_id)
+    resolution = book.resolve(scenario_id)
     model = resolution.book
     start = since if since is not None else model.cutover
     events, event_problems = book.events_for(scenario_id)

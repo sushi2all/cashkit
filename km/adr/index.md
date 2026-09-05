@@ -34,3 +34,8 @@ Numbered, append-only. Status: accepted unless noted.
 | [0028](0028-flash-class-model-no-preroute.md) | Agent surface runs flash-class; no pre-interpretation routing | 2026-08-22 |
 | [0029](0029-question-turns-never-write.md) | Question turns never write; hosts confirm mutations | 2026-08-22 |
 | [0030](0030-staged-agent-harness.md) | The agent harness is staged over the intent grammar | 2026-08-22 |
+| [0031](0031-one-scenario-addressed-write-path.md) | One scenario-addressed write path; every write persists — *supersedes the §6.1/§6.3 verb split* | 2026-09-05 |
+| [0032](0032-one-outcome-shape.md) | One outcome shape: `ChangeReport` for writes, `(handle, diagnostics)` for handles | 2026-09-05 |
+| [0033](0033-read-only-kit.md) | A past revision is a type, not a flag: `at()` returns a `ReadOnlyKit` | 2026-09-05 |
+| [0034](0034-reads-live-on-what-they-read.md) | Reads live on what they read; `validate()` is the run; `resolve()` carries its diagnostics | 2026-09-05 |
+| [0035](0035-trace-reads-the-engines-records.md) | `trace()` reads the engine's own occurrence records, never a re-derivation | 2026-09-05 |

@@ -61,7 +61,6 @@ ADDED_CODES = {
     "CK-E027",  # revision ref does not resolve
     "CK-E028",  # historical reproduction mismatch at matching engine version
     "CK-E029",  # no CashKit book at this path
-    "CK-E030",  # a revision-bound kit is read-only
     "CK-W011",  # engine version moved since the snapshot — delta reported
     # Session S5.5 — the construction surface. Creating a book is the one
     # operation with no book to report against, and §10.1 has no code for

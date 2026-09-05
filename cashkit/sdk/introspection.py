@@ -12,10 +12,12 @@ arithmetic below it is evaluated with the engine's own
 :class:`~cashkit.engine.columns.ColumnEvaluator` over a one-period window — the
 same code path the fold uses, so a traced sub-expression cannot disagree with
 the run about what it computed. For a generative cell there is no expression to
-evaluate, so the steps *are* a second rendering of the canonical rounding order
-(ADR-0003); :attr:`Trace.reconciles` compares their total back to the engine's
-cell, and the tests assert it holds for every cell of a 50-item fixture. Drift
-is made visible rather than left to be noticed.
+evaluate, so the steps are read from the :class:`~cashkit.engine.expand.OccurrenceRecord`
+the engine kept while expanding the item (ADR-0035): the base amount, the
+escalated and probability-weighted amounts and the settlement legs are the
+engine's own arrays, not a second walk of the rounding order.
+:attr:`Trace.reconciles` still compares their total back to the engine's cell,
+and the tests assert it holds for every cell of a 50-item fixture.
 
 ``describe_book()`` enumerates rather than describes. Every ``pivot()`` argument
 value it lists is asserted to run; a field name absent from it does not exist.
@@ -39,11 +41,9 @@ from cashkit.engine.expand import (
     INVALID,
     NEVER,
     SHARES,
+    OccurrenceRecord,
     classify_settlement,
-    escalation_steps_array,
-    leg_targets,
     occurrence_ordinals,
-    split_legs,
 )
 from cashkit.engine.formula import (
     Agg,
@@ -65,7 +65,7 @@ from cashkit.engine.formula import (
     iter_refs,
 )
 from cashkit.engine.graph import CompiledBook
-from cashkit.engine.numeric import escalation_factor, from_minor, to_minor
+from cashkit.engine.numeric import escalation_factor, from_minor
 from cashkit.engine.result import MEASURE_NAMES
 from cashkit.model import Book, Grain, Item, ItemId
 from cashkit.model.diagnostics import make_diagnostic
@@ -612,7 +612,6 @@ def _trace_generated(run, item: Item, index: int, measure: str, common: dict) ->
     periods = run.result.periods
     book = run.engine.book
     day = periods.starts[index]
-    horizon_start, horizon_end = periods.starts[0], periods.ends[-1]
 
     bindings: list[Binding] = []
     steps: list[ArithmeticStep] = []
@@ -620,11 +619,12 @@ def _trace_generated(run, item: Item, index: int, measure: str, common: dict) ->
     total = Decimal(0)
     kind, _ = classify_settlement(item)
 
-    for position, segment in enumerate(item.segments):
-        contributions = _segment_contributions(
-            run, item, segment, position, index, measure, kind, horizon_start, horizon_end
-        )
-        for contribution in contributions:
+    for record in run.engine.occurrences.get(item.id, ()):
+        segment = item.segments[record.segment]
+        for slot in _landing_slots(record, index, measure):
+            contribution = _one_occurrence(
+                run, item, segment, record, int(slot), measure, kind, index
+            )
             bindings.extend(contribution["bindings"])
             steps.extend(contribution["steps"])
             total += contribution["value"]
@@ -686,110 +686,47 @@ def _trace_generated(run, item: Item, index: int, measure: str, common: dict) ->
     )
 
 
-def _occurrences(segment, horizon_start: date, horizon_end: date):
-    """A segment's anchor ordinals and base amounts, in minor units."""
-    if segment.amount.schedule is not None:
-        pairs = [
-            (day.toordinal(), to_minor(value))
-            for day, value in segment.amount.schedule
-            if horizon_start <= day < horizon_end
-        ]
-        return (
-            np.fromiter((p[0] for p in pairs), dtype=np.int64, count=len(pairs)),
-            np.fromiter((p[1] for p in pairs), dtype=np.int64, count=len(pairs)),
-        )
-    anchors = occurrence_ordinals(segment, horizon_start, horizon_end)
-    return anchors, np.full(
-        anchors.shape, to_minor(segment.amount.constant or Decimal(0)), dtype=np.int64
-    )
+def _landing_slots(record: OccurrenceRecord, index: int, measure: str) -> np.ndarray:
+    """Which of a record's occurrences put money into this cell.
 
-
-def _segment_contributions(
-    run,
-    item: Item,
-    segment,
-    position: int,
-    index: int,
-    measure: str,
-    kind: str,
-    horizon_start: date,
-    horizon_end: date,
-) -> list[dict]:
-    """Each occurrence of ``segment`` contributing to this cell, step by step."""
-    book = run.engine.book
-    dates = run.engine.dates
-    periods = run.result.periods
-
-    anchors, bases = _occurrences(segment, horizon_start, horizon_end)
-    if anchors.size == 0:
-        return []
-
-    adjusted = dates.calendar.adjust_array(
-        anchors, segment.recurrence.business_day_adjust
-    )
-    accrual_index = periods.index_of_ordinals(adjusted)
-    # Occurrences before cutover are suppressed entirely, cash legs included
-    # (ADR-0004, D-P2-13) — so they contribute nothing to explain.
-    live = (accrual_index >= 0) & (adjusted >= book.cutover.toordinal())
-
-    term_targets: list[np.ndarray] | None = None
-    if measure == "accrual" or kind in (IMMEDIATE, NEVER, INVALID):
-        if measure == "cash" and kind in (NEVER, INVALID):
-            return []
-        lands = accrual_index == index
-    else:
-        assert item.settlement is not None
-        term_targets = [
-            leg_targets(term, adjusted, accrual_index, dates)
-            for term in item.settlement.due
-        ]
-        lands = np.zeros(anchors.shape, dtype=bool)
-        for targets in term_targets:
-            lands = lands | (targets == index)
-
-    return [
-        _one_occurrence(
-            run,
-            item,
-            segment,
-            position,
-            int(slot),
-            int(anchors[slot]),
-            int(bases[slot]),
-            measure,
-            kind,
-            index,
-            term_targets,
-            horizon_end,
-        )
-        for slot in np.flatnonzero(live & lands)
-    ]
+    An accrual cell holds the occurrences accrued in the period. A cash cell
+    holds the settlement legs that land in it — or, when the settlement has no
+    split, the occurrences themselves. A record with no legs and no split
+    contributes no cash at all (``settlement=Settlement(due=[])`` accrues and
+    never settles, D-P2-04).
+    """
+    if measure == "accrual" or record.legs is None:
+        if measure == "cash" and record.kind != IMMEDIATE:
+            return np.zeros(0, dtype=np.int64)
+        return np.flatnonzero(record.accrual_index == index)
+    lands = np.zeros(record.accrual_index.shape, dtype=bool)
+    for _, targets in record.legs:
+        lands = lands | (targets == index)
+    return np.flatnonzero(lands)
 
 
 def _one_occurrence(
     run,
     item: Item,
     segment,
-    position: int,
+    record: OccurrenceRecord,
     slot: int,
-    anchor: int,
-    base_minor: int,
     measure: str,
     kind: str,
     index: int,
-    term_targets: list[np.ndarray] | None,
-    horizon_end: date,
 ) -> dict:
     """The canonical rounding order for one occurrence, as bindings and steps.
 
-    Base amount, escalation, probability, settlement split, withholding —
-    ADR-0003's order, in ADR-0003's order, which is what ADR-0013's popover
-    ("12 000 x 1.03² x 0.9") needs to show.
+    Every value is read from the engine's record (ADR-0035): base amount,
+    escalation, probability, settlement split, withholding — ADR-0003's order,
+    which is what ADR-0013's popover ("12 000 x 1.03² x 0.9") needs to show.
+    Only the displayed escalation factor is derived, from the recorded step
+    count, through the engine's own factor table.
     """
-    policy = run.policy
     book = run.engine.book
-    label = f"segments[{position}]"
-    occurrence_date = date.fromordinal(anchor)
+    label = f"segments[{record.segment}]"
+    occurrence_date = date.fromordinal(int(record.anchors[slot]))
+    base_minor = int(record.base[slot])
 
     bindings = [
         Binding(
@@ -817,20 +754,12 @@ def _one_occurrence(
     ]
     running = base_minor
 
-    if segment.escalation is not None:
+    if segment.escalation is not None and record.escalation_steps is not None:
         raw_rate = segment.escalation.rate
         rate = book.params[raw_rate] if isinstance(raw_rate, str) else raw_rate
-        compounded = int(
-            escalation_steps_array(
-                segment.escalation.anchor,
-                segment.escalation.every_years,
-                segment.start,
-                np.array([anchor], dtype=np.int64),
-                horizon_end,
-            )[0]
-        )
+        compounded = int(record.escalation_steps[slot])
         factor = escalation_factor(rate, compounded)
-        escalated = _apply_rate(running, factor, policy)
+        escalated = int(record.escalated[slot])
         bindings.append(
             Binding(
                 symbol=f"{label}.escalation",
@@ -859,7 +788,7 @@ def _one_occurrence(
         running = escalated
 
     if segment.probability != Decimal(1):
-        weighted = _apply_rate(running, segment.probability, policy)
+        weighted = int(record.weighted[slot])
         bindings.append(
             Binding(
                 symbol=f"{label}.probability",
@@ -881,16 +810,15 @@ def _one_occurrence(
         )
         running = weighted
 
-    if term_targets is not None:
+    if measure == "cash" and record.legs is not None:
         assert item.settlement is not None
-        split = split_legs(item, kind, np.array([running], dtype=np.int64), policy)
         landed = 0
-        for position_in_due, (term, net, targets) in enumerate(
-            zip(item.settlement.due, split.net, term_targets)
+        for position_in_due, (term, (net, targets)) in enumerate(
+            zip(item.settlement.due, record.legs)
         ):
             if int(targets[slot]) != index:
                 continue
-            leg = int(net[0])
+            leg = int(net[slot])
             share = term.share if term.share is not None else term.amount
             bindings.append(
                 Binding(
@@ -939,14 +867,6 @@ def _one_occurrence(
         )
     )
     return {"bindings": bindings, "steps": steps, "value": from_minor(running)}
-
-
-def _apply_rate(minor: int, rate: Decimal, policy: RoundingPolicy) -> int:
-    """One rate multiplication, through the engine's own primitive."""
-    from cashkit.engine.numeric import mul_ratio, ratio_of
-
-    numerator, denominator = ratio_of(rate)
-    return mul_ratio(minor, numerator, denominator, policy)
 
 
 def _events_landing_on(run, item_id: ItemId, index: int, measure: str) -> list[dict]:
@@ -1049,7 +969,7 @@ def why_zero(run, item: ItemId, period: int | date, *, measure: str = "cash") ->
                 "ADR-0004: before cutover the reconciled past is whatever the "
                 "ledger holds, whatever the item would have generated.",
                 "Import the actuals for this window, or move cutover earlier "
-                "with set_cutover() if this period should be forecast.",
+                "with set_book(cutover=...) if this period should be forecast.",
             )
         )
 

@@ -458,6 +458,8 @@ Wide format, coarser-grain aggregation and tag slicing are **views computed on d
 
 Every operation is a named, validated, logged command returning a structured result. Agents never touch data structures directly.
 
+> **Surface as implemented (2026-09-05).** The verbs below are the original specification; ADR-0031 … ADR-0034 narrow them to one object. Construction (§6.1) and scenarios (§6.3) are one scenario-addressed write path on `CashKit` — `set_item`, `set_param`, `remove_item`, `unset`, `apply_macro`, `fork`, `flatten`, `set_book` — each taking `scenario="base"` by default; `add_item`, `add_derived`, `retag`, `set_cutover` and `add_tax_regime` are spelled through those. Every write returns a `ChangeReport`; `create_book`, `open` and `at` return `(handle, diagnostics)`. `frame`, `pivot` and `export` are methods of the `RunRef` that `run()` returns. `validate()` is the run's own diagnostics. `at(ref)` returns a `ReadOnlyKit`, which has no write methods. The rest of §6 — the ledger verbs, `summary`, `compare`, the introspection verbs, `commit`, `status`, `discard`, `history`, `diff_revisions`, `reproduce` — is as written; `blame` is `history(item=, field=)`.
+
 ### 6.1 Construction
 
 ```python

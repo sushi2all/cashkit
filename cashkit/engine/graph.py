@@ -18,17 +18,31 @@ one broken formula cannot take down a run.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+
+from datetime import date
+from decimal import Decimal
 
 from cashkit.model import Book, Diagnostic, Item, ItemId
 from cashkit.model.diagnostics import make_diagnostic
+from cashkit.model.primitives import SYNTHETIC_ID_RE
 
 from .calendars import PeriodIndex
 from .formula import Agg, Cum, Expr, ItemRef, Param, Prev, iter_refs, map_expr, parse_formula
-from .tax import TaxPlanning, plan_regimes
+from .tax import TaxPlanning, plan_regimes, tax_diagnostics
 from .vat import rule_for
 
-__all__ = ["Component", "CompiledBook", "CompiledItem", "compile_book"]
+__all__ = [
+    "Component",
+    "CompiledBook",
+    "CompiledItem",
+    "compile_book",
+    "cutover_problem",
+    "sign_conflict",
+]
+
+_SYNTHETIC = re.compile(rf"^{SYNTHETIC_ID_RE}$")
 
 #: Item kinds whose value comes from a formula rather than from segments.
 DERIVED_KINDS = ("derived", "stock")
@@ -245,6 +259,26 @@ def compile_book(book: Book, periods: PeriodIndex | None = None) -> CompiledBook
     compiled: dict[ItemId, CompiledItem] = {}
     param_keys = _param_keys(book)
 
+    # Authoring checks the arithmetic has no reason to make, made here so that a
+    # run's diagnostics are the whole catalogue a book can produce (ADR-0034):
+    # a cutover outside the horizon computes cleanly and produces nothing, a
+    # positive "out" evaluates happily as an inflow, a withholding with no
+    # remittance leg silently understates cash.
+    horizon = cutover_problem(book.cutover, book)
+    if horizon is not None:
+        diagnostics.append(horizon)
+    for item_id, item in sorted(book.items.items()):
+        if _SYNTHETIC.match(item_id):
+            continue
+        wrong = sign_conflict(item)
+        if wrong is not None:
+            diagnostics.append(
+                make_diagnostic(
+                    "CK-E011", item_id=item_id, field=wrong, direction=item.direction
+                )
+            )
+    diagnostics.extend(tax_diagnostics(book))
+
     if periods is None:
         periods = PeriodIndex.build(
             book.horizon, book.base_grain, book.calendar.fiscal_year_start_month
@@ -278,7 +312,15 @@ def compile_book(book: Book, periods: PeriodIndex | None = None) -> CompiledBook
         lagged: set[ItemId] = set()
 
         if item.kind in DERIVED_KINDS:
-            if item.segments:
+            if item.segments and item.kind == "stock":
+                # One modelling mistake, one code (D-P10-03): a generative
+                # stock is what CK-E012 names, so the formula/segments
+                # inconsistency is not reported a second time as CK-E003.
+                diagnostics.append(
+                    make_diagnostic("CK-E012", item_id=item_id, field="kind")
+                )
+                broken = True
+            elif item.segments:
                 diagnostics.append(
                     make_diagnostic(
                         "CK-E003",
@@ -529,6 +571,65 @@ def compile_book(book: Book, periods: PeriodIndex | None = None) -> CompiledBook
         dependents={node: frozenset(value) for node, value in dependents.items()},
         diagnostics=tuple(diagnostics),
         tax=tax,
+    )
+
+
+def sign_conflict(item: Item) -> str | None:
+    """The first authored amount whose sign contradicts ``direction``, or ``None``.
+
+    ``direction`` is display-only and storage is signed (PRD §4.2), so the
+    engine happily evaluates a positive "out" and produces an inflow where the
+    author meant an outflow. Zero never conflicts: it has no sign. Returns the
+    field path of the offending amount; produces no diagnostics itself.
+    """
+    if item.direction is None:
+        return None
+    wanted = 1 if item.direction == "in" else -1
+    for index, segment in enumerate(item.segments):
+        amounts: list[tuple[str, Decimal]] = []
+        if segment.amount.constant is not None:
+            amounts.append((f"segments[{index}].amount.constant", segment.amount.constant))
+        for position, (_, value) in enumerate(segment.amount.schedule or ()):
+            amounts.append((f"segments[{index}].amount.schedule[{position}]", value))
+        for field_path, value in amounts:
+            if value != 0 and (value > 0) != (wanted > 0):
+                return field_path
+    return None
+
+
+def cutover_problem(day: date, book: Book) -> Diagnostic | None:
+    """``CK-W006`` when ``day`` falls outside ``book.horizon``, else ``None``.
+
+    **A warning, not an error.** Both directions are things a user can
+    plausibly mean. A cutover before ``horizon.start`` is the natural state of a
+    book that has never been reconciled, and it changes nothing: generation is
+    suppressed strictly *before* the cutover, so there is nothing in the horizon
+    to suppress. A cutover past ``horizon.end`` is the ordering an agent lands
+    in when it closes a window and then extends the horizon to cover the next
+    one — legitimate in the next call, silently total suppression until then.
+    Refusing either would make a legal sequence of writes unconstructible.
+
+    The horizon is half-open, so ``horizon.end`` itself is inside it: a cutover
+    *at* the end suppresses everything too, but it is the boundary the model's
+    own arithmetic reaches and naming it a mistake would be naming the horizon a
+    mistake. ``set_book(cutover=…)`` asks this at call time and every run asks it
+    again at compile time — one function, so the two answers cannot drift.
+    """
+    if book.horizon.start <= day <= book.horizon.end:
+        return None
+    effect = (
+        "no occurrence is suppressed and the setting has no effect"
+        if day < book.horizon.start
+        else "every generative occurrence in the horizon is suppressed, so the "
+        "model produces nothing and only ledger rows remain"
+    )
+    return make_diagnostic(
+        "CK-W006",
+        field="cutover",
+        cutover=day.isoformat(),
+        start=book.horizon.start.isoformat(),
+        end=book.horizon.end.isoformat(),
+        effect=effect,
     )
 
 

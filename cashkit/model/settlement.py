@@ -2,7 +2,7 @@
 
 List-level business rules — shares summing to exactly 1 (CK-E004), the
 share/amount mixing and multiple-``remainder`` rules (CK-E005) — are validated
-at ``add_item()`` time by the SDK and reported as diagnostics, not enforced
+at ``set_item()`` time by the SDK and reported as diagnostics, not enforced
 here (they are user-facing failure modes, and errors are Diagnostic objects).
 Per-term structural invariants are enforced here.
 """
@@ -75,7 +75,7 @@ class Settlement(CashKitModel):
     def split(cls, legs: list[tuple[Decimal, str]]) -> "Settlement":
         """Share-based split: ``[(0.3, "0d"), (0.7, "90d")]``. Returns a
         Settlement; no diagnostics. The shares-sum-to-1 rule is validated at
-        ``add_item()`` time (CK-E004), not here.
+        ``set_item()`` time (CK-E004), not here.
         """
         return cls(
             due=[DueTerm(share=Decimal(share), offset=offset) for share, offset in legs]

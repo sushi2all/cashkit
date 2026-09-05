@@ -61,6 +61,7 @@ __all__ = [
     "SHARES",
     "Expansion",
     "FoldSettlement",
+    "OccurrenceRecord",
     "add_minor",
     "apply_vat",
     "classify_settlement",
@@ -342,6 +343,32 @@ def scatter_add(target: np.ndarray, indices: np.ndarray, values: np.ndarray) -> 
     np.add.at(target, indices, values)
 
 
+@dataclass
+class OccurrenceRecord:
+    """What expansion computed for one segment's live occurrences (ADR-0035).
+
+    The engine's own intermediate arrays, kept so ``trace()`` can show the
+    canonical rounding order (ADR-0003) for any cell **from the computation
+    that produced it** rather than from a second walk of the same rules. Every
+    array is aligned by occurrence; ``legs`` is one ``(net leg, target period)``
+    pair per :class:`DueTerm`, or ``None`` when the settlement has no split
+    (immediate, never, invalid). Recording costs a few references per segment:
+    the arrays are the ones the engine scattered, not copies.
+    """
+
+    segment: int
+    #: The settlement classification the legs were built under
+    #: (``IMMEDIATE`` / ``NEVER`` / ``INVALID`` / ``SHARES`` / ``FIXED``).
+    kind: str
+    anchors: np.ndarray
+    accrual_index: np.ndarray
+    base: np.ndarray
+    escalation_steps: np.ndarray | None
+    escalated: np.ndarray
+    weighted: np.ndarray
+    legs: list[tuple[np.ndarray, np.ndarray]] | None = None
+
+
 @lru_cache(maxsize=4096)
 def _factor_ratio(rate: Decimal, steps: int) -> tuple[int, int]:
     return ratio_of(escalation_factor(rate, steps))
@@ -354,7 +381,8 @@ def _apply_escalation(
     rate: Decimal,
     horizon_end: date,
     policy: RoundingPolicy,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
+    """Escalate ``amounts``; returns ``(escalated, compounding steps)``."""
     assert segment.escalation is not None
     steps = escalation_steps_array(
         segment.escalation.anchor,
@@ -372,7 +400,7 @@ def _apply_escalation(
         mask = steps == step
         numerator, denominator = _factor_ratio(rate, int(step))
         result[mask] = mul_ratio_array(amounts[mask], numerator, denominator, policy)
-    return result
+    return result, steps
 
 
 @dataclass(frozen=True)
@@ -558,12 +586,14 @@ def settle_occurrences(
     dates: DateOps,
     policy: RoundingPolicy,
     vat: "VatSink | None" = None,
+    record: "OccurrenceRecord | None" = None,
 ) -> list[Diagnostic]:
     """Turn accruals into cash legs and scatter them into ``cash``.
 
     Composes :func:`split_legs` with :func:`leg_targets`, then closes the
-    canonical rounding order with VAT when ``vat`` is supplied. Returns the
-    split's diagnostics (``CK-W001``, ``CK-W002``).
+    canonical rounding order with VAT when ``vat`` is supplied. ``record``, when
+    given, receives the net legs and their target periods (ADR-0035). Returns
+    the split's diagnostics (``CK-W001``, ``CK-W002``).
     """
     if amounts.size == 0:
         return []
@@ -586,6 +616,8 @@ def settle_occurrences(
     for target, leg in zip(targets, split.net):
         inside = target >= 0
         scatter_add(cash, target[inside], leg[inside])
+    if record is not None:
+        record.legs = list(zip(split.net, targets))
     if vat is not None:
         apply_vat(
             vat, kind, amounts, accrual_indices, split.gross, targets, cash, policy
@@ -626,6 +658,7 @@ def expand_item(
     params: dict[str, Decimal],
     policy: RoundingPolicy,
     vat: "VatSink | None" = None,
+    recorder: "list[OccurrenceRecord] | None" = None,
 ) -> Expansion:
     """Expand a generative item's segments into accrual and cash columns.
 
@@ -634,8 +667,10 @@ def expand_item(
     ``cutover`` are suppressed entirely, cash legs included: before cutover the
     ledger is the complete record (ADR-0004, DECISIONS D-P2-13).
 
-    Returns an :class:`Expansion`; diagnostics are settlement warnings only,
-    since every structural problem was caught at compile time.
+    ``recorder``, when given, receives one :class:`OccurrenceRecord` per
+    segment with live occurrences — the intermediate arrays ``trace()`` reads
+    (ADR-0035). Returns an :class:`Expansion`; diagnostics are settlement
+    warnings only, since every structural problem was caught at compile time.
     """
     length = len(periods)
     accrual = np.zeros(length, dtype=np.int64)
@@ -645,7 +680,7 @@ def expand_item(
     horizon_end = periods.ends[-1]
     cutover_ord = cutover.toordinal()
 
-    for segment in item.segments:
+    for position, segment in enumerate(item.segments):
         if segment.amount.schedule is not None:
             # The schedule's dates *are* the occurrences (DECISIONS D-P2-02).
             pairs = [
@@ -663,17 +698,19 @@ def expand_item(
         if anchors.size == 0:
             continue
 
-        amounts = base
+        escalated = base
+        steps: np.ndarray | None = None
         if segment.escalation is not None:
             rate = segment.escalation.rate
             if isinstance(rate, str):
                 rate = params[rate]
-            amounts = _apply_escalation(
-                amounts, anchors, segment, rate, horizon_end, policy
+            escalated, steps = _apply_escalation(
+                base, anchors, segment, rate, horizon_end, policy
             )
+        amounts = escalated
         if segment.probability != Decimal(1):
             numerator, denominator = ratio_of(segment.probability)
-            amounts = mul_ratio_array(amounts, numerator, denominator, policy)
+            amounts = mul_ratio_array(escalated, numerator, denominator, policy)
 
         accrual_ords = dates.calendar.adjust_array(
             anchors, segment.recurrence.business_day_adjust
@@ -686,10 +723,33 @@ def expand_item(
         indices = indices[keep]
         amounts = amounts[keep]
 
+        record: OccurrenceRecord | None = None
+        if recorder is not None:
+            record = OccurrenceRecord(
+                segment=position,
+                kind=kind,
+                anchors=accrual_ords,
+                accrual_index=indices,
+                base=base[keep],
+                escalation_steps=None if steps is None else steps[keep],
+                escalated=escalated[keep],
+                weighted=amounts,
+            )
+            recorder.append(record)
+
         scatter_add(accrual, indices, amounts)
         diagnostics.extend(
             settle_occurrences(
-                item, kind, accrual_ords, amounts, indices, cash, dates, policy, vat=vat
+                item,
+                kind,
+                accrual_ords,
+                amounts,
+                indices,
+                cash,
+                dates,
+                policy,
+                vat=vat,
+                record=record,
             )
         )
 

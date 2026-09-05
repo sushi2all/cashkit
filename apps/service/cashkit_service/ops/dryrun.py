@@ -166,7 +166,6 @@ def dry_run(
                        and operation.get("date") is None for d in result.diagnostics):
                     clarification = result.diagnostics[0].message
                 break  # a failed operation makes every later one hypothetical
-        scratch.save()
         after = _Snapshot.of(scratch, scenario)
 
     ok = all(r.ok for r in results) and len(results) == len(operations)

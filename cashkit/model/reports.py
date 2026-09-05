@@ -34,7 +34,6 @@ __all__ = [
     "FieldOrigin",
     "ImportReport",
     "ItemDiff",
-    "ItemRef",
     "OutcomeDiff",
     "ParamDiff",
     "Provenance",
@@ -82,24 +81,6 @@ class ChangeReport(CashKitModel):
     def empty(self) -> bool:
         """True when nothing was recorded or created. No diagnostics."""
         return not self.changed and not self.created
-
-
-class ItemRef(ChangeReport):
-    """What ``add_item()`` / ``add_derived()`` recorded about one item (PRD §6.1).
-
-    PRD §6.1 types both as ``-> ItemRef`` and annotates ``add_item`` "validated;
-    returns diagnostics", so the reference and the diagnostics are one object:
-    an agent that has to fetch the item to discover it was refused has already
-    lost the loop §6.5 exists to enable.
-
-    ``created`` names the item when it was new to the book, ``changed`` the
-    fields whose authored value moved when it was not, and both are empty when
-    the write recorded nothing — either because the item was already exactly
-    this (``CK-I002``) or because it was refused (an error diagnostic). ``ok``
-    tells the two apart: ``ok`` means the book now holds the item as written.
-    """
-
-    item_id: ItemId
 
 
 class ImportReport(ChangeReport):
@@ -289,7 +270,7 @@ class ReconciliationReport(CashKitModel):
 
     ``suggested_cutover`` is the day after ``until``: reconciling through
     ``until`` means the ledger is the complete record up to and including it, so
-    generation should resume the following day. Feed it to ``set_cutover()``.
+    generation should resume the following day. Feed it to ``set_book(cutover=...)``.
     """
 
     book_id: str

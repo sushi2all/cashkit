@@ -49,7 +49,7 @@ async def activate_scenario(
     from ..proposals import supersede_pending
 
     async with read_context(request, book, clock) as ctx:
-        if scenario_id not in ctx.kit.scenarios.scenarios:
+        if scenario_id not in ctx.kit.scenarios:
             raise not_found("NO_SCENARIO", f"No scenario named {scenario_id!r} in this book.")
     await conn.execute(
         books.update().where(books.c.id == book.id).values(active_scenario=scenario_id)
@@ -89,7 +89,7 @@ async def compare_scenarios(
     runtime = request.app.state.books
     async with runtime.acquire(book.id, book.storage_path) as kit:
         for scenario_id in ids:
-            if scenario_id not in kit.scenarios.scenarios:
+            if scenario_id not in kit.scenarios:
                 raise not_found("NO_SCENARIO", f"No scenario named {scenario_id!r} in this book.")
         state = kit.status()
         runs = [kit.run(scenario_id) for scenario_id in ids]

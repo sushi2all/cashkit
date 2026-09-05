@@ -33,6 +33,7 @@ from .expand import (
     NEVER,
     INVALID,
     FoldSettlement,
+    OccurrenceRecord,
     add_minor,
     apply_vat,
     classify_settlement,
@@ -78,6 +79,12 @@ class Engine:
     #: Per-item VAT, on both tax points (PRD §4.5). Filled as each item settles,
     #: consumed by the regimes' synthetic items.
     vat: dict[ItemId, VatColumns] = field(init=False, default_factory=dict)
+    #: What expansion computed, per generative item (ADR-0035): the arrays
+    #: ``trace()`` explains a cell from. Kept across delta runs like the
+    #: columns, so a stale item's record is rebuilt with its column.
+    occurrences: dict[ItemId, list[OccurrenceRecord]] = field(
+        init=False, default_factory=dict
+    )
     rules: dict[ItemId, VatRule] = field(init=False, default_factory=dict)
     _regimes: dict[str, RegimeResult] = field(init=False, default_factory=dict)
     #: Runtime diagnostics per item, kept across evaluations. A delta run
@@ -179,12 +186,14 @@ class Engine:
                 # item would cost the delta path more than the VAT arithmetic
                 # itself on a book where most items are not VAT-bearing.
                 self.vat.pop(item_id, None)
+                self.occurrences.pop(item_id, None)
                 buckets.pop(item_id, None)
         for item_id in list(self.accrual):
             if item_id not in self.book.items:
                 del self.accrual[item_id]
                 del self.cash[item_id]
                 self.vat.pop(item_id, None)
+                self.occurrences.pop(item_id, None)
         for item_id in list(buckets):
             if item_id is not None and item_id not in self.book.items:
                 del buckets[item_id]
@@ -207,6 +216,8 @@ class Engine:
                 continue
             if item_id in self.compiled.tax.nodes:
                 continue  # a regime's columns come from its schedule, not segments
+            recorder: list[OccurrenceRecord] = []
+            self.occurrences[item_id] = recorder
             expansion = expand_item(
                 compiled_item.item,
                 settlement_kind[item_id],
@@ -216,6 +227,7 @@ class Engine:
                 self.book.params,
                 self.policy,
                 vat=self._sink(item_id),
+                recorder=recorder,
             )
             self.accrual[item_id] = check_column(
                 expansion.accrual, f"item {item_id!r} accrual"

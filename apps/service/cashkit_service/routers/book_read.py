@@ -85,7 +85,7 @@ async def get_state(
             **ctx.envelope().model_dump(),
             dirty=not ctx.clean,
             active_scenario=book.active_scenario,
-            scenarios=sorted(ctx.kit.scenarios.scenarios),
+            scenarios=sorted(ctx.kit.scenarios),
             book=BookParams(
                 id=resolved.id,
                 grain=resolved.base_grain.value,

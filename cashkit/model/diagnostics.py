@@ -319,7 +319,7 @@ CATALOGUE: Mapping[str, DiagnosticSpec] = {
             "Actual event {event_id} dated {event_date} is on/after cutover "
             "{cutover}",
             "Actuals after cutover are included and do not suppress generation — "
-            "reconcile and advance cutover with set_cutover().",
+            "reconcile and advance cutover with set_book(cutover=...).",
         ),
         _spec(
             "CK-W004",
@@ -337,14 +337,6 @@ CATALOGUE: Mapping[str, DiagnosticSpec] = {
             "Elementwise division by zero yields 0 by design. Guard the "
             "denominator with where(), or verify the upstream zero with "
             "why_zero().",
-        ),
-        _spec(
-            "CK-E030",
-            "error",
-            "This kit is bound to revision {ref} and is read-only",
-            "at(ref) returns a read-only view of the past — history is not "
-            "editable. Make the change on the live kit and commit it; use "
-            "at(ref) to read, compare and reproduce.",
         ),
         _spec(
             "CK-W011",

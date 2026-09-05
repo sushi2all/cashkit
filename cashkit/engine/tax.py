@@ -29,6 +29,8 @@ recognises it as the cash legs land.
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
@@ -37,6 +39,7 @@ import numpy as np
 
 from cashkit.model import Book, Diagnostic, Item, ItemId, TaxRegime
 from cashkit.model.diagnostics import make_diagnostic
+from cashkit.model.primitives import SYNTHETIC_ID_RE
 
 from .calendars import PeriodIndex, add_duration, add_months
 from .formula import parse_selector
@@ -63,6 +66,9 @@ SYNTHETIC_TAX_PREFIX = "_tax:"
 
 #: Months per regime period.
 _MONTHS_PER_PERIODICITY = {"monthly": 1, "quarterly": 3, "annual": 12}
+
+
+_SYNTHETIC = re.compile(rf"^{SYNTHETIC_ID_RE}$")
 
 
 def liability_id(regime_id: str) -> ItemId:
@@ -454,17 +460,21 @@ def tax_diagnostics(book: Book) -> tuple[Diagnostic, ...]:
     Returns the diagnostics; raises nothing. Phase 10's ``validate()`` folds
     these into the full catalogue sweep.
     """
+    # Authored items only: a delta recompile sees the engine's augmented book,
+    # whose synthetic ``_tax:*`` carriers are tagged ``cat:tax`` themselves and
+    # would answer the question the check is asking.
+    authored = {
+        item_id: item for item_id, item in book.items.items() if not _SYNTHETIC.match(item_id)
+    }
     out: list[Diagnostic] = []
     withholding_items = sorted(
         item_id
-        for item_id, item in book.items.items()
+        for item_id, item in authored.items()
         if item.settlement is not None
         and any(term.withholding != Decimal(0) for term in item.settlement.due)
     )
     tax_items = {
-        item_id
-        for item_id, item in book.items.items()
-        if item.tags.get("cat") == "tax"
+        item_id for item_id, item in authored.items() if item.tags.get("cat") == "tax"
     }
     if withholding_items and not tax_items:
         out.append(make_diagnostic("CK-W004", item_id=withholding_items[0]))

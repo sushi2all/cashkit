@@ -308,7 +308,7 @@ def _coverage(kit: CashKit, intent: dict, scenario: str, as_of: _dt.date) -> dic
 
 
 def _list_items(kit: CashKit, intent: dict, scenario: str, as_of: _dt.date) -> dict:
-    book = kit.scenarios.resolve(scenario)
+    book = kit.resolve(scenario).book
     tag = intent.get("tag")
     items = [
         {"id": item.id, "name": item.name, "kind": item.kind,

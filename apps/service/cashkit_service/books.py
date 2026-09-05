@@ -143,7 +143,7 @@ class BookRuntime:
         """
         path = self.storage_path(book_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        ref = create_book(
+        kit, diagnostics = create_book(
             path,
             id=f"book_{str(book_id).replace('-', '')[:16]}",
             horizon=horizon,
@@ -153,13 +153,13 @@ class BookRuntime:
             params=params or {},
             calendar=calendar,
         )
-        diagnostics = list(ref.diagnostics)
-        if ref.kit is None:
+        diagnostics = list(diagnostics)
+        if kit is None:
             return path, diagnostics
-        report = ref.kit.commit("book created")
+        report = kit.commit("book created")
         diagnostics.extend(report.diagnostics)
         handle = self._handle(book_id, path)
-        handle.kit = ref.kit
+        handle.kit = kit
         handle.owner_thread = threading.get_ident()
         return path, diagnostics
 
@@ -223,7 +223,8 @@ def scratch_copy(kit: CashKit, root: Path) -> Iterator[CashKit]:
     original book is never touched, which is what makes "the card the user
     confirms is always the card that applies" checkable rather than hoped for.
     """
-    kit.save()  # the copy must see the working overlay, not the last save
+    # Every kit write already reached the working tree (ADR-0031), so the copy
+    # sees exactly what this kit holds.
     tmp = Path(tempfile.mkdtemp(prefix="cashkit-dryrun-"))
     target = tmp / "book"
     try:

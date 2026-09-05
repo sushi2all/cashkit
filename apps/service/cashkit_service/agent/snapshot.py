@@ -40,8 +40,8 @@ EVENT_LIMIT = 40
 
 def build(kit: CashKit, *, scenario: str, as_of: _dt.date) -> dict[str, Any]:
     """The whole snapshot: what the book is, and what it computes."""
-    book = kit.scenarios.resolve(scenario)
-    scenarios = sorted(kit.scenarios.scenarios) or ["base"]
+    book = kit.resolve(scenario).book
+    scenarios = sorted(kit.scenarios) or ["base"]
     return {
         "as_of": as_of.isoformat(),
         "active_scenario": scenario,

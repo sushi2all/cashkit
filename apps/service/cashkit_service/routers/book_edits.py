@@ -199,7 +199,6 @@ async def resolve_proposal(
                 "; ".join(d.message for d in errors),
                 diagnostics=[d.model_dump() for d in applied],
             )
-        ctx.kit.save()
         await proposal_store.mark(conn, row.id, "accepted", clock=clock)
         superseded = await proposal_store.supersede_pending(
             conn, book_id=book.id, clock=clock, keep=row.id
@@ -306,7 +305,6 @@ async def discard_working_overlay(
     runtime = request.app.state.books
     async with runtime.acquire(book.id, book.storage_path) as kit:
         report = kit.discard()
-        kit.save()
         state = kit.status()
         env = envelope(
             as_of=clock.today(),

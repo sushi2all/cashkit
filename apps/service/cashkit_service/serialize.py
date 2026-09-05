@@ -427,7 +427,7 @@ def scenarios_out(kit: CashKit, active: str) -> list[ScenarioOut]:
             is_base=scenario.id == BASE_SCENARIO,
             is_active=scenario.id == active,
         )
-        for scenario in (kit.scenarios.scenarios[key] for key in sorted(kit.scenarios.scenarios))
+        for scenario in (kit.scenarios[key] for key in sorted(kit.scenarios))
     ]
 
 

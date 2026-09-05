@@ -233,7 +233,7 @@ def seed_book(book_dir) -> None:
 
     kit, _diagnostics = CashKit.open(book_dir)
     assert kit is not None
-    kit.add_item(
+    kit.set_item(
         Item(
             id="salary", name="Salary", kind="flow", direction="in", tags={"cat": "income"},
             segments=[Segment(
@@ -244,7 +244,7 @@ def seed_book(book_dir) -> None:
             settlement=Settlement.net(30),
         )
     )
-    kit.add_item(
+    kit.set_item(
         Item(
             id="rent", name="Rent", kind="flow", direction="out", tags={"cat": "housing"},
             segments=[Segment(
@@ -256,7 +256,7 @@ def seed_book(book_dir) -> None:
             settlement=Settlement.immediate(),
         )
     )
-    kit.add_item(
+    kit.set_item(
         Item(
             id="insurance", name="Insurance", kind="flow", direction="out", tags={"cat": "housing"},
             segments=[Segment(
@@ -280,11 +280,8 @@ def seed_book(book_dir) -> None:
     ))
     # A fork, so scenario comparison and the WHAT-IF stamp have something real
     # to work on.
-    kit.scenarios.fork("base", "downside", note="salary cut")
-    kit.scenarios.apply_macro(
-        "downside", ScaleItems(selector="cat:income", factor=Decimal("0.8"))
-    )
-    kit.save()
+    kit.fork("downside", note="salary cut")
+    kit.apply_macro(ScaleItems(selector="cat:income", factor=Decimal("0.8")), scenario="downside")
     kit.commit("seed")
     if kit.ledger is not None:
         kit.ledger.close()

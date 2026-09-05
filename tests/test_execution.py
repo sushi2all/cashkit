@@ -42,8 +42,8 @@ from cashkit.model import (
     Settlement,
     Table,
 )
-from cashkit.sdk import CashKit, add_item, compare, create_book, export, frame, pivot
-from cashkit.sdk.execution import EXPORTS_DIR, _FRAME_COLUMNS, run_key
+from cashkit.sdk import CashKit, create_book
+from cashkit.sdk.execution import EXPORTS_DIR, _FRAME_COLUMNS, compare, export, frame, pivot, run_key
 
 QUARTER = PeriodRange(start=date(2026, 1, 1), end=date(2026, 4, 1))
 
@@ -71,20 +71,19 @@ def _flow(item_id: str, amount: str, direction: str, **tags: str) -> Item:
 @pytest.fixture()
 def kit(tmp_path: Path) -> CashKit:
     """A three-item book built through the SDK alone, tagged for pivoting."""
-    ref = create_book(
+    built, problems = create_book(
         tmp_path / "book",
         id="book",
         horizon=QUARTER,
         opening_balance=Decimal("10000.0000"),
     )
-    assert ref.kit is not None, ref.diagnostics
-    built = ref.kit
+    assert built is not None, problems
     for item in (
         _flow("consulting", "12000", "in", cat="revenue", customer="acme"),
         _flow("licences", "3000", "in", cat="revenue", customer="globex"),
         _flow("rent", "-3000", "out", cat="opex"),
     ):
-        assert add_item(built, item).ok
+        assert built.set_item(item).ok
     return built
 
 
@@ -125,7 +124,7 @@ class TestTheKitMatchesTheStoreExactly:
     )
     def test_frame_round_trips_at_every_grain(self, kit: CashKit, direct, grain) -> None:
         run, store, run_id = direct
-        assert kit.frame(run, grain=grain) == store.frame(run_id, grain=grain)
+        assert run.frame(grain=grain) == store.frame(run_id, grain=grain)
 
     def test_frame_slices_the_same_way(self, kit: CashKit, direct) -> None:
         run, store, run_id = direct
@@ -136,17 +135,17 @@ class TestTheKitMatchesTheStoreExactly:
             {"where": "customer:acme", "grain": Grain.MONTH, "measures": ["accrual"]},
             {"include_synthetic": False},
         ):
-            assert kit.frame(run, **kwargs) == store.frame(run_id, **kwargs), kwargs
+            assert run.frame(**kwargs) == store.frame(run_id, **kwargs), kwargs
 
     def test_the_frame_is_not_empty_so_equality_means_something(
         self, kit: CashKit, direct
     ) -> None:
         run, _, _ = direct
-        table = kit.frame(run, grain=Grain.MONTH)
+        table = run.frame(grain=Grain.MONTH)
         assert table.columns == _FRAME_COLUMNS
         assert len(table) == 3 * 3 * 2, "3 items x 3 months x (accrual, cash)"
         for measure in ("accrual", "cash"):
-            sliced = kit.frame(run, grain=Grain.MONTH, measures=[measure])
+            sliced = run.frame(grain=Grain.MONTH, measures=[measure])
             assert sum(sliced.column("value")) == Decimal("36000.0000")
 
     def test_the_declared_frame_columns_match_the_stores_own(self) -> None:
@@ -167,13 +166,13 @@ class TestTheKitMatchesTheStoreExactly:
     )
     def test_pivot_round_trips(self, kit: CashKit, direct, kwargs) -> None:
         run, store, run_id = direct
-        assert kit.pivot(run, **kwargs) == store.pivot(run_id, **kwargs)
+        assert run.pivot(**kwargs) == store.pivot(run_id, **kwargs)
 
     def test_pivot_keeps_untagged_items_in_their_own_column(
         self, kit: CashKit, direct
     ) -> None:
         run, _, _ = direct
-        table = kit.pivot(run, columns="tag:customer", values="cash", grain=Grain.MONTH)
+        table = run.pivot(columns="tag:customer", values="cash", grain=Grain.MONTH)
         assert set(table.columns) == {"period", "acme", "globex", "(untagged)"}
 
     def test_compare_round_trips(self, kit: CashKit, direct) -> None:
@@ -183,10 +182,8 @@ class TestTheKitMatchesTheStoreExactly:
         )
 
     def test_compare_holds_two_scenarios_apart(self, kit: CashKit) -> None:
-        assert kit.scenarios.fork("base", "downside").ok
-        assert kit.scenarios.set_param(
-            "downside", "opening_balance", Decimal("0.0000")
-        ).ok
+        assert kit.fork("downside").ok
+        assert kit.set_param("opening_balance", Decimal("0.0000"), scenario="downside").ok
         runs = [kit.run(), kit.run("downside")]
         table = kit.compare(runs, grain=Grain.QUARTER)
 
@@ -211,7 +208,7 @@ class TestTheKitMatchesTheStoreExactly:
 class TestExport:
     def test_a_relative_path_lands_under_exports(self, kit: CashKit, direct) -> None:
         run, _, _ = direct
-        report = kit.export(run, "q1.parquet")
+        report = run.export("q1.parquet")
 
         assert report.ok, report.diagnostics
         assert report.path == kit.root / EXPORTS_DIR / "q1.parquet"
@@ -220,20 +217,20 @@ class TestExport:
 
     def test_the_file_re_reads_losslessly(self, kit: CashKit, direct) -> None:
         run, _, _ = direct
-        written = kit.export(run, "q1.parquet", grain=Grain.MONTH).path
+        written = run.export("q1.parquet", grain=Grain.MONTH).path
         assert written is not None
 
         back = kit.read_export(written)
-        assert back == kit.frame(run, grain=Grain.MONTH)
+        assert back == run.frame(grain=Grain.MONTH)
         assert all(isinstance(row[4], Decimal) for row in back.rows), (
             "DECIMAL(18,4) through Parquet — never a float that prints the same"
         )
 
     def test_csv_round_trips_too(self, kit: CashKit, direct) -> None:
         run, _, _ = direct
-        written = kit.export(run, "q1.csv", format="csv", grain=Grain.MONTH).path
+        written = run.export("q1.csv", format="csv", grain=Grain.MONTH).path
         assert written is not None and written.is_file()
-        assert kit.read_export(written).rows == kit.frame(run, grain=Grain.MONTH).rows
+        assert kit.read_export(written).rows == run.frame(grain=Grain.MONTH).rows
 
     def test_an_absolute_path_is_honoured_as_given(
         self, kit: CashKit, direct, tmp_path: Path
@@ -242,7 +239,7 @@ class TestExport:
         exists; silently relocating it would be worse than either choice."""
         run, _, _ = direct
         elsewhere = tmp_path / "share" / "q1.parquet"
-        report = kit.export(run, elsewhere)
+        report = run.export(elsewhere)
 
         assert report.path == elsewhere and elsewhere.is_file()
         assert not (kit.root / EXPORTS_DIR / "q1.parquet").exists()
@@ -250,7 +247,7 @@ class TestExport:
     def test_exports_is_git_ignored(self, kit: CashKit, direct) -> None:
         """PRD §3.3: an export is a copy of what a revision already reproduces."""
         run, _, _ = direct
-        kit.export(run, "q1.parquet")
+        run.export("q1.parquet")
         ignored = (kit.root / ".gitignore").read_text(encoding="utf-8")
         assert f"{EXPORTS_DIR}/" in ignored.splitlines()
 
@@ -258,7 +255,7 @@ class TestExport:
         self, kit: CashKit, direct, tmp_path: Path
     ) -> None:
         run, store, run_id = direct
-        mine = kit.export(run, "q1.parquet", grain=Grain.MONTH).path
+        mine = run.export("q1.parquet", grain=Grain.MONTH).path
         theirs = store.export(
             run_id, tmp_path / "theirs.parquet", grain=Grain.MONTH
         )
@@ -301,8 +298,8 @@ class TestWithoutTheExtra:
     ) -> None:
         run = kit.run()
         results: list[Table] = [
-            kit.frame(run),
-            kit.pivot(run, columns="tag:cat"),
+            run.frame(),
+            run.pivot(columns="tag:cat"),
             kit.compare([run]),
         ]
         for table in results:
@@ -311,7 +308,7 @@ class TestWithoutTheExtra:
             assert [d.code for d in table.diagnostics] == ["CK-E033"]
             assert "duckdb" in table.diagnostics[0].suggested_fix
 
-        report = kit.export(run, "q1.parquet")
+        report = run.export("q1.parquet")
         assert [d.code for d in report.diagnostics] == ["CK-E033"]
         assert report.path is None and report.empty
         assert not (kit.root / EXPORTS_DIR).exists(), "refused, so nothing written"
@@ -323,10 +320,10 @@ class TestWithoutTheExtra:
         traceback from three frames below the surface it codes against."""
         run = kit.run()
         for call in (
-            lambda: kit.frame(run),
-            lambda: kit.pivot(run, columns="tag:cat"),
+            lambda: run.frame(),
+            lambda: run.pivot(columns="tag:cat"),
             lambda: kit.compare([run]),
-            lambda: kit.export(run, "q1.parquet"),
+            lambda: run.export("q1.parquet"),
             lambda: kit.read_export("q1.parquet"),
         ):
             call()  # must not raise
@@ -334,14 +331,14 @@ class TestWithoutTheExtra:
     def test_a_frame_refused_still_declares_its_shape(
         self, kit: CashKit, without_duckdb
     ) -> None:
-        assert kit.frame(kit.run()).columns == _FRAME_COLUMNS
+        assert kit.run().frame().columns == _FRAME_COLUMNS
 
     def test_with_the_extra_the_same_calls_work(self, kit: CashKit) -> None:
         run = kit.run()
-        assert kit.frame(run).ok and len(kit.frame(run))
-        assert kit.pivot(run, columns="tag:cat").ok
+        assert run.frame().ok and len(run.frame())
+        assert run.pivot(columns="tag:cat").ok
         assert kit.compare([run]).ok
-        assert kit.export(run, "q1.parquet").ok
+        assert run.export("q1.parquet").ok
 
 
 # --------------------------------------------------------------------------- #
@@ -378,7 +375,7 @@ class TestArgumentHandling:
     def test_a_malformed_selector_is_ck_e003_and_not_an_exception(
         self, kit: CashKit
     ) -> None:
-        table = kit.frame(kit.run(), where="cat=revenue")
+        table = kit.run().frame(where="cat=revenue")
         assert [d.code for d in table.diagnostics] == ["CK-E003"]
         assert len(table) == 0 and not table.ok
 
@@ -386,17 +383,17 @@ class TestArgumentHandling:
         self, kit: CashKit
     ) -> None:
         """'You typed it wrong' and 'nothing matched' must not be one answer."""
-        table = kit.frame(kit.run(), where="customer:initech")
+        table = kit.run().frame(where="customer:initech")
         assert len(table) == 0 and table.diagnostics == () and table.ok
 
     @pytest.mark.parametrize(
         "call",
         [
-            lambda kit, run: kit.frame(run, measures=["revenue"]),
-            lambda kit, run: kit.pivot(run, values="revenue"),
-            lambda kit, run: kit.pivot(run, columns="colour"),
+            lambda kit, run: run.frame(measures=["revenue"]),
+            lambda kit, run: run.pivot(values="revenue"),
+            lambda kit, run: run.pivot(columns="colour"),
             lambda kit, run: kit.compare([run], metric="revenue"),
-            lambda kit, run: kit.export(run, "q1.xlsx", format="xlsx"),
+            lambda kit, run: run.export("q1.xlsx", format="xlsx"),
         ],
     )
     def test_a_vocabulary_describe_book_lists_raises_instead(
@@ -421,14 +418,14 @@ class TestRevisionBoundReads:
         first = kit.commit("three items")
         assert first.revision is not None
 
-        assert add_item(kit, _flow("hosting", "-500", "out", cat="opex")).ok
+        assert kit.set_item(_flow("hosting", "-500", "out", cat="opex")).ok
         assert kit.commit("hosting too").revision is not None
 
         past, problems = kit.at(first.revision.id)
         assert past is not None and problems == ()
 
-        now = kit.frame(kit.run(), grain=Grain.QUARTER, measures=["accrual"])
-        then = past.frame(past.run(), grain=Grain.QUARTER, measures=["accrual"])
+        now = kit.run().frame(grain=Grain.QUARTER, measures=["accrual"])
+        then = past.run().frame(grain=Grain.QUARTER, measures=["accrual"])
 
         assert set(then.column("item_id")) == {"consulting", "licences", "rent"}
         assert set(now.column("item_id")) == {
@@ -449,8 +446,8 @@ class TestRevisionBoundReads:
         assert run_key(kit.run()).startswith("working")
 
     def test_reads_are_allowed_where_writes_refuse(self, kit: CashKit) -> None:
-        """``at(ref)`` refuses writes with ``CK-E030``; a frame is a read and
-        must not be swept up in that.
+        """``at(ref)`` returns a kit with no write methods (ADR-0033); a frame
+        is a read and must not be swept up in that.
 
         ``export()`` writes a *file* and is still a read: the file is a copy of
         what the revision already reproduces, it lands in git-ignored
@@ -462,13 +459,12 @@ class TestRevisionBoundReads:
         past, _ = kit.at(report.revision.id)
         assert past is not None
 
-        assert past.frame(past.run()).ok
-        assert past.pivot(past.run(), columns="tag:cat").ok
-        assert past.export(past.run(), "past.parquet").ok
+        assert past.run().frame().ok
+        assert past.run().pivot(columns="tag:cat").ok
+        assert past.run().export("past.parquet").ok
         assert (past.root / EXPORTS_DIR / "past.parquet").is_file()
 
-        assert [d.code for d in past.commit("nope").diagnostics] == ["CK-E030"]
-        assert [d.code for d in past.discard().diagnostics] == ["CK-E030"]
+        assert not hasattr(past, "commit") and not hasattr(past, "discard")
 
 
 # --------------------------------------------------------------------------- #
@@ -478,7 +474,7 @@ class TestRevisionBoundReads:
 
 def test_the_free_functions_and_the_methods_agree(kit: CashKit, tmp_path: Path) -> None:
     run = kit.run()
-    assert frame(kit, run, grain=Grain.MONTH) == kit.frame(run, grain=Grain.MONTH)
-    assert pivot(kit, run, columns="tag:cat") == kit.pivot(run, columns="tag:cat")
+    assert frame(kit, run, grain=Grain.MONTH) == run.frame(grain=Grain.MONTH)
+    assert pivot(kit, run, columns="tag:cat") == run.pivot(columns="tag:cat")
     assert compare(kit, [run]) == kit.compare([run])
     assert export(kit, run, tmp_path / "a.parquet").path == (tmp_path / "a.parquet")

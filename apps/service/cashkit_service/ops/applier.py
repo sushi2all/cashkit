@@ -29,7 +29,6 @@ from cashkit.model import (
 from cashkit.sdk import CashKit, ScaleItems as ScaleMacro, ShiftItems as ShiftMacro
 from pydantic import ValidationError
 
-from ..envelope import BASE_SCENARIO
 from .schema import MutationOp
 
 _GRAIN_LETTERS = {"d": Grain.DAY, "w": Grain.WEEK, "m": Grain.MONTH, "y": Grain.YEAR}
@@ -217,13 +216,10 @@ def _dispatch(
     context: str | None, seq: int,
 ) -> OpResult:
     kind = payload["op"]
-    on_base = target == BASE_SCENARIO
 
     if kind == "add_item":
         item = _build_item(payload)
-        if on_base:
-            return _result(payload, kit.add_item(item), items=[item.id])
-        return _result(payload, kit.scenarios.set_item(target, item), items=[item.id])
+        return _result(payload, kit.set_item(item, scenario=target), items=[item.id])
 
     if kind == "set_amount":
         return _set_amount(kit, payload, target=target)
@@ -234,7 +230,7 @@ def _dispatch(
             if kind == "shift_items"
             else ScaleMacro(selector=payload["selector"], factor=Decimal(payload["factor"]))
         )
-        return _result(payload, kit.scenarios.apply_macro(target, macro))
+        return _result(payload, kit.apply_macro(macro, scenario=target))
 
     if kind in ("add_event", "record_actual"):
         decision = discriminate_event_status(payload, context=context, as_of=as_of)
@@ -259,18 +255,16 @@ def _dispatch(
 
     if kind == "fork_scenario":
         parent = payload.get("parent") or target
-        return _result(payload, kit.scenarios.fork(parent, payload["name"], note=payload.get("note", "")))
+        return _result(payload, kit.fork(payload["name"], parent=parent, note=payload.get("note", "")))
 
     if kind == "set_cutover":
-        return _result(payload, kit.set_cutover(_as_date(payload["date"])))
+        return _result(payload, kit.set_book(cutover=_as_date(payload["date"])))
 
     if kind == "set_horizon":
         return _set_horizon(kit, payload)
 
     if kind == "set_opening_balance":
-        changed = kit.scenarios.set_book(opening_balance=Decimal(payload["amount"]))
-        kit.save()
-        return OpResult(op=payload, ok=True, diagnostics=[], touched_items=list(changed))
+        return _result(payload, kit.set_book(opening_balance=Decimal(payload["amount"])))
 
     if kind == "remove_event":
         return _remove_event(kit, payload)
@@ -315,7 +309,7 @@ def _set_amount(kit: CashKit, payload: dict[str, Any], *, target: str) -> OpResu
     date closes the old segment and opens a new one; it never rewrites what the
     amount used to be.
     """
-    book = kit.scenarios.resolve(target)
+    book = kit.resolve(target).book
     item = book.items.get(payload["item"])
     if item is None:
         return OpResult(
@@ -348,9 +342,7 @@ def _set_amount(kit: CashKit, payload: dict[str, Any], *, target: str) -> OpResu
         segments = rebuilt
 
     updated = item.model_copy(update={"segments": segments})
-    if target == BASE_SCENARIO:
-        return _result(payload, kit.add_item(updated), items=[updated.id])
-    return _result(payload, kit.scenarios.set_item(target, updated), items=[updated.id])
+    return _result(payload, kit.set_item(updated, scenario=target), items=[updated.id])
 
 
 def _correct(kit: CashKit, payload: dict[str, Any]) -> OpResult:
@@ -384,9 +376,7 @@ def _set_horizon(kit: CashKit, payload: dict[str, Any]) -> OpResult:
             diagnostics=[app_diagnostic(CK_E901, "The horizon must end after it starts.",
                                         fix="Give an end date after the start date.")],
         )
-    changed = kit.scenarios.set_book(horizon=PeriodRange(start=start, end=end))
-    kit.save()
-    return OpResult(op=payload, ok=True, diagnostics=[], touched_items=list(changed))
+    return _result(payload, kit.set_book(horizon=PeriodRange(start=start, end=end)))
 
 
 def _remove_event(kit: CashKit, payload: dict[str, Any]) -> OpResult:
@@ -419,7 +409,7 @@ def _remove_event(kit: CashKit, payload: dict[str, Any]) -> OpResult:
 
 def _edit_schedule_date(kit: CashKit, payload: dict[str, Any], *, target: str) -> OpResult:
     """Host op — one explicit date on a schedule item (SPEC §6-S11)."""
-    book = kit.scenarios.resolve(target)
+    book = kit.resolve(target).book
     item = book.items.get(payload["item"])
     if item is None:
         return OpResult(
@@ -492,9 +482,7 @@ def _edit_schedule_date(kit: CashKit, payload: dict[str, Any], *, target: str) -
     segments = [s.model_copy(deep=True) for s in item.segments]
     segments[segment_index] = segment.model_copy(update={"amount": Amount(schedule=schedule)})
     updated = item.model_copy(update={"segments": segments})
-    if target == BASE_SCENARIO:
-        return _result(payload, kit.add_item(updated), items=[updated.id])
-    return _result(payload, kit.scenarios.set_item(target, updated), items=[updated.id])
+    return _result(payload, kit.set_item(updated, scenario=target), items=[updated.id])
 
 
 __all__ = [

@@ -205,15 +205,16 @@ class TestValidateAgreesWithTheEngine:
         )
 
 
-class TestAuthoringChecksTheEngineDoesNotMake:
+class TestAuthoringChecksAreCompileTime:
     def test_a_positive_amount_on_an_out_item_is_an_error(self) -> None:
-        """The engine happily evaluates it — and silently produces an inflow."""
+        """The engine happily evaluates it — and silently produces an inflow —
+        so the check is made at compile time and a run reports it (ADR-0034)."""
         book = _book(items={"rent": _flow("rent", "4000.00", direction="out")})
         diagnostics = validate(book)
         found = next(d for d in diagnostics if d.code == "CK-E011")
         assert found.item_id == "rent"
         assert found.field == "segments[0].amount.constant"
-        assert not any(d.code == "CK-E011" for d in Engine(book).run().diagnostics)
+        assert any(d.code == "CK-E011" for d in Engine(book).run().diagnostics)
 
     def test_the_correct_sign_produces_nothing(self) -> None:
         book = _book(items={"rent": _flow("rent", "-4000.00", direction="out")})
@@ -273,9 +274,9 @@ class TestAuthoringChecksTheEngineDoesNotMake:
             d for d in diagnostics if d.code == "CK-E003" and d.field == "segments"
         ]
         assert segment_errors == []
-        # The engine still reports its own view; validate() is where the dedup
-        # lives, so the engine's contract is untouched.
-        assert any(
+        # One implementation: the engine's run says the same thing validate()
+        # does, because validate() is that run (ADR-0034).
+        assert not any(
             d.code == "CK-E003" and d.field == "segments"
             for d in Engine(book).run().diagnostics
         )

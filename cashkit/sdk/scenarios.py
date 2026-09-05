@@ -17,9 +17,14 @@ An agent that writes an item and changes nothing is told so (``CK-I002``)
 rather than silently bloating the overlay.
 
 **Base is a scenario with ``parent=None``.** It is privileged in *storage* only
-(its content is the top-level book, ADR-0007); nothing here branches on "is this
-base". A scenario with ``parent=None`` resolves against the authored book, and
-that is the only rule — base and a flattened scenario go down the same path.
+(its content is the top-level book, ADR-0007). Resolution never branches on "is
+this base": a scenario with ``parent=None`` resolves against the authored book,
+and base and a flattened scenario go down the same path. The **one** place that
+knows base's id is the write router (ADR-0031): ``set_item``, ``set_param`` and
+``remove_item`` addressed to ``base_id`` write the authored book, every other id
+writes an overlay. That is the storage split of ADR-0007 applied at the point
+where a write chooses its file, and it is deliberately the only such branch —
+callers address every scenario the same way and never choose a verb by it.
 
 **Actuals are immutable across every scenario.** ``EventOverlay.status`` cannot
 represent ``"actual"`` (D-P1-08), so fabricating one is impossible at the type
@@ -231,6 +236,9 @@ class ScenarioSet:
 
     book: Book
     scenarios: dict[ScenarioId, Scenario] = field(default_factory=dict)
+    #: The scenario whose content is the authored book (ADR-0007). Writes
+    #: addressed to it land in ``book``; every other id writes an overlay.
+    base_id: ScenarioId = "base"
 
     def __post_init__(self) -> None:
         synthetic = sorted(
@@ -252,7 +260,7 @@ class ScenarioSet:
         Base is a scenario with ``parent=None`` — privileged in storage only
         (ADR-0007). Produces no diagnostics.
         """
-        return cls(book=book, scenarios={base_id: Scenario(id=base_id)})
+        return cls(book=book, scenarios={base_id: Scenario(id=base_id)}, base_id=base_id)
 
     # -- chain ------------------------------------------------------------- #
 
@@ -308,8 +316,14 @@ class ScenarioSet:
 
     # -- resolution -------------------------------------------------------- #
 
-    def resolution(self, scenario_id: ScenarioId) -> Resolution:
+    def resolve(self, scenario_id: ScenarioId) -> Resolution:
         """Resolve ``scenario_id`` into a concrete Book with its audit trail.
+
+        ``.book`` is what an engine evaluates — materialized and inspectable,
+        no overlays, no chain (PRD §6.3) — and it travels with its diagnostics
+        rather than apart from them (ADR-0034): a resolved book handed over
+        without the problems resolution refused to guess about would be the
+        silent partial answer this project ranks worst.
 
         Returns a :class:`Resolution`. Diagnostics: ``CK-E021`` for a missing or
         cyclic chain link, ``CK-E023`` for an overlay targeting an item the
@@ -319,23 +333,6 @@ class ScenarioSet:
         """
         chain, diagnostics = self._chain(scenario_id)
         return self._resolve_chain(scenario_id, chain, diagnostics)
-
-    def resolve(self, scenario_id: ScenarioId) -> Book:
-        """Resolve ``scenario_id`` into the concrete Book an engine evaluates.
-
-        Materialized and inspectable: no overlays, no chain (PRD §6.3). See
-        :meth:`resolution` for the diagnostics resolution can produce —
-        this method drops them, so call :meth:`diagnostics` alongside it before
-        trusting the result.
-        """
-        return self.resolution(scenario_id).book
-
-    def diagnostics(self, scenario_id: ScenarioId) -> tuple[Diagnostic, ...]:
-        """Return the diagnostics resolving ``scenario_id`` produces.
-
-        Same set as ``resolution(scenario_id).diagnostics``.
-        """
-        return self.resolution(scenario_id).diagnostics
 
     def _resolve_chain(
         self,
@@ -472,6 +469,10 @@ class ScenarioSet:
         record moved and whose ``created`` names the item when it is new in this
         scenario. Diagnostics: ``CK-E021`` for an unknown scenario, ``CK-I002``
         for an empty write.
+
+        Addressed to ``base_id`` the write lands in the authored book (the
+        storage rule of ADR-0007, applied once, here): ``changed`` then lists
+        the item fields whose authored value moved.
         """
         scenario = self.scenarios.get(scenario_id)
         if scenario is None:
@@ -482,6 +483,23 @@ class ScenarioSet:
                     item_id=item.id,
                     scenario_id=scenario_id,
                     reason="cannot write an item into a scenario that does not exist",
+                ),
+            )
+        if scenario_id == self.base_id:
+            existing = self.book.items.get(item.id)
+            if existing == item:
+                return _empty_report(item.id)
+            self.set_book(items={**self.book.items, item.id: item})
+            if existing is None:
+                return ChangeReport(target=item.id, created=(item.id,))
+            return ChangeReport(
+                target=item.id,
+                changed=tuple(
+                    sorted(
+                        name
+                        for name in type(item).model_fields
+                        if getattr(existing, name) != getattr(item, name)
+                    )
                 ),
             )
         parent = self._parent_view(scenario)
@@ -564,6 +582,11 @@ class ScenarioSet:
                         reason=str(exc),
                     ),
                 )
+        if scenario_id == self.base_id:
+            if self.book.params.get(key, _MISSING) == value:
+                return _empty_report(f"params.{key}")
+            self.set_book(params={**self.book.params, key: value})
+            return ChangeReport(target=f"params.{key}", changed=(f"params.{key}",))
         parent = self._parent_view(scenario)
         inherited = parent.book.params.get(key, _MISSING)
         recorded = scenario.params.get(key, _MISSING)
@@ -633,6 +656,11 @@ class ScenarioSet:
                     reason="cannot remove an item from a scenario that does not exist",
                 ),
             )
+        if scenario_id == self.base_id:
+            if item_id not in self.book.items:
+                return _empty_report(item_id)
+            self.set_book(items=_without(self.book.items, item_id))
+            return ChangeReport(target=item_id, changed=("removed",))
         if item_id in scenario.added:
             self._replace(scenario, added=_without(scenario.added, item_id))
             return ChangeReport(target=item_id, changed=("added",))
@@ -673,7 +701,7 @@ class ScenarioSet:
                     reason="cannot apply a macro to a scenario that does not exist",
                 ),
             )
-        resolved = self.resolution(scenario_id)
+        resolved = self.resolve(scenario_id)
         matched, problem = resolve_selector(macro.selector, resolved.book.items)
         if problem is not None:
             return _error_report(scenario_id, problem)
@@ -718,7 +746,7 @@ class ScenarioSet:
             return _error_report(
                 new_id, make_diagnostic("CK-E022", scenario_id=new_id)
             )
-        resolved = self.resolution(scenario_id)
+        resolved = self.resolve(scenario_id)
         overlays: dict[ItemId, ItemOverlay] = {}
         added: dict[ItemId, Item] = {}
         for item_id, item in resolved.book.items.items():
@@ -752,12 +780,12 @@ class ScenarioSet:
     def set_book(self, **update: object) -> tuple[str, ...]:
         """Replace fields of the **authored** book, reporting what actually moved.
 
-        The construction surface (PRD §6.1) writes here and nowhere else: base's
-        content is the top-level book (ADR-0007), so ``add_item``, ``set_param``,
-        ``retag``, ``add_tax_regime`` and ``set_cutover`` are all one operation —
-        replace a field of ``self.book`` — while ``set_item(scenario, …)`` writes
-        overlays. One write path, two storage locations, exactly as the §3.3
-        layout splits them.
+        Base's content is the top-level book (ADR-0007), so every authored
+        write — an item, a param, a book field — is one operation: replace a
+        field of ``self.book``. ``set_item`` and ``set_param`` route here for
+        ``base_id`` and write overlays for every other scenario; the kit's
+        ``set_book`` writes the remaining Book fields through here. One write
+        path, two storage locations, exactly as the §3.3 layout splits them.
 
         Re-applies the two invariants ``model_copy`` skips: no engine-synthesized
         item may enter the authored book (D-P5-09/D-P5-10), and every key in
@@ -804,7 +832,7 @@ class ScenarioSet:
         removed comes back with ``exists=False`` and ``removed_by`` naming the
         scenario that removed it. Produces no diagnostics.
         """
-        resolved = self.resolution(scenario_id)
+        resolved = self.resolve(scenario_id)
         origins = resolved.origins.get(item_id)
         if origins is None:
             return Provenance(
@@ -829,8 +857,8 @@ class ScenarioSet:
         anything actually change". Produces no diagnostics — resolve each side
         with :meth:`diagnostics` if you need to know whether it resolved cleanly.
         """
-        a = self.resolution(left)
-        b = self.resolution(right)
+        a = self.resolve(left)
+        b = self.resolve(right)
         items: list[ItemDiff] = []
         for item_id in sorted(set(a.book.items) | set(b.book.items)):
             in_a = a.book.items.get(item_id)
@@ -883,7 +911,7 @@ class ScenarioSet:
         Returns ``(events, diagnostics)`` in the input order. The ledger itself
         is never written — a scenario is a view over it.
         """
-        resolved = self.resolution(scenario_id)
+        resolved = self.resolve(scenario_id)
         overlays = dict(resolved.event_overlays)
         diagnostics: list[Diagnostic] = []
         out: list[Event] = []

@@ -167,7 +167,7 @@ def cmd_init(args: argparse.Namespace, out, err) -> int:
     root = Path(args.path)
     horizon: PeriodRange = args.horizon
     cutover = args.cutover or horizon.start
-    ref = create_book(
+    kit, diagnostics = create_book(
         root,
         id=args.id or _slug(root.name),
         horizon=horizon,
@@ -179,10 +179,9 @@ def cmd_init(args: argparse.Namespace, out, err) -> int:
         cutover=cutover,
         settings=EngineSettings(),
     )
-    if ref.kit is None:
-        _render_diagnostics(err, ref.diagnostics)
+    if kit is None:
+        _render_diagnostics(err, diagnostics)
         return EXIT_USAGE
-    kit = ref.kit
     book = kit.book
     report = None
     if not args.no_commit:
@@ -258,7 +257,7 @@ def cmd_doctor(args: argparse.Namespace, out, err) -> int:
         else:
             head = kit.revisions.head()
             payload["book_id"] = kit.book.id
-            payload["scenarios"] = sorted(kit.scenarios.scenarios)
+            payload["scenarios"] = sorted(kit.scenarios)
             payload["items"] = len(kit.book.items)
             payload["rounding_policy"] = kit.policy.value
             payload["revision"] = head.id if head else ""

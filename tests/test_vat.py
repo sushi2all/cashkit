@@ -77,7 +77,7 @@ def _period_index(result, day: date) -> int:
 def test_f24_schedule_matches_the_hand_computed_fixture(run) -> None:
     book = build_f24_book()
     result = run(book)
-    assert [d.code for d in result.diagnostics] == []
+    assert [d.code for d in result.diagnostics if d.severity != "info"] == []
 
     accrual = result.column(LIABILITY, "accrual")
     cash = result.column(LIABILITY, "cash")
@@ -156,7 +156,7 @@ def test_a_return_that_does_not_close_inside_the_horizon_recognises_nothing(run)
 @ENGINES
 def test_input_above_output_accumulates_a_credit_stock(run) -> None:
     result = run(build_credit_book())
-    assert [d.code for d in result.diagnostics] == []
+    assert [d.code for d in result.diagnostics if d.severity != "info"] == []
 
     levels = {
         date(2026, 3, 31): Decimal("5940"),
@@ -496,7 +496,7 @@ def test_an_unknown_vat_rate_param_is_ck_e008_and_the_item_is_broken(run) -> Non
     book = _treatment_book("standard", amount="1000")
     item = book.items["line"].model_copy(update={"vat": VatSpec(rate="vat_unknown")})
     result = run(book.model_copy(update={"items": {"line": item}}))
-    assert [d.code for d in result.diagnostics] == ["CK-E008"]
+    assert [d.code for d in result.diagnostics if d.severity != "info"] == ["CK-E008"]
     assert result.total("line", "accrual") == Decimal(0), "a broken item computes nothing"
 
 
@@ -505,7 +505,7 @@ def test_a_regime_whose_selector_matches_nothing_is_ck_e019(run) -> None:
     book = _treatment_book("standard", amount="1000")
     regime = book.tax_regimes[0].model_copy(update={"accumulates": "cat:nonexistent"})
     result = run(book.model_copy(update={"tax_regimes": [regime]}))
-    assert [d.code for d in result.diagnostics] == ["CK-E019"]
+    assert [d.code for d in result.diagnostics if d.severity != "info"] == ["CK-E019"]
     assert LIABILITY not in result.accrual, "a refused regime materializes nothing"
 
 
@@ -514,7 +514,7 @@ def test_refund_annual_without_a_month_is_refused(run) -> None:
     book = _treatment_book("standard", amount="1000")
     regime = book.tax_regimes[0].model_copy(update={"credit_handling": "refund_annual"})
     result = run(book.model_copy(update={"tax_regimes": [regime]}))
-    assert [d.code for d in result.diagnostics] == ["CK-E019"]
+    assert [d.code for d in result.diagnostics if d.severity != "info"] == ["CK-E019"]
 
 
 @ENGINES

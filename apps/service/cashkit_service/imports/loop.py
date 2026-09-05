@@ -104,12 +104,12 @@ def book_is_empty(kit: CashKit) -> bool:
     Conservative on purpose. Every case this gets wrong, it gets wrong in the
     direction of forking, which cannot destroy anything.
     """
-    base = kit.scenarios.resolve(BASE_SCENARIO)
+    base = kit.resolve(BASE_SCENARIO).book
     if base.items:
         return False
     if kit.query_events(include_voided=True).rows:
         return False
-    return not (set(kit.scenarios.scenarios) - {BASE_SCENARIO})
+    return not (set(kit.scenarios) - {BASE_SCENARIO})
 
 
 def fork_name_for(filename: str, taken: set[str]) -> str:
@@ -130,7 +130,7 @@ def decide_target(kit: CashKit, filename: str) -> Target:
     """SPEC §7.3, and the one place it is decided."""
     if book_is_empty(kit):
         return Target(scenario=BASE_SCENARIO, reason="empty_book", created_fork=False)
-    name = fork_name_for(filename, set(kit.scenarios.scenarios))
+    name = fork_name_for(filename, set(kit.scenarios))
     return Target(scenario=name, reason="non_empty_book", created_fork=True)
 
 
@@ -243,9 +243,9 @@ class ImportLoop:
                 snapshot_module.build(kit, scenario=BASE_SCENARIO, as_of=as_of)
             )
             self.existing_items = set(
-                kit.scenarios.resolve(self.target.scenario).items
-                if self.target.scenario in kit.scenarios.scenarios
-                else kit.scenarios.resolve(BASE_SCENARIO).items
+                kit.resolve(self.target.scenario).book.items
+                if self.target.scenario in kit.scenarios
+                else kit.resolve(BASE_SCENARIO).book.items
             )
         self.as_of = as_of
         target = self.target
@@ -628,7 +628,6 @@ class ImportLoop:
                     )
                     for index, operation in enumerate(operations)
                 ]
-                scratch.save()
                 figures = Figures.of(scratch, self.target.scenario)
                 if self.target.created_fork:
                     # SPEC §7.3: the fork carries the book's own plan too, so

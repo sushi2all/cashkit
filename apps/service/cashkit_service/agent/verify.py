@@ -70,7 +70,6 @@ def receipts(
             )
             if not result.ok:
                 break
-        scratch.save()
         after = _columns(scratch, scenario)
         return _trace_changes(scratch, before, after, scenario=scenario)
 

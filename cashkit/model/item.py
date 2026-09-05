@@ -2,7 +2,7 @@
 
 Business rules that are user-facing failure modes (generative stock CK-E012,
 sign vs direction CK-E011, formula-only-on-derived) are validated by the SDK
-at ``add_item()`` time and reported as diagnostics — not enforced here.
+at ``set_item()`` time and reported as diagnostics — not enforced here.
 Structural invariants are.
 """
 
@@ -78,7 +78,7 @@ class Item(CashKitModel):
     """Generative or derived model line.
 
     ``direction`` is display-only; storage is signed. ``kind="stock"`` is
-    valid on derived items only in v1 (CK-E012 at add_item time).
+    valid on derived items only in v1 (CK-E012 at set_item time).
     """
 
     id: ItemId
