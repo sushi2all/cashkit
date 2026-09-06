@@ -179,20 +179,20 @@
 
 <!-- 1 · Title -->
 <section class="slide title" id="s1">
-  <p class="eyebrow">CashKit · Python ≥ 3.11 · Pydantic v2 · numpy int64</p>
+  <p class="eyebrow">CashKit · the toolkit under the hood</p>
   <h1>The SDK, under the hood</h1>
-  <p class="lede">One object, one write path, one engine, three stores. Every write returns a <code>ChangeReport</code>; every fallible call returns a <code>Diagnostic</code>, never a stack trace.</p>
+  <p class="lede">One object to hold a plan, one way to change it, one calculator, three places data lives. Every change answers with a report of what moved, and anything that goes wrong comes back as a message with a suggested fix, never a crash.</p>
   <div class="three">
-    <div><b>Time is an axis</b><span>Every value is a column over the horizon. <code>prev()</code> is the only sequential dependency.</span></div>
-    <div><b>Runs reproduce</b><span>A run is <code>(revision, scenario, engine_version, ledger_watermark)</code>. Nothing reads the clock.</span></div>
-    <div><b>Numbers explain themselves</b><span><code>trace()</code> walks formula → bindings → arithmetic. <code>why_zero()</code> names the cause.</span></div>
+    <div><b>Time is built in</b><span>Every value is a whole row of numbers, one per day or month, across the planning horizon. Only <code>prev()</code> looks back at the previous period.</span></div>
+    <div><b>Results can be reproduced</b><span>A calculation is fully described by which saved version, which scenario, which calculator version and how much of the ledger it saw. Nothing looks at today's date.</span></div>
+    <div><b>Numbers explain themselves</b><span><code>trace()</code> shows the formula, the values that went into it and the arithmetic. <code>why_zero()</code> says why a cell is empty.</span></div>
   </div>
 </section>
 
 <!-- 2 · Layers -->
 <section class="slide" id="s2">
-  <p class="eyebrow">Architecture <span class="sec">PRD §3.1</span></p>
-  <h2>Agents touch the SDK. The SDK touches everything else.</h2>
+  <p class="eyebrow">The big picture <span class="sec">PRD §3.1</span></p>
+  <h2>Callers talk to one toolkit. The toolkit talks to everything else.</h2>
   <figure>
     <div class="svg-wrap">
     <svg viewBox="0 0 960 360" role="img" aria-label="Agent layer calls the SDK; the SDK fans out to the config store, ledger store, engine and frame store.">
@@ -203,14 +203,14 @@
       </defs>
       <g font-family="Archivo, sans-serif" font-size="13">
         <rect x="40" y="16" width="880" height="46" rx="4" fill="none" stroke="currentColor" stroke-dasharray="4 4"/>
-        <text x="480" y="44" text-anchor="middle">Agent · notebook · CLI · UI  —  app layer, content lives here (ADR-0021)</text>
+        <text x="480" y="44" text-anchor="middle">AI agent · notebook · command line · app  —  anything that knows about taxes or users lives up here</text>
 
         <line x1="480" y1="62" x2="480" y2="104" stroke="currentColor" marker-end="url(#ar)"/>
-        <text x="496" y="88" font-size="11" fill="var(--muted)">SDK only — no direct data access</text>
+        <text x="496" y="88" font-size="11" fill="var(--muted)">only through the toolkit — never straight to the data</text>
 
         <rect x="40" y="106" width="880" height="72" rx="4" fill="var(--accent)" />
         <text x="480" y="134" text-anchor="middle" fill="var(--accent-ink)" font-weight="700" font-size="15">cashkit.sdk  ·  CashKit</text>
-        <text x="480" y="160" text-anchor="middle" fill="var(--accent-ink)" font-size="12">construction · ledger · scenarios · execution · introspection · version control</text>
+        <text x="480" y="160" text-anchor="middle" fill="var(--accent-ink)" font-size="12">build the plan · record what happened · try variants · calculate · explain · keep history</text>
 
         <g stroke="currentColor" marker-end="url(#ar)">
           <line x1="150" y1="178" x2="150" y2="236"/>
@@ -219,10 +219,10 @@
           <line x1="810" y1="178" x2="810" y2="236"/>
         </g>
         <g font-size="11" fill="var(--muted)">
-          <text x="158" y="212">commit / at / history</text>
-          <text x="378" y="212">events, watermark</text>
-          <text x="598" y="212">run / delta</text>
-          <text x="818" y="212">frame / pivot</text>
+          <text x="158" y="212">save, reopen, history</text>
+          <text x="378" y="212">what happened</text>
+          <text x="598" y="212">calculate</text>
+          <text x="818" y="212">tables</text>
         </g>
 
         <g stroke="currentColor" fill="var(--panel)">
@@ -232,37 +232,37 @@
           <rect x="710" y="238" width="200" height="100" rx="4"/>
         </g>
         <g text-anchor="middle">
-          <text x="150" y="264" font-weight="700">Config store</text>
-          <text x="150" y="286" font-size="12">YAML + git</text>
-          <text x="150" y="306" font-size="11" fill="var(--muted)">RevisionStore protocol</text>
-          <text x="150" y="324" font-size="11" fill="var(--muted)">pygit2 imported here only</text>
+          <text x="150" y="264" font-weight="700">The plan</text>
+          <text x="150" y="286" font-size="12">text files + git</text>
+          <text x="150" y="306" font-size="11" fill="var(--muted)">history behind an interface</text>
+          <text x="150" y="324" font-size="11" fill="var(--muted)">git is used in one file only</text>
 
-          <text x="370" y="264" font-weight="700">Ledger store</text>
-          <text x="370" y="286" font-size="12">SQLite, append-only</text>
-          <text x="370" y="306" font-size="11" fill="var(--muted)">LedgerStore protocol</text>
-          <text x="370" y="324" font-size="11" fill="var(--muted)">sqlite3 imported here only</text>
+          <text x="370" y="264" font-weight="700">The ledger</text>
+          <text x="370" y="286" font-size="12">SQLite, only ever appended</text>
+          <text x="370" y="306" font-size="11" fill="var(--muted)">a record of what happened</text>
+          <text x="370" y="324" font-size="11" fill="var(--muted)">SQLite is used in one file only</text>
 
-          <text x="590" y="264" font-weight="700">Engine</text>
-          <text x="590" y="286" font-size="12">graph → SCC → vectorize → fold</text>
-          <text x="590" y="306" font-size="11" fill="var(--muted)">int64 minor units @ 4 dp</text>
-          <text x="590" y="324" font-size="11" fill="var(--muted)">no clock, no float, no store</text>
+          <text x="590" y="264" font-weight="700">The calculator</text>
+          <text x="590" y="286" font-size="12">order the items, then compute</text>
+          <text x="590" y="306" font-size="11" fill="var(--muted)">exact whole-number money</text>
+          <text x="590" y="324" font-size="11" fill="var(--muted)">no clock, no decimals lost, no files</text>
 
-          <text x="810" y="264" font-weight="700">Frame store</text>
-          <text x="810" y="286" font-size="12">DuckDB (+ Parquet)</text>
-          <text x="810" y="306" font-size="11" fill="var(--muted)">FrameStore protocol</text>
-          <text x="810" y="324" font-size="11" fill="var(--muted)">optional extra · CK-E033</text>
+          <text x="810" y="264" font-weight="700">Tables</text>
+          <text x="810" y="286" font-size="12">DuckDB, exports to Parquet</text>
+          <text x="810" y="306" font-size="11" fill="var(--muted)">for slicing and pivoting</text>
+          <text x="810" y="324" font-size="11" fill="var(--muted)">optional install</text>
         </g>
       </g>
     </svg>
     </div>
-    <figcaption>Each driver is imported in exactly one module and reached through a protocol, so any backend is a one-file swap (ADR-0018).</figcaption>
+    <figcaption>Each storage technology is touched in exactly one file, so swapping git, SQLite or DuckDB for something else means changing one file (ADR-0018).</figcaption>
   </figure>
 </section>
 
 <!-- 3 · The kit object -->
 <section class="slide" id="s3">
-  <p class="eyebrow">The object an agent holds <span class="sec">cashkit/sdk/kit.py</span></p>
-  <h2>Two types, one shape: <code>ReadOnlyKit</code> reads, <code>CashKit</code> adds writes</h2>
+  <p class="eyebrow">The one object a caller holds <span class="sec">cashkit/sdk/kit.py</span></p>
+  <h2>Two flavours of the same thing: a read-only kit, and a kit that can also change the plan</h2>
   <div class="cols wide-left">
     <pre class="code">@dataclass
 class ReadOnlyKit:                      # what at(ref) returns — no write methods
@@ -297,23 +297,23 @@ class RunRef:                 # what run() returns
     summary()  frame()  pivot()  export()
     trace()  why_zero()
     depends_on()  dependents_of()</pre>
-      <p class="note"><strong>Two books exist.</strong> The kit holds the authored one. The engine augments it with synthetic items (<code>_tax:*</code>, <code>_event:*</code>) that never leave a run. <strong>A past revision is a type</strong> (ADR-0033): a write on it is a method that does not exist, not a diagnostic to remember.</p>
+      <p class="note"><strong>Two copies of the plan exist.</strong> The kit holds the one you wrote. The calculator adds a few helper items of its own (for tax and for stray ledger rows) that never leave a calculation. <strong>An old saved version is read-only by construction</strong> (ADR-0033): it simply has no methods that change anything.</p>
     </div>
   </div>
 </section>
 
 <!-- 4 · Method map -->
 <section class="slide" id="s4">
-  <p class="eyebrow">Method map <span class="sec">PRD §6 as narrowed by ADR-0031…0034 · everything returns structured data</span></p>
-  <h2>One object, addressed by scenario</h2>
+  <p class="eyebrow">Every method, on one page <span class="sec">PRD §6 as narrowed by ADR-0031…0034</span></p>
+  <h2>One object. Every change says which scenario it is for.</h2>
   <div class="method-grid">
-    <div class="mbox"><h3>Handles <span class="sec">(kit, diagnostics)</span></h3><ul>
+    <div class="mbox"><h3>Opening things <span class="sec">answer: (kit, problems)</span></h3><ul>
       <li><code>create_book(root, id, horizon, …)</code><span class="ret">CashKit | None</span></li>
       <li><code>CashKit.open(root)</code><span class="ret">CashKit | None</span></li>
       <li><code>kit.at(ref)</code><span class="ret">ReadOnlyKit | None</span></li>
       <li><code>kit.run(scenario)</code><span class="ret">RunRef</span></li>
     </ul></div>
-    <div class="mbox"><h3>Authoring <span class="sec">§6.1 + §6.3 · scenario="base"</span></h3><ul>
+    <div class="mbox"><h3>Changing the plan <span class="sec">scenario="base" unless told otherwise</span></h3><ul>
       <li><code>kit.set_item(item, scenario=)</code><span class="ret">ChangeReport</span></li>
       <li><code>kit.set_param(key, value, scenario=)</code><span class="ret">ChangeReport</span></li>
       <li><code>kit.remove_item(id, scenario=)</code><span class="ret">ChangeReport</span></li>
@@ -323,7 +323,7 @@ class RunRef:                 # what run() returns
       <li><code>kit.fork(new_id, parent=)</code><span class="ret">ChangeReport</span></li>
       <li><code>kit.flatten(new_id, scenario=)</code><span class="ret">ChangeReport</span></li>
     </ul></div>
-    <div class="mbox"><h3>Ledger <span class="sec">§6.2</span></h3><ul>
+    <div class="mbox"><h3>Recording what happened <span class="sec">§6.2</span></h3><ul>
       <li><code>kit.add_event(event)</code><span class="ret">ChangeReport</span></li>
       <li><code>kit.import_events(rows, source)</code><span class="ret">ImportReport</span></li>
       <li><code>kit.void_event(id, note)</code><span class="ret">ChangeReport</span></li>
@@ -331,7 +331,7 @@ class RunRef:                 # what run() returns
       <li><code>kit.query_events(where, since)</code><span class="ret">Table</span></li>
       <li><code>kit.reconcile(until)</code><span class="ret">ReconciliationReport</span></li>
     </ul></div>
-    <div class="mbox"><h3>Reads on the kit <span class="sec">§6.3 · §6.5</span></h3><ul>
+    <div class="mbox"><h3>Asking the kit <span class="sec">§6.3 · §6.5</span></h3><ul>
       <li><code>kit.resolve(scenario)</code><span class="ret">Resolution</span></li>
       <li><code>kit.provenance(item, scenario=)</code><span class="ret">Provenance</span></li>
       <li><code>kit.diff(a, b)</code><span class="ret">ScenarioDiff</span></li>
@@ -339,7 +339,7 @@ class RunRef:                 # what run() returns
       <li><code>kit.describe_book(scenario)</code><span class="ret">BookDescription</span></li>
       <li><code>kit.compare(runs, metric)</code><span class="ret">Table</span></li>
     </ul></div>
-    <div class="mbox"><h3>Reads on the run <span class="sec">§6.4 · §6.5</span></h3><ul>
+    <div class="mbox"><h3>Asking a calculation <span class="sec">§6.4 · §6.5</span></h3><ul>
       <li><code>run.summary(grain)</code><span class="ret">RunSummary</span></li>
       <li><code>run.frame(grain, where, …)</code><span class="ret">Table</span></li>
       <li><code>run.pivot(index, columns)</code><span class="ret">Table</span></li>
@@ -349,7 +349,7 @@ class RunRef:                 # what run() returns
       <li><code>run.depends_on(item)</code><span class="ret">DependencyGraph</span></li>
       <li><code>run.dependents_of(item)</code><span class="ret">DependencyGraph</span></li>
     </ul></div>
-    <div class="mbox"><h3>Version control <span class="sec">§6.6</span></h3><ul>
+    <div class="mbox"><h3>Saving and history <span class="sec">§6.6</span></h3><ul>
       <li><code>kit.commit(message, scenarios)</code><span class="ret">CommitReport</span></li>
       <li><code>kit.status()</code><span class="ret">WorkingState</span></li>
       <li><code>kit.discard(items)</code><span class="ret">ChangeReport</span></li>
@@ -362,8 +362,8 @@ class RunRef:                 # what run() returns
 
 <!-- 5 · Lifecycle -->
 <section class="slide" id="s5">
-  <p class="eyebrow">A session, end to end</p>
-  <h2>Author → validate → run → ask why → commit</h2>
+  <p class="eyebrow">A working session, start to finish</p>
+  <h2>Write the plan → check it → calculate → ask why → save a version</h2>
   <div class="cols wide-left">
     <pre class="code">kit, problems = create_book("./acme", id="acme", grain=Grain.DAY,
                             horizon=PeriodRange(start=2026-01-01, end=2031-01-01),
@@ -390,19 +390,19 @@ run.summary().min_cash_period                   # when do we run out of cash
 run.trace("cash", date(2026, 9, 30), depth=3)   # formula → bindings → arithmetic
 kit.commit("Acme terms as signed")              # snapshot + revision, or None</pre>
     <dl class="dl">
-      <dt>create_book</dt><dd>writes the §3.3 layout, resolves holidays for the horizon and commits them (ADR-0010); returns <code>(kit, diagnostics)</code></dd>
-      <dt>set_item / set_param</dt><dd>one verb per thing, addressed by scenario; formula parsed and DAG-checked <em>now</em>; refuses what is wrong in isolation, records the rest with diagnostics; persists to disk</dd>
-      <dt>validate</dt><dd>the run's own diagnostics, ordered errors-first: one implementation of "what is wrong with this book"</dd>
-      <dt>run</dt><dd>resolve scenario → ledger view → <code>Engine</code> → <code>RunRef</code></dd>
-      <dt>commit</dt><dd>lock → re-run every scenario → snapshots → stamp watermark → revision</dd>
+      <dt>create_book</dt><dd>creates the folder layout on disk, looks up the public holidays once and stores them with the plan so results never change when the holiday list does</dd>
+      <dt>set_item / set_param</dt><dd>one call per kind of thing, with the scenario as an argument; a formula is checked the moment you write it, and the change is on disk before the call returns</dd>
+      <dt>validate</dt><dd>the same list of problems a calculation reports, sorted with errors first; there is only one place that decides what is wrong</dd>
+      <dt>run</dt><dd>work out what this scenario's plan is, pick up the ledger rows it can see, calculate, hand back a result you can question</dd>
+      <dt>commit</dt><dd>take the lock, recalculate every scenario, store the headline numbers next to the plan, save a version</dd>
     </dl>
   </div>
 </section>
 
 <!-- 6 · Data model -->
 <section class="slide" id="s6">
-  <p class="eyebrow">Data model <span class="sec">cashkit/model · frozen Pydantic v2 · canonical YAML</span></p>
-  <h2>Items generate, events record, scenarios overlay</h2>
+  <p class="eyebrow">What a plan is made of <span class="sec">cashkit/model</span></p>
+  <h2>Items produce the forecast, events record what happened, scenarios layer changes on top</h2>
   <figure>
     <div class="svg-wrap">
     <svg viewBox="0 0 980 420" role="img" aria-label="Book owns items, params and tax regimes. Items carry segments, a settlement and a VAT spec, or a formula. Events attach to items. Scenarios chain by parent and overlay items and params.">
@@ -447,7 +447,7 @@ kit.commit("Acme terms as signed")              # snapshot + revision, or None</
         <text x="702" y="196">date · amount · currency</text>
         <text x="702" y="214">status: actual|committed|forecast</text>
         <text x="702" y="232">item: ItemId | None (else synthetic)</text>
-        <text x="702" y="250">source + ext_id  → idempotency</text>
+        <text x="702" y="250">source + ext_id  → no double counting</text>
         <text x="702" y="266" fill="var(--muted)">corrects: EventId | None</text>
 
         <!-- Scenario -->
@@ -455,7 +455,7 @@ kit.commit("Acme terms as signed")              # snapshot + revision, or None</
         <text x="32" y="272" font-family="Archivo, sans-serif" font-weight="700" font-size="14">Scenario</text>
         <text x="32" y="296">parent: ScenarioId | None</text>
         <text x="32" y="314">params: {key: Decimal}</text>
-        <text x="32" y="332">items: {id: ItemOverlay}   sparse</text>
+        <text x="32" y="332">items: {id: ItemOverlay}   only changed fields</text>
         <text x="32" y="350">added: {id: Item} · removed: {id}</text>
         <text x="32" y="368">event_overrides: {id: EventOverlay}</text>
         <text x="32" y="388" fill="var(--muted)">status can never be "actual"</text>
@@ -466,7 +466,7 @@ kit.commit("Acme terms as signed")              # snapshot + revision, or None</
         <text x="412" y="336">accumulates: selector · measure</text>
         <text x="412" y="354">periodicity · payment_offset</text>
         <text x="412" y="372">credit_handling: carry | refund</text>
-        <text x="412" y="390" fill="var(--muted)">→ synthetic _tax:&lt;id&gt;:liability/credit</text>
+        <text x="412" y="390" fill="var(--muted)">→ becomes two helper items in the calculation</text>
 
         <!-- edges -->
         <g stroke="currentColor" fill="none" marker-end="url(#ar2)">
@@ -479,25 +479,25 @@ kit.commit("Acme terms as signed")              # snapshot + revision, or None</
           <path d="M40,250 C-10,250 -10,300 22,300" stroke-dasharray="4 3"/>
         </g>
         <g font-family="Archivo, sans-serif" font-size="10.5" fill="var(--muted)">
-          <text x="290" y="120">1..n</text>
+          <text x="290" y="120">many</text>
           <text x="686" y="128">due[]</text>
           <text x="632" y="248">lands in</text>
           <text x="345" y="238">regimes</text>
-          <text x="128" y="230">overlays fields</text>
+          <text x="128" y="230">changes fields</text>
           <text x="218" y="230">overrides params</text>
           <text x="6" y="330" transform="rotate(-90 6 330)" text-anchor="middle">parent</text>
         </g>
       </g>
     </svg>
     </div>
-    <figcaption>Money is <code>Decimal</code> at this boundary and rejected if it arrives as <code>float</code>. Every model is frozen; canonical YAML is byte-stable.</figcaption>
+    <figcaption>Money arrives as an exact decimal and is refused if it arrives as a floating-point number. Nothing here can be modified in place, and the files are always written the same way, so a saved plan never shows a spurious difference.</figcaption>
   </figure>
 </section>
 
 <!-- 7 · Construction: admit -->
 <section class="slide" id="s7">
-  <p class="eyebrow">Construction <span class="sec">cashkit/sdk/construction.py</span></p>
-  <h2>One write path, two tiers: refuse what is wrong alone, record what the book may fix later</h2>
+  <p class="eyebrow">Changing the plan <span class="sec">cashkit/sdk/construction.py</span></p>
+  <h2>One way in, two kinds of answer: refuse what is wrong by itself, accept and flag what the rest of the plan may fix later</h2>
   <div class="cols two">
     <pre class="code">def set_item(self, item, *, scenario="base") -> ChangeReport:
     if scenario not in self.state.scenarios: return CK-E021
@@ -526,35 +526,35 @@ def set_item(self, scenario_id, item):
           <defs><marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
           <g font-family="Archivo, sans-serif" font-size="12">
             <rect x="10" y="90" width="90" height="44" rx="4" fill="var(--panel)" stroke="currentColor"/>
-            <text x="55" y="116" text-anchor="middle">Item spec</text>
+            <text x="55" y="116" text-anchor="middle">New item</text>
             <line x1="100" y1="112" x2="140" y2="112" stroke="currentColor" marker-end="url(#ar3)"/>
             <rect x="142" y="90" width="120" height="44" rx="4" fill="var(--panel)" stroke="currentColor"/>
-            <text x="202" y="110" text-anchor="middle">in isolation?</text>
-            <text x="202" y="126" text-anchor="middle" font-size="10" fill="var(--muted)">parse · settlement · sign</text>
+            <text x="202" y="110" text-anchor="middle">wrong on its own?</text>
+            <text x="202" y="126" text-anchor="middle" font-size="10" fill="var(--muted)">formula · payment terms · sign</text>
             <line x1="202" y1="90" x2="202" y2="40" stroke="var(--diag)" marker-end="url(#ar3)"/>
             <rect x="130" y="8" width="144" height="30" rx="4" fill="var(--diag-soft)" stroke="var(--diag)"/>
             <text x="202" y="28" text-anchor="middle" fill="var(--diag)" font-weight="700">refused · nothing written</text>
             <line x1="262" y1="112" x2="300" y2="112" stroke="currentColor" marker-end="url(#ar3)"/>
             <rect x="302" y="90" width="128" height="44" rx="4" fill="var(--panel)" stroke="currentColor"/>
-            <text x="366" y="110" text-anchor="middle">compile candidate</text>
-            <text x="366" y="126" text-anchor="middle" font-size="10" fill="var(--muted)">graph · refs · params</text>
+            <text x="366" y="110" text-anchor="middle">check against the plan</text>
+            <text x="366" y="126" text-anchor="middle" font-size="10" fill="var(--muted)">references · loops · parameters</text>
             <line x1="366" y1="134" x2="366" y2="180" stroke="var(--accent)" marker-end="url(#ar3)"/>
             <rect x="262" y="182" width="168" height="36" rx="4" fill="var(--accent-soft)" stroke="var(--accent)"/>
-            <text x="346" y="200" text-anchor="middle" fill="var(--accent)" font-weight="700">written + diagnostics</text>
-            <text x="346" y="212" text-anchor="middle" fill="var(--accent)" font-size="10">a later write can settle these</text>
+            <text x="346" y="200" text-anchor="middle" fill="var(--accent)" font-weight="700">written, with warnings</text>
+            <text x="346" y="212" text-anchor="middle" fill="var(--accent)" font-size="10">a later change can fix these</text>
           </g>
         </svg>
-        <figcaption>A <code>prev()</code> feedback pair references each other. Under a refusing rule neither could be added first.</figcaption>
+        <figcaption>Why the second kind exists: two items that refer to each other cannot both be added first, so an unknown reference is flagged rather than refused.</figcaption>
       </figure>
-      <p class="note"><strong>Every write goes through <code>ScenarioSet</code></strong>, the one owner of the authored book, and every write that recorded something reaches the working tree before it returns. The caller never chooses a verb by whether the target is base.</p>
+      <p class="note"><strong>Every change goes through one gate</strong>, which owns the plan and its scenarios, and every change that recorded something is on disk before the call returns. The caller uses the same method whether the target is the main plan or a scenario.</p>
     </div>
   </div>
 </section>
 
 <!-- 8 · run() -->
 <section class="slide" id="s8">
-  <p class="eyebrow">Execution <span class="sec">CashKit.run</span></p>
-  <h2><code>run()</code> is four lines. Everything deterministic is upstream of it.</h2>
+  <p class="eyebrow">Calculating <span class="sec">CashKit.run</span></p>
+  <h2><code>run()</code> is four lines. Everything that makes the result repeatable happens before it.</h2>
   <div class="cols two">
     <pre class="code">def run(self, scenario="base", *, cutover_override=None) -> RunRef:
     resolution = self.resolve(scenario)                   # chain → Book + diagnostics
@@ -582,14 +582,14 @@ def events_for(self, scenario):
         <defs><marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
         <g font-family="Archivo, sans-serif" font-size="12">
           <rect x="10" y="20" width="190" height="60" rx="4" fill="var(--panel)" stroke="currentColor"/>
-          <text x="105" y="44" text-anchor="middle" font-weight="700">ScenarioSet.resolution</text>
-          <text x="105" y="64" text-anchor="middle" font-size="11" fill="var(--muted)">book + chain → Book, origins</text>
+          <text x="105" y="44" text-anchor="middle" font-weight="700">work out the scenario</text>
+          <text x="105" y="64" text-anchor="middle" font-size="11" fill="var(--muted)">main plan + its layers → one plan</text>
           <rect x="10" y="110" width="190" height="60" rx="4" fill="var(--panel)" stroke="currentColor"/>
-          <text x="105" y="134" text-anchor="middle" font-weight="700">ledger.facts(watermark)</text>
-          <text x="105" y="154" text-anchor="middle" font-size="11" fill="var(--muted)">voids excluded · overlays applied</text>
+          <text x="105" y="134" text-anchor="middle" font-weight="700">ledger rows it can see</text>
+          <text x="105" y="154" text-anchor="middle" font-size="11" fill="var(--muted)">cancelled rows left out</text>
           <rect x="10" y="200" width="190" height="60" rx="4" fill="var(--panel)" stroke="currentColor"/>
-          <text x="105" y="224" text-anchor="middle" font-weight="700">settings.rounding_policy</text>
-          <text x="105" y="244" text-anchor="middle" font-size="11" fill="var(--muted)">half-up | banker's · tracked</text>
+          <text x="105" y="224" text-anchor="middle" font-weight="700">rounding rule</text>
+          <text x="105" y="244" text-anchor="middle" font-size="11" fill="var(--muted)">saved with the plan</text>
           <g stroke="currentColor" marker-end="url(#ar4)">
             <line x1="200" y1="50" x2="258" y2="120"/>
             <line x1="200" y1="140" x2="258" y2="140"/>
@@ -597,22 +597,22 @@ def events_for(self, scenario):
           </g>
           <rect x="260" y="100" width="90" height="80" rx="4" fill="var(--accent)"/>
           <text x="305" y="135" text-anchor="middle" fill="var(--accent-ink)" font-weight="700">Engine</text>
-          <text x="305" y="155" text-anchor="middle" fill="var(--accent-ink)" font-size="11">compile + run</text>
+          <text x="305" y="155" text-anchor="middle" fill="var(--accent-ink)" font-size="11">check, then compute</text>
           <line x1="350" y1="140" x2="392" y2="140" stroke="currentColor" marker-end="url(#ar4)"/>
           <rect x="394" y="100" width="60" height="80" rx="4" fill="var(--panel)" stroke="currentColor"/>
           <text x="424" y="145" text-anchor="middle" font-weight="700">RunRef</text>
-          <text x="230" y="290" font-size="11" fill="var(--muted)">key: (revision, scenario, engine_version, watermark) + cutover</text>
+          <text x="230" y="290" font-size="11" fill="var(--muted)">identified by: version, scenario, calculator version, ledger position</text>
         </g>
       </svg>
-      <figcaption>Runs cost milliseconds (PRD §5.2), so no cache is load-bearing: recompute on doubt.</figcaption>
+      <figcaption>A calculation takes milliseconds (PRD §5.2), so nothing depends on caching: when in doubt, calculate again.</figcaption>
     </figure>
   </div>
 </section>
 
 <!-- 9 · Engine pipeline -->
 <section class="slide" id="s9">
-  <p class="eyebrow">Engine <span class="sec">cashkit/engine/run.py · Engine.__post_init__ and _evaluate</span></p>
-  <h2>Compile once: union the facts, bind the graph, condense. Then evaluate in dependency order.</h2>
+  <p class="eyebrow">Inside the calculator <span class="sec">cashkit/engine/run.py</span></p>
+  <h2>Prepare once: merge plan and ledger, check every formula, work out the order. Then compute, each item after the ones it needs.</h2>
   <figure>
     <div class="svg-wrap">
     <svg viewBox="0 0 1000 300" role="img" aria-label="Book and events are unioned into a fact set, compiled into a condensed graph, expanded, scattered with ledger facts, then evaluated component by component into a RunResult.">
@@ -633,54 +633,54 @@ def events_for(self, scenario):
           <line x1="770" y1="120" x2="808" y2="120"/>
         </g>
         <g font-size="10.5" fill="var(--accent)" font-weight="700" letter-spacing=".08em">
-          <text x="18" y="50">1 · FACT UNION</text>
-          <text x="208" y="50">2 · COMPILE</text>
+          <text x="18" y="50">1 · MERGE</text>
+          <text x="208" y="50">2 · CHECK AND ORDER</text>
           <text x="418" y="50">3 · EXPAND</text>
-          <text x="618" y="50">4 · SCATTER LEDGER</text>
-          <text x="818" y="50">5 · DERIVED, IN ORDER</text>
+          <text x="618" y="50">4 · ADD THE LEDGER</text>
+          <text x="818" y="50">5 · FORMULAS, IN ORDER</text>
         </g>
         <g>
           <text x="18" y="84" font-weight="700">resolve_facts</text>
-          <text x="18" y="104" font-size="11">events ∪ items</text>
-          <text x="18" y="122" font-size="11">unattached event →</text>
-          <text x="18" y="138" font-size="11">synthetic _event:&lt;digest&gt;</text>
-          <text x="18" y="164" font-size="10.5" fill="var(--muted)">before the graph: agg() must see it</text>
+          <text x="18" y="104" font-size="11">ledger rows + items</text>
+          <text x="18" y="122" font-size="11">a row with no item →</text>
+          <text x="18" y="138" font-size="11">a helper item of its own</text>
+          <text x="18" y="164" font-size="10.5" fill="var(--muted)">first, so totals can see it</text>
 
           <text x="208" y="84" font-weight="700">compile_book</text>
-          <text x="208" y="104" font-size="11">parse every formula</text>
-          <text x="208" y="122" font-size="11">agg(selector) → item ids</text>
-          <text x="208" y="140" font-size="11">inject _tax:* items</text>
-          <text x="208" y="158" font-size="11">Tarjan SCC + topo order</text>
-          <text x="208" y="174" font-size="10.5" fill="var(--muted)">bad item → broken, zero column</text>
+          <text x="208" y="104" font-size="11">read every formula</text>
+          <text x="208" y="122" font-size="11">resolve every tag filter</text>
+          <text x="208" y="140" font-size="11">add the tax helper items</text>
+          <text x="208" y="158" font-size="11">find loops, sort the rest</text>
+          <text x="208" y="174" font-size="10.5" fill="var(--muted)">a bad item becomes zeros, flagged</text>
 
           <text x="418" y="84" font-weight="700">expand_item</text>
-          <text x="418" y="104" font-size="11">segments → occurrence ords</text>
-          <text x="418" y="122" font-size="11">escalation · probability</text>
-          <text x="418" y="140" font-size="11">keep only ≥ cutover</text>
-          <text x="418" y="158" font-size="11">scatter_add accrual · settle</text>
-          <text x="418" y="174" font-size="10.5" fill="var(--muted)">generative flows only</text>
+          <text x="418" y="104" font-size="11">schedule → dates</text>
+          <text x="418" y="122" font-size="11">apply increases, then odds</text>
+          <text x="418" y="140" font-size="11">drop dates already in the past</text>
+          <text x="418" y="158" font-size="11">book it, then place the cash</text>
+          <text x="418" y="174" font-size="10.5" fill="var(--muted)">scheduled items only</text>
 
           <text x="618" y="84" font-weight="700">_apply_event_facts</text>
-          <text x="618" y="104" font-size="11">batch by (settlement, vat)</text>
-          <text x="618" y="122" font-size="11">one vector op per batch</text>
-          <text x="618" y="140" font-size="11">never suppressed by cutover</text>
-          <text x="618" y="158" font-size="11">outside horizon → dropped</text>
-          <text x="618" y="174" font-size="10.5" fill="var(--muted)">same columns as step 3</text>
+          <text x="618" y="104" font-size="11">group rows by payment terms</text>
+          <text x="618" y="122" font-size="11">one operation per group</text>
+          <text x="618" y="140" font-size="11">the past comes from here</text>
+          <text x="618" y="158" font-size="11">outside the horizon → ignored</text>
+          <text x="618" y="174" font-size="10.5" fill="var(--muted)">into the same rows as step 3</text>
 
-          <text x="818" y="84" font-weight="700">for component in order:</text>
-          <text x="818" y="104" font-size="11">tax node  → schedule</text>
-          <text x="818" y="122" font-size="11">trivial   → ColumnEvaluator</text>
-          <text x="818" y="140" font-size="11" fill="var(--fold)">non-trivial → sequential fold</text>
-          <text x="818" y="158" font-size="11">then settle · VAT per line</text>
-          <text x="818" y="174" font-size="10.5" fill="var(--muted)">skip if nothing stale (delta)</text>
+          <text x="818" y="84" font-weight="700">for each item, in order:</text>
+          <text x="818" y="104" font-size="11">tax helper → its schedule</text>
+          <text x="818" y="122" font-size="11">no loop  → whole row at once</text>
+          <text x="818" y="140" font-size="11" fill="var(--fold)">in a loop → period by period</text>
+          <text x="818" y="158" font-size="11">then place cash, add VAT</text>
+          <text x="818" y="174" font-size="10.5" fill="var(--muted)">skip what has not changed</text>
         </g>
         <!-- output -->
         <line x1="900" y1="180" x2="900" y2="218" stroke="currentColor" marker-end="url(#ar5)"/>
         <rect x="560" y="220" width="430" height="60" rx="4" fill="var(--accent-soft)" stroke="var(--accent)"/>
         <text x="775" y="244" text-anchor="middle" font-weight="700" fill="var(--accent)">RunResult</text>
-        <text x="775" y="266" text-anchor="middle" font-size="11" fill="var(--accent)">accrual{id: int64[T]} · cash{id: int64[T]} · vat{id: VatColumns} · diagnostics · periods</text>
-        <text x="10" y="250" font-size="11" fill="var(--muted)">Ordering constraint (PRD §3.2): 3 and 4 both land before any derived item evaluates,</text>
-        <text x="10" y="268" font-size="11" fill="var(--muted)">otherwise agg(tag="cat:revenue") silently ignores actuals and every derived item is wrong.</text>
+        <text x="775" y="266" text-anchor="middle" font-size="11" fill="var(--accent)">per item: a row of accruals, a row of cash, a row of VAT · plus the list of problems</text>
+        <text x="10" y="250" font-size="11" fill="var(--muted)">The order matters (PRD §3.2): steps 3 and 4 finish before any formula runs.</text>
+        <text x="10" y="268" font-size="11" fill="var(--muted)">Otherwise "all revenue" would quietly miss what really happened.</text>
       </g>
     </svg>
     </div>
@@ -689,8 +689,8 @@ def events_for(self, scenario):
 
 <!-- 10 · Two tiers -->
 <section class="slide" id="s10">
-  <p class="eyebrow">Engine <span class="sec">PRD §5.1 · two-tier evaluation</span></p>
-  <h2>Everything is a column, except the feedback set</h2>
+  <p class="eyebrow">Inside the calculator <span class="sec">PRD §5.1</span></p>
+  <h2>Everything is computed a whole row at a time, except the few items that feed back into themselves</h2>
   <div class="cols two">
     <figure>
       <svg viewBox="0 0 480 300" role="img" aria-label="Revenue, cost and rent are trivial columns feeding net; cash and interest form a feedback cycle through a prev edge, evaluated by the sequential fold.">
@@ -715,7 +715,7 @@ def events_for(self, scenario):
 
           <!-- feedback set -->
           <rect x="310" y="40" width="160" height="150" rx="6" fill="var(--fold-soft)" stroke="var(--fold)" stroke-dasharray="5 3"/>
-          <text x="390" y="60" text-anchor="middle" font-family="Archivo, sans-serif" font-size="10.5" font-weight="700" fill="var(--fold)" letter-spacing=".08em">NON-TRIVIAL SCC</text>
+          <text x="390" y="60" text-anchor="middle" font-family="Archivo, sans-serif" font-size="10.5" font-weight="700" fill="var(--fold)" letter-spacing=".08em">A FEEDBACK LOOP</text>
           <g fill="var(--panel)" stroke="var(--fold)">
             <rect x="335" y="76" width="110" height="34" rx="17"/>
             <rect x="335" y="140" width="110" height="34" rx="17"/>
@@ -729,14 +729,14 @@ def events_for(self, scenario):
           <text x="398" y="128" font-family="Archivo, sans-serif" font-size="10" fill="var(--fold)">it()</text>
 
           <g font-family="Archivo, sans-serif" font-size="11">
-            <text x="20" y="215" fill="var(--muted)">trivial: one vector expression over T periods, each</text>
-            <text x="20" y="232" fill="var(--muted)">masking, shifting or summing int64 columns.</text>
-            <text x="20" y="258" fill="var(--fold)">fold: net[t] is pre-summed; the loop reads one number per period,</text>
-            <text x="20" y="275" fill="var(--fold)">whatever the item count. No conditional → degenerates to cumsum.</text>
+            <text x="20" y="215" fill="var(--muted)">no loop: one expression computed across all periods at once,</text>
+            <text x="20" y="232" fill="var(--muted)">by adding, shifting or filtering whole rows of numbers.</text>
+            <text x="20" y="258" fill="var(--fold)">loop: everything outside it is summed first, so the loop reads one number</text>
+            <text x="20" y="275" fill="var(--fold)">per period however many items there are. With no conditions it is a running total.</text>
           </g>
         </g>
       </svg>
-      <figcaption>A cycle with no <code>prev()</code> edge is not a feedback loop. It is <span class="pill diag">CK-E002</span> naming the cycle.</figcaption>
+      <figcaption>A loop is only allowed if it goes through <code>prev()</code>, meaning "the previous period's value". Any other loop is reported as an error (<span class="pill diag">CK-E002</span>) that names the items involved.</figcaption>
     </figure>
     <pre class="code">def _evaluate(self, stale: set[ItemId]) -> RunResult:
     for item in stale: zero its columns, drop its diagnostics
@@ -768,8 +768,8 @@ def delta(self, changed: dict[ItemId, Item]) -> RunResult:
 
 <!-- 11 · Numeric policy -->
 <section class="slide" id="s11">
-  <p class="eyebrow">Numeric policy <span class="sec">PRD §5.3 · ADR-0002 · ADR-0003 · cashkit/engine/numeric.py</span></p>
-  <h2>int64 minor units at 4 dp. One rounding order, shared byte-for-byte by two engines.</h2>
+  <p class="eyebrow">How money is handled <span class="sec">PRD §5.3 · ADR-0002 · ADR-0003</span></p>
+  <h2>Money is whole numbers of ten-thousandths. Rounding happens in one fixed order, and two independent calculators must agree to the last digit.</h2>
   <figure>
     <div class="svg-wrap">
     <svg viewBox="0 0 1000 250" role="img" aria-label="The canonical rounding chain: base amount, escalation, probability, share split, withholding, VAT. Each step rounds to four decimal places before the next. Decimal sits at the parse and display boundaries; int64 inside.">
@@ -779,15 +779,15 @@ def delta(self, changed: dict[ItemId, Item]) -> RunResult:
         <rect x="10" y="20" width="110" height="170" rx="4" fill="var(--accent-soft)" stroke="none"/>
         <rect x="880" y="20" width="110" height="170" rx="4" fill="var(--accent-soft)" stroke="none"/>
         <text x="65" y="44" text-anchor="middle" font-weight="700" fill="var(--accent)">Decimal</text>
-        <text x="65" y="62" text-anchor="middle" font-size="11" fill="var(--accent)">parse · YAML</text>
-        <text x="65" y="78" text-anchor="middle" font-size="11" fill="var(--accent)">to_minor()</text>
-        <text x="65" y="150" text-anchor="middle" font-size="10.5" fill="var(--accent)">float rejected</text>
-        <text x="65" y="166" text-anchor="middle" font-size="10.5" fill="var(--accent)">at the model</text>
+        <text x="65" y="62" text-anchor="middle" font-size="11" fill="var(--accent)">read from files</text>
+        <text x="65" y="78" text-anchor="middle" font-size="11" fill="var(--accent)">turned into whole numbers</text>
+        <text x="65" y="150" text-anchor="middle" font-size="10.5" fill="var(--accent)">floating point</text>
+        <text x="65" y="166" text-anchor="middle" font-size="10.5" fill="var(--accent)">is refused</text>
         <text x="935" y="44" text-anchor="middle" font-weight="700" fill="var(--accent)">Decimal</text>
-        <text x="935" y="62" text-anchor="middle" font-size="11" fill="var(--accent)">from_minor()</text>
-        <text x="935" y="78" text-anchor="middle" font-size="11" fill="var(--accent)">Table · summary</text>
-        <text x="935" y="150" text-anchor="middle" font-size="10.5" fill="var(--accent)">DECIMAL(18,4)</text>
-        <text x="935" y="166" text-anchor="middle" font-size="10.5" fill="var(--accent)">in DuckDB / Parquet</text>
+        <text x="935" y="62" text-anchor="middle" font-size="11" fill="var(--accent)">back to decimals</text>
+        <text x="935" y="78" text-anchor="middle" font-size="11" fill="var(--accent)">for tables and summaries</text>
+        <text x="935" y="150" text-anchor="middle" font-size="10.5" fill="var(--accent)">exact decimals</text>
+        <text x="935" y="166" text-anchor="middle" font-size="10.5" fill="var(--accent)">in tables and exports</text>
 
         <!-- chain -->
         <g fill="var(--panel)" stroke="currentColor">
@@ -799,12 +799,12 @@ def delta(self, changed: dict[ItemId, Item]) -> RunResult:
           <rect x="760" y="70" width="104" height="60" rx="4"/>
         </g>
         <g text-anchor="middle">
-          <text x="192" y="94" font-weight="700">base</text><text x="192" y="112" font-size="11" fill="var(--muted)">int64 minor</text>
-          <text x="316" y="94" font-weight="700">escalation</text><text x="316" y="112" font-size="11" fill="var(--muted)">× (1+r)^n</text>
-          <text x="440" y="94" font-weight="700">probability</text><text x="440" y="112" font-size="11" fill="var(--muted)">× p</text>
-          <text x="564" y="94" font-weight="700">share split</text><text x="564" y="112" font-size="11" fill="var(--muted)">last leg absorbs</text>
-          <text x="688" y="94" font-weight="700">withholding</text><text x="688" y="112" font-size="11" fill="var(--muted)">× (1 − w)</text>
-          <text x="812" y="94" font-weight="700">VAT</text><text x="812" y="112" font-size="11" fill="var(--muted)">per line, allocated</text>
+          <text x="192" y="94" font-weight="700">base</text><text x="192" y="112" font-size="11" fill="var(--muted)">whole number</text>
+          <text x="316" y="94" font-weight="700">escalation</text><text x="316" y="112" font-size="11" fill="var(--muted)">yearly increase</text>
+          <text x="440" y="94" font-weight="700">probability</text><text x="440" y="112" font-size="11" fill="var(--muted)">× chance it happens</text>
+          <text x="564" y="94" font-weight="700">payment split</text><text x="564" y="112" font-size="11" fill="var(--muted)">last part rounds</text>
+          <text x="688" y="94" font-weight="700">withholding</text><text x="688" y="112" font-size="11" fill="var(--muted)">tax held back</text>
+          <text x="812" y="94" font-weight="700">VAT</text><text x="812" y="112" font-size="11" fill="var(--muted)">spread over payments</text>
         </g>
         <g stroke="currentColor" marker-end="url(#ar7)">
           <line x1="244" y1="100" x2="262" y2="100"/><line x1="368" y1="100" x2="386" y2="100"/>
@@ -815,33 +815,33 @@ def delta(self, changed: dict[ItemId, Item]) -> RunResult:
         <g font-size="9.5" fill="var(--diag)" text-anchor="middle" font-weight="700">
           <text x="253" y="64">4dp</text><text x="377" y="64">4dp</text><text x="501" y="64">4dp</text><text x="625" y="64">4dp</text><text x="749" y="64">4dp</text>
         </g>
-        <text x="500" y="160" text-anchor="middle" font-size="11" fill="var(--muted)">every step rounds under the declared policy (half-up | banker's) before the next — never implicitly, never anywhere else</text>
-        <text x="500" y="182" text-anchor="middle" font-size="11" fill="var(--muted)">(1+r)^n in Decimal once per (rate, n), applied as an exact integer ratio · intermediates in big ints · overflow raises, never wraps</text>
+        <text x="500" y="160" text-anchor="middle" font-size="11" fill="var(--muted)">every step rounds to four decimals under the plan's chosen rule before the next step — never anywhere else, never by accident</text>
+        <text x="500" y="182" text-anchor="middle" font-size="11" fill="var(--muted)">the yearly increase factor is worked out exactly, once per rate and year · nothing in between is approximated · a number too big to hold stops the calculation</text>
         <g font-family="IBM Plex Mono, monospace" font-size="11.5">
           <text x="140" y="225">mul_ratio(minor, num, den, policy) = round_div(minor * num, den, policy)   # the one multiply in the money path</text>
         </g>
       </g>
     </svg>
     </div>
-    <figcaption>The reference engine (<code>cashkit/reference</code>) reimplements this chain in scalar <code>Decimal</code>. The dual-engine gate asserts exact integer equality on every cell, every test run.</figcaption>
+    <figcaption>A second, deliberately slow calculator (<code>cashkit/reference</code>) does the same chain one cell at a time in plain decimals. Every test run checks that both give exactly the same number in every cell.</figcaption>
   </figure>
 </section>
 
 <!-- 12 · Formula language -->
 <section class="slide" id="s12">
-  <p class="eyebrow">Formula language <span class="sec">PRD §5.4 · cashkit/engine/formula.py · columns.py · fold.py</span></p>
-  <h2><code>where</code>, not <code>if</code>. A closed AST, evaluated by one evaluator with two kernels.</h2>
+  <p class="eyebrow">The formula language <span class="sec">PRD §5.4</span></p>
+  <h2>A small, closed language. <code>where</code> instead of <code>if</code>, so both branches are always computed.</h2>
   <div class="cols wide-right">
     <table class="symbols">
-      <tr><td><code>it("acme_impl")</code></td><td>another item, this period (cash by default)</td></tr>
-      <tr><td><code>prev("cash", n=1, init=…)</code></td><td>n periods back. The only cycle-breaker; <code>init</code> seeds t &lt; n</td></tr>
-      <tr><td><code>p.vat_standard</code></td><td>named param, an exact rate</td></tr>
-      <tr><td><code>agg(tag="cat:revenue")</code></td><td>sum over a selector, resolved to ids at compile</td></tr>
-      <tr><td><code>cum("revenue")</code></td><td>running total since horizon start</td></tr>
-      <tr><td><code>t.index · t.month · t.is_quarter_end</code></td><td>period metadata columns</td></tr>
-      <tr><td><code>where(cond, a, b)</code></td><td>elementwise select, <strong>both branches evaluate</strong></td></tr>
-      <tr><td><code>min max clip round_ abs_</code></td><td>the whole builtin table</td></tr>
-      <tr><td><code>a / x</code></td><td>masked-safe: 0 at x==0, <span class="pill diag">CK-W005</span> only if selected</td></tr>
+      <tr><td><code>it("acme_impl")</code></td><td>another item's value in this period (its cash, unless told otherwise)</td></tr>
+      <tr><td><code>prev("cash", n=1, init=…)</code></td><td>the value n periods ago. The only way to look back; <code>init</code> is the starting value</td></tr>
+      <tr><td><code>p.vat_standard</code></td><td>a named parameter, kept exact</td></tr>
+      <tr><td><code>agg(tag="cat:revenue")</code></td><td>the total of every item matching a tag, decided before computing starts</td></tr>
+      <tr><td><code>cum("revenue")</code></td><td>running total from the start of the horizon</td></tr>
+      <tr><td><code>t.index · t.month · t.is_quarter_end</code></td><td>facts about the period itself</td></tr>
+      <tr><td><code>where(cond, a, b)</code></td><td>pick a or b per period, <strong>both are always computed</strong></td></tr>
+      <tr><td><code>min max clip round_ abs_</code></td><td>the complete list of built-in functions</td></tr>
+      <tr><td><code>a / x</code></td><td>dividing by zero gives 0 and a warning (<span class="pill diag">CK-W005</span>), but only if that value was actually used</td></tr>
     </table>
     <div>
       <pre class="code">parse_formula(src) -> ParseOutcome(expr | diagnostic)
@@ -868,7 +868,7 @@ compile_cell(expr, window, policy) -> fn(t)     # fold tier
 <!-- 13 · Scenarios -->
 <section class="slide" id="s13">
   <p class="eyebrow">Scenarios <span class="sec">cashkit/sdk/scenarios.py · ADR-0007 · ADR-0009</span></p>
-  <h2>Field-sparse overlays resolve along the parent chain. <code>segments</code> is atomic.</h2>
+  <h2>A scenario stores only what it changed. Everything else comes from its parent. A schedule is always replaced whole.</h2>
   <div class="cols wide-left">
     <figure>
       <svg viewBox="0 0 640 330" role="img" aria-label="The authored book feeds base, which feeds downside, which feeds downside_late. Each scenario records a few fields; resolution takes each field from the nearest ancestor that recorded it.">
@@ -881,7 +881,7 @@ compile_cell(expr, window, policy) -> fn(t)     # fold tier
             <rect x="490" y="20" width="140" height="100" rx="4"/>
           </g>
           <g font-family="Archivo, sans-serif" font-weight="700" font-size="13">
-            <text x="20" y="40">book (top level)</text>
+            <text x="20" y="40">the main plan</text>
             <text x="180" y="40">base</text>
             <text x="340" y="40">downside</text>
             <text x="500" y="40">downside_late</text>
@@ -890,7 +890,7 @@ compile_cell(expr, window, policy) -> fn(t)     # fold tier
           <text x="28" y="76">segments=[12k/mo]</text>
           <text x="28" y="92">settlement=60d</text>
           <text x="180" y="60" fill="var(--muted)">parent=None</text>
-          <text x="180" y="76" fill="var(--muted)">(empty shell)</text>
+          <text x="180" y="76" fill="var(--muted)">(nothing changed)</text>
           <text x="340" y="60" fill="var(--muted)">parent=base</text>
           <text x="340" y="76">params.churn=0.1</text>
           <text x="340" y="92">acme_impl.segments</text>
@@ -903,16 +903,16 @@ compile_cell(expr, window, policy) -> fn(t)     # fold tier
           </g>
 
           <!-- resolved -->
-          <text x="10" y="150" font-family="Archivo, sans-serif" font-size="11" font-weight="700" fill="var(--accent)" letter-spacing=".08em">RESOLVE("downside_late") → acme_impl, with provenance()</text>
+          <text x="10" y="150" font-family="Archivo, sans-serif" font-size="11" font-weight="700" fill="var(--accent)" letter-spacing=".08em">WHAT downside_late SEES for acme_impl, and where each field came from</text>
           <g fill="var(--panel)" stroke="currentColor"><rect x="10" y="162" width="620" height="112" rx="4"/></g>
-          <text x="22" y="184">name, kind, direction, tags, vat</text><text x="330" y="184" fill="var(--muted)">← book</text>
-          <text x="22" y="206">segments = [9k]</text><text x="330" y="206" fill="var(--muted)">← downside   (whole list, never patched)</text>
+          <text x="22" y="184">name, kind, direction, tags, vat</text><text x="330" y="184" fill="var(--muted)">← main plan</text>
+          <text x="22" y="206">segments = [9k]</text><text x="330" y="206" fill="var(--muted)">← downside   (whole schedule, never edited in place)</text>
           <text x="22" y="228">settlement = 90d</text><text x="330" y="228" fill="var(--muted)">← downside_late</text>
           <text x="22" y="250">params = book.params ∪ {churn: 0.1}</text><text x="330" y="250" fill="var(--muted)">← downside</text>
-          <text x="22" y="266" font-family="Archivo, sans-serif" font-size="10.5" fill="var(--muted)">a later fix to tags in the book reaches every scenario that did not record tags</text>
+          <text x="22" y="266" font-family="Archivo, sans-serif" font-size="10.5" fill="var(--muted)">fix the tags in the main plan later, and every scenario that did not change tags picks up the fix</text>
 
-          <text x="10" y="300" font-family="Archivo, sans-serif" font-size="11" fill="var(--muted)">kit.set_item(item, scenario=…) is by value: the Item as you want it; in base it is the authored book, elsewhere only the differing fields are recorded.</text>
-          <text x="10" y="318" font-family="Archivo, sans-serif" font-size="11" fill="var(--muted)">kit.apply_macro(ShiftItems | ScaleItems | RetagItems, scenario=…) expands NOW into the same set_item path. No rule is ever stored.</text>
+          <text x="10" y="300" font-family="Archivo, sans-serif" font-size="11" fill="var(--muted)">You always write the whole item as you want it; in the main plan it is stored whole, in a scenario only the fields that differ are stored.</text>
+          <text x="10" y="318" font-family="Archivo, sans-serif" font-size="11" fill="var(--muted)">Bulk edits (shift dates, scale amounts, retag) are applied immediately as ordinary item changes. No rule is ever stored for later.</text>
         </g>
       </svg>
     </figure>
@@ -943,31 +943,31 @@ compile_cell(expr, window, policy) -> fn(t)     # fold tier
 
 <!-- 14 · Ledger and cutover -->
 <section class="slide" id="s14">
-  <p class="eyebrow">Ledger <span class="sec">cashkit/stores/ledger.py · ADR-0004 · ADR-0006 · ADR-0012</span></p>
-  <h2>One append-only log. Actuals never change; corrections are new rows.</h2>
+  <p class="eyebrow">The ledger <span class="sec">cashkit/stores/ledger.py · ADR-0004 · ADR-0006 · ADR-0012</span></p>
+  <h2>Rows are only ever added. What actually happened is never edited; a correction is a new row.</h2>
   <div class="cols two">
     <figure>
       <svg viewBox="0 0 480 290" role="img" aria-label="Ledger entries as a sequence: an event, an imported event, a void of that event, and a correcting event. The watermark is the max sequence number; at(ref) truncates to it.">
         <g font-family="IBM Plex Mono, monospace" font-size="11.5">
           <g font-family="Archivo, sans-serif" font-size="10.5" fill="var(--muted)" letter-spacing=".08em" font-weight="700">
-            <text x="10" y="24">SEQ</text><text x="60" y="24">KIND</text><text x="120" y="24">EVENT_ID</text><text x="230" y="24">SOURCE, EXT_ID</text><text x="380" y="24">NOTE</text>
+            <text x="10" y="24">SEQ</text><text x="60" y="24">KIND</text><text x="120" y="24">EVENT_ID</text><text x="230" y="24">SOURCE, BANK REF</text><text x="380" y="24">NOTE</text>
           </g>
           <line x1="10" y1="32" x2="470" y2="32" stroke="currentColor"/>
           <g>
-            <text x="10" y="54">1</text><text x="60" y="54">event</text><text x="120" y="54">rent_2026_01</text><text x="230" y="54" fill="var(--muted)">— (add_event)</text>
-            <text x="10" y="80">2</text><text x="60" y="80">event</text><text x="120" y="80">bank_7781</text><text x="230" y="80">bank, 7781</text><text x="380" y="80" fill="var(--muted)">import</text>
-            <text x="10" y="106">3</text><text x="60" y="106" fill="var(--diag)">void</text><text x="120" y="106">bank_7781</text><text x="380" y="106" fill="var(--muted)">wrong amount</text>
+            <text x="10" y="54">1</text><text x="60" y="54">event</text><text x="120" y="54">rent_2026_01</text><text x="230" y="54" fill="var(--muted)">— (typed in)</text>
+            <text x="10" y="80">2</text><text x="60" y="80">event</text><text x="120" y="80">bank_7781</text><text x="230" y="80">bank, 7781</text><text x="380" y="80" fill="var(--muted)">imported</text>
+            <text x="10" y="106">3</text><text x="60" y="106" fill="var(--diag)">cancel</text><text x="120" y="106">bank_7781</text><text x="380" y="106" fill="var(--muted)">wrong amount</text>
             <text x="10" y="132">4</text><text x="60" y="132">event</text><text x="120" y="132">bank_7781~c1</text><text x="230" y="132">bank, —</text><text x="380" y="132" fill="var(--muted)">corrects 7781</text>
           </g>
           <g stroke="var(--line-soft)"><line x1="10" y1="62" x2="470" y2="62"/><line x1="10" y1="88" x2="470" y2="88"/><line x1="10" y1="114" x2="470" y2="114"/></g>
           <line x1="10" y1="146" x2="470" y2="146" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 3"/>
-          <text x="470" y="160" text-anchor="end" font-family="Archivo, sans-serif" font-size="10.5" fill="var(--accent)" font-weight="700">watermark @ commit: max_rowid=4 · row_count · content_hash (voids included)</text>
+          <text x="470" y="160" text-anchor="end" font-family="Archivo, sans-serif" font-size="10.5" fill="var(--accent)" font-weight="700">saved with each version: "the ledger had 4 rows at this point"</text>
           <g font-family="Archivo, sans-serif" font-size="11">
-            <text x="10" y="192">facts(watermark=None)  → live kit: rows 1, 4    (voided 2 excluded)</text>
-            <text x="10" y="210">facts(watermark)       → at(ref): seq ≤ 4, as believed then, errors included</text>
-            <text x="10" y="240" fill="var(--muted)">UNIQUE(source, ext_id) is a DB constraint: an identical re-import skips,</text>
-            <text x="10" y="256" fill="var(--muted)">a different payload is CK-E010 and aborts the whole batch. No DELETE, no UPDATE anywhere.</text>
-            <text x="10" y="280" fill="var(--muted)">import_events never stamps the watermark — only commit() does (ADR-0006).</text>
+            <text x="10" y="192">today's plan sees rows 1 and 4  (row 2 was cancelled)</text>
+            <text x="10" y="210">an old version sees only the rows that existed then, mistakes included</text>
+            <text x="10" y="240" fill="var(--muted)">Each bank row can only exist once: importing the same file again changes nothing,</text>
+            <text x="10" y="256" fill="var(--muted)">a row that changed since is a conflict (CK-E010) and the whole import is refused.</text>
+            <text x="10" y="280" fill="var(--muted)">Nothing is ever deleted or edited. Importing does not mark a version; only saving one does.</text>
           </g>
         </g>
       </svg>
@@ -977,25 +977,25 @@ compile_cell(expr, window, policy) -> fn(t)     # fold tier
         <defs><marker id="ar9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
         <g font-family="Archivo, sans-serif" font-size="11.5">
           <line x1="20" y1="120" x2="460" y2="120" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar9)"/>
-          <text x="20" y="145" font-size="10.5" fill="var(--muted)">horizon.start</text>
-          <text x="440" y="145" text-anchor="end" font-size="10.5" fill="var(--muted)">horizon.end (exclusive)</text>
+          <text x="20" y="145" font-size="10.5" fill="var(--muted)">start of horizon</text>
+          <text x="440" y="145" text-anchor="end" font-size="10.5" fill="var(--muted)">end of horizon</text>
           <line x1="230" y1="60" x2="230" y2="180" stroke="var(--accent)" stroke-width="2"/>
           <text x="230" y="52" text-anchor="middle" font-weight="700" fill="var(--accent)">cutover</text>
-          <text x="230" y="196" text-anchor="middle" font-size="10.5" fill="var(--accent)">first forecast period</text>
+          <text x="230" y="196" text-anchor="middle" font-size="10.5" fill="var(--accent)">first forecast day</text>
 
           <rect x="30" y="70" width="190" height="40" rx="3" fill="var(--panel)" stroke="currentColor"/>
-          <text x="125" y="87" text-anchor="middle" font-weight="700">reconciled past</text>
-          <text x="125" y="103" text-anchor="middle" font-size="10.5" fill="var(--muted)">ledger is the complete record</text>
+          <text x="125" y="87" text-anchor="middle" font-weight="700">the past, already checked</text>
+          <text x="125" y="103" text-anchor="middle" font-size="10.5" fill="var(--muted)">the ledger is the whole story</text>
           <rect x="240" y="70" width="200" height="40" rx="3" fill="var(--accent-soft)" stroke="var(--accent)"/>
           <text x="340" y="87" text-anchor="middle" font-weight="700" fill="var(--accent)">forecast</text>
-          <text x="340" y="103" text-anchor="middle" font-size="10.5" fill="var(--accent)">generation + committed/forecast events</text>
+          <text x="340" y="103" text-anchor="middle" font-size="10.5" fill="var(--accent)">the plan, plus expected entries</text>
 
           <g font-size="11">
-            <text x="30" y="225">generative expansion:</text><text x="180" y="225" fill="var(--diag)">suppressed, all items</text><text x="340" y="225" fill="var(--accent)">on</text>
-            <text x="30" y="245">events, any status:</text><text x="180" y="245">taken as-is</text><text x="340" y="245">apply, never suppressed</text>
-            <text x="30" y="265">actual dated ≥ cutover:</text><text x="180" y="265" fill="var(--diag)">CK-W003 — reconcile, advance cutover</text>
+            <text x="30" y="225">scheduled items:</text><text x="180" y="225" fill="var(--diag)">switched off, all of them</text><text x="340" y="225" fill="var(--accent)">on</text>
+            <text x="30" y="245">ledger rows:</text><text x="180" y="245">as recorded</text><text x="340" y="245">still count</text>
+            <text x="30" y="265">an actual after the cutover:</text><text x="180" y="265" fill="var(--diag)">warning CK-W003: check it and move the cutover</text>
           </g>
-          <text x="30" y="285" font-size="10.5" fill="var(--muted)">No dedup is ever guessed. cutover is authored, never today().</text>
+          <text x="30" y="285" font-size="10.5" fill="var(--muted)">You set the cutover; it is never taken from today's date. Duplicates are never guessed.</text>
         </g>
       </svg>
     </figure>
@@ -1004,8 +1004,8 @@ compile_cell(expr, window, policy) -> fn(t)     # fold tier
 
 <!-- 15 · Execution surface -->
 <section class="slide" id="s15">
-  <p class="eyebrow">Execution surface <span class="sec">cashkit/sdk/execution.py · views.py · stores/frames.py</span></p>
-  <h2>Every read of a run lives on the run. <code>summary()</code> needs no store; the table verbs materialize first.</h2>
+  <p class="eyebrow">Reading a result <span class="sec">cashkit/sdk/execution.py · views.py · stores/frames.py</span></p>
+  <h2>Everything you can ask about a result, you ask the result. The summary is instant; tables are loaded into DuckDB first.</h2>
   <div class="cols two">
     <figure>
       <svg viewBox="0 0 480 300" role="img" aria-label="A RunRef feeds summary directly. frame, pivot, compare and export first materialize the run into DuckDB under a key built from revision, scenario, engine version, watermark and cutover.">
@@ -1017,16 +1017,16 @@ compile_cell(expr, window, policy) -> fn(t)     # fold tier
           <line x1="100" y1="125" x2="200" y2="50" stroke="currentColor" marker-end="url(#ar10)"/>
           <rect x="202" y="24" width="150" height="50" rx="4" fill="var(--accent-soft)" stroke="var(--accent)"/>
           <text x="277" y="45" text-anchor="middle" font-weight="700" fill="var(--accent)">summary()</text>
-          <text x="277" y="62" text-anchor="middle" font-size="10.5" fill="var(--accent)">int64 add + compare, no store</text>
+          <text x="277" y="62" text-anchor="middle" font-size="10.5" fill="var(--accent)">plain addition, no database</text>
           <text x="360" y="40" font-size="10.5" fill="var(--muted)">min_cash · runway · breakeven</text>
           <text x="360" y="56" font-size="10.5" fill="var(--muted)">totals · closing balance</text>
 
           <line x1="100" y1="140" x2="200" y2="140" stroke="currentColor" marker-end="url(#ar10)"/>
           <text x="110" y="132" font-size="10.5" fill="var(--muted)">run_key(run)</text>
           <rect x="202" y="110" width="150" height="60" rx="4" fill="var(--panel)" stroke="currentColor"/>
-          <text x="277" y="132" text-anchor="middle" font-weight="700">store.materialize</text>
-          <text x="277" y="150" text-anchor="middle" font-size="10.5" fill="var(--muted)">tidy/long · DECIMAL(18,4)</text>
-          <text x="277" y="163" text-anchor="middle" font-size="10.5" fill="var(--muted)">tags in a side table</text>
+          <text x="277" y="132" text-anchor="middle" font-weight="700">load into DuckDB</text>
+          <text x="277" y="150" text-anchor="middle" font-size="10.5" fill="var(--muted)">one row per period and item</text>
+          <text x="277" y="163" text-anchor="middle" font-size="10.5" fill="var(--muted)">tags kept separately</text>
           <line x1="352" y1="140" x2="392" y2="140" stroke="currentColor" marker-end="url(#ar10)"/>
           <rect x="394" y="100" width="76" height="80" rx="4" fill="var(--panel)" stroke="currentColor"/>
           <text x="432" y="122" text-anchor="middle" font-size="11">frame</text>
@@ -1036,10 +1036,10 @@ compile_cell(expr, window, policy) -> fn(t)     # fold tier
 
           <g font-family="IBM Plex Mono, monospace" font-size="11">
             <text x="10" y="215">key = revision|scenario|ENGINE_VERSION|watermark.max_rowid|cutover</text>
-            <text x="10" y="233" fill="var(--muted)">      "working" while live → every call re-materializes before reading</text>
+            <text x="10" y="233" fill="var(--muted)">      unsaved work is "working" → reloaded on every call, so it is never stale</text>
           </g>
-          <text x="10" y="262" font-size="11" fill="var(--muted)">Store is in-memory DuckDB, opened on first use; duckdb is an optional extra.</text>
-          <text x="10" y="280" font-size="11" fill="var(--muted)">Missing → CK-E033 on these four; summary/trace/why_zero never needed it.</text>
+          <text x="10" y="262" font-size="11" fill="var(--muted)">DuckDB runs in memory and is opened on first use; it is an optional install.</text>
+          <text x="10" y="280" font-size="11" fill="var(--muted)">Without it these four say so (CK-E033); summary, trace and why_zero never needed it.</text>
         </g>
       </svg>
     </figure>
@@ -1066,8 +1066,8 @@ kit.reconcile(until=date(2026, 8, 31))   # two engine runs, no re-derivation:
 
 <!-- 16 · Introspection -->
 <section class="slide" id="s16">
-  <p class="eyebrow">Introspection <span class="sec">cashkit/sdk/introspection.py · the part that makes agents work</span></p>
-  <h2><code>trace()</code> walks the computation. <code>why_zero()</code> names one of five causes.</h2>
+  <p class="eyebrow">Explaining a number <span class="sec">cashkit/sdk/introspection.py</span></p>
+  <h2><code>trace()</code> shows how a number was computed. <code>why_zero()</code> names one of five reasons a cell is empty.</h2>
   <div class="cols two">
     <figure>
       <svg viewBox="0 0 500 300" role="img" aria-label="A trace tree: the cash cell at a period shows its formula, bindings and arithmetic steps, and recurses into net, which recurses into the generated acme_impl cell whose steps are the rounding chain.">
@@ -1092,10 +1092,10 @@ kit.reconcile(until=date(2026, 8, 31))   # two engine runs, no re-derivation:
           <text x="80" y="234">segment[0] occurrence 2026-03-31 (eom, adjust=prev)</text>
           <text x="80" y="250">steps  base 12 000 → escalation ×1.05^0 → probability ×1</text>
           <text x="80" y="266">       → share 1.0 due +60d → withholding 0 → VAT 22%</text>
-          <text x="80" y="282" fill="var(--accent)">reconciles=True  ← the engine's own record, re-summed vs the cell</text>
+          <text x="80" y="282" fill="var(--accent)">reconciles=True  ← these steps add up to the cell exactly</text>
         </g>
       </svg>
-      <figcaption>Values are read from the run's columns; formula sub-expressions evaluate through the engine's own <code>ColumnEvaluator</code>, and generated steps come from the <code>OccurrenceRecord</code> the engine kept while expanding (ADR-0035). Never re-derived.</figcaption>
+      <figcaption>Every value shown is the calculator's own: formula parts are re-evaluated with the same code, and the steps for a scheduled item come from what the calculator recorded while producing it (ADR-0035). Nothing is worked out a second time by different code.</figcaption>
     </figure>
     <div>
       <pre class="code">run.why_zero("acme_impl", date(2026, 2, 15)) -> Explanation
@@ -1123,8 +1123,8 @@ kit.describe_book() -> BookDescription
 
 <!-- 17 · Version control -->
 <section class="slide" id="s17">
-  <p class="eyebrow">Version control <span class="sec">CashKit.commit · at · reproduce · ADR-0018</span></p>
-  <h2><code>commit()</code> snapshots outcomes with config. <code>at(ref)</code> returns a kit, not a book.</h2>
+  <p class="eyebrow">Saving and history <span class="sec">CashKit.commit · at · reproduce · ADR-0018</span></p>
+  <h2><code>commit()</code> saves the plan together with its headline numbers. <code>at()</code> reopens an old version as a working kit.</h2>
   <div class="cols wide-left">
     <pre class="code">def commit(self, message, *, scenarios=None, author="agent") -> CommitReport:
     with WriterLock(self.root) as lock:              # O_EXCL .cashkit/lock
@@ -1155,37 +1155,37 @@ kit.at("HEAD~5").set_item(...)               # AttributeError: the past has no w
           <defs><marker id="ar11" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
           <g font-family="Archivo, sans-serif" font-size="11.5">
             <rect x="10" y="20" width="120" height="44" rx="4" fill="var(--panel)" stroke="currentColor"/>
-            <text x="70" y="38" text-anchor="middle" font-weight="700">reproduce(ref)</text>
-            <text x="70" y="54" text-anchor="middle" font-size="10.5" fill="var(--muted)">at(ref).run().summary()</text>
+            <text x="70" y="38" text-anchor="middle" font-weight="700">reproduce(version)</text>
+            <text x="70" y="54" text-anchor="middle" font-size="10.5" fill="var(--muted)">recalculate it today</text>
             <line x1="130" y1="42" x2="180" y2="42" stroke="currentColor" marker-end="url(#ar11)"/>
             <rect x="182" y="20" width="120" height="44" rx="4" fill="var(--panel)" stroke="currentColor"/>
-            <text x="242" y="38" text-anchor="middle" font-weight="700">vs snapshot</text>
-            <text x="242" y="54" text-anchor="middle" font-size="10.5" fill="var(--muted)">field by field</text>
+            <text x="242" y="38" text-anchor="middle" font-weight="700">compare</text>
+            <text x="242" y="54" text-anchor="middle" font-size="10.5" fill="var(--muted)">with what was saved</text>
             <g stroke="currentColor" marker-end="url(#ar11)">
               <line x1="302" y1="30" x2="350" y2="30"/><line x1="302" y1="42" x2="350" y2="90"/><line x1="302" y1="54" x2="350" y2="150"/>
             </g>
             <rect x="352" y="14" width="100" height="32" rx="4" fill="var(--accent-soft)" stroke="var(--accent)"/>
-            <text x="402" y="34" text-anchor="middle" fill="var(--accent)" font-weight="700">reproduced</text>
+            <text x="402" y="34" text-anchor="middle" fill="var(--accent)" font-weight="700">identical</text>
             <rect x="352" y="74" width="100" height="32" rx="4" fill="var(--diag-soft)" stroke="var(--diag)"/>
             <text x="402" y="94" text-anchor="middle" fill="var(--diag)" font-weight="700">CK-E028</text>
             <rect x="352" y="134" width="100" height="32" rx="4" fill="var(--panel)" stroke="currentColor"/>
             <text x="402" y="154" text-anchor="middle" font-weight="700">CK-W011</text>
-            <text x="10" y="100" font-size="10.5" fill="var(--muted)">same engine version, equal</text>
-            <text x="10" y="116" font-size="10.5" fill="var(--diag)">same version, differs: something outside the four-tuple reached the number</text>
-            <text x="10" y="160" font-size="10.5" fill="var(--muted)">engine version moved: delta reported, not an error</text>
-            <text x="10" y="196" font-size="10.5" fill="var(--muted)">status() / diff_revisions() compare parsed models, never bytes: a hand-reformatted file diffs empty.</text>
+            <text x="10" y="100" font-size="10.5" fill="var(--muted)">same calculator version, same numbers</text>
+            <text x="10" y="116" font-size="10.5" fill="var(--diag)">same version, different numbers: something unexpected got in</text>
+            <text x="10" y="160" font-size="10.5" fill="var(--muted)">the calculator changed since: the difference is reported, not an error</text>
+            <text x="10" y="196" font-size="10.5" fill="var(--muted)">Versions are compared by meaning, not text: reformatting a file shows no difference.</text>
           </g>
         </svg>
       </figure>
-      <p class="note"><strong>Any engine change that can move a number bumps <code>ENGINE_VERSION</code></strong> in the same commit. Nothing enforces it mechanically. Reproduction is checked, never assumed (ADR-0006).</p>
+      <p class="note"><strong>Any change to the calculator that could move a number also bumps its version number</strong>, in the same commit. This is a rule people follow, not something the code enforces. Whether an old result still reproduces is checked, never assumed (ADR-0006).</p>
     </div>
   </div>
 </section>
 
 <!-- 18 · Diagnostics -->
 <section class="slide" id="s18">
-  <p class="eyebrow">Errors are data <span class="sec">PRD §6.5 · §10.1 · cashkit/model/diagnostics.py</span></p>
-  <h2>One <code>Diagnostic</code> shape, one catalogue. <code>validate()</code> is the run.</h2>
+  <p class="eyebrow">Problems are answers, not crashes <span class="sec">PRD §6.5 · §10.1</span></p>
+  <h2>One shape for every problem, one numbered catalogue, and each problem comes from exactly one place.</h2>
   <div class="cols wide-right">
     <div>
       <pre class="code">class Diagnostic(CashKitModel):
@@ -1202,25 +1202,25 @@ class ChangeReport:
     created: (id, …)
     diagnostics: (…)
     ok = no error-severity</pre>
-      <p class="note">An agent loops on structured codes and one report shape (ADR-0032). Exceptions are reserved for programmer error: bad types, a missing store, <code>MoneyOverflowError</code>. A write on a past revision is not a code at all: the type has no such method.</p>
+      <p class="note">A caller can act on a code and a suggested fix; it cannot act on a crash. Crashes are kept for genuine programming mistakes, such as passing the wrong type. Trying to change an old version is not even a code: the read-only kit has no method for it.</p>
     </div>
     <table class="methods">
-      <tr><th>Reachable from</th><th>Codes</th><th>Emitted by</th></tr>
-      <tr><td class="m"><span class="pill acc">run()</span> compile</td><td class="mono">E001 E002 E003 E008 E011 E012 E019 E020 W004 W006 I001</td><td class="r">compile_book: unknown ref, cycle w/o prev, formula rejected, unknown param, sign vs direction, generative stock, regime, currencies, withholding w/o tax leg, cutover outside horizon</td></tr>
-      <tr><td class="m"><span class="pill acc">run()</span> expansion</td><td class="mono">E004 E005 E018 W001 W002 W003 W005</td><td class="r">settlement structure, event on derived, remainder clamped, negative through remainder, actual after cutover, zero-division selected</td></tr>
-      <tr><td class="m"><span class="pill diag">operation</span> ledger</td><td class="mono">E010 E014 E015 E016 E017</td><td class="r">import conflict, row missing, wrong state, void refuses actual, no ext_id</td></tr>
-      <tr><td class="m"><span class="pill diag">operation</span> scenarios</td><td class="mono">E006 E021 E022 E023 E024</td><td class="r">overlay on actual, unknown scenario, id taken, overlay on undefined item, bad opening_balance</td></tr>
-      <tr><td class="m"><span class="pill diag">operation</span> vcs / stores</td><td class="mono">E013 E025 E026 E027 E028 E029 E031 E032 E033 W010 W011</td><td class="r">lock held, unreadable state, newer schema, bad ref, reproduction mismatch, no book, exists, refused, no duckdb, stale lock, engine moved</td></tr>
-      <tr><td class="m"><span class="pill acc">every write</span></td><td class="mono">I002</td><td class="r">ChangeReport empty: the write recorded nothing</td></tr>
-      <tr><td class="m">model boundary</td><td class="mono">E007 E009</td><td class="r">invalid param key, invalid Recurrence: structurally impossible on a built model</td></tr>
+      <tr><th>Comes from</th><th>Codes</th><th>What it means</th></tr>
+      <tr><td class="m"><span class="pill acc">checking</span> the plan</td><td class="mono">E001 E002 E003 E008 E011 E012 E019 E020 W004 W006 I001</td><td class="r">unknown item, forbidden loop, bad formula, unknown parameter, amount has the wrong sign, a balance with a schedule, tax rule problems, mixed currencies, cutover outside the horizon</td></tr>
+      <tr><td class="m"><span class="pill acc">computing</span></td><td class="mono">E004 E005 E018 W001 W002 W003 W005</td><td class="r">payment terms that make no sense, a ledger row on a formula item, a payment that could not be split as asked, an actual dated after the cutover, a division by zero that was used</td></tr>
+      <tr><td class="m"><span class="pill diag">an action</span> on the ledger</td><td class="mono">E010 E014 E015 E016 E017</td><td class="r">an import that conflicts with what is already there, a row that does not exist, a row in the wrong state, trying to cancel something that really happened, an import row with no reference</td></tr>
+      <tr><td class="m"><span class="pill diag">an action</span> on scenarios</td><td class="mono">E006 E021 E022 E023 E024</td><td class="r">changing something that really happened, an unknown scenario, a name already taken, changing an item the scenario cannot see, an opening balance that is not money</td></tr>
+      <tr><td class="m"><span class="pill diag">an action</span> on files or history</td><td class="mono">E013 E025 E026 E027 E028 E029 E031 E032 E033 W010 W011</td><td class="r">someone else is writing, a file that cannot be read, a file from a newer program version, an unknown version name, an old result that no longer reproduces, no plan at this path, a plan already there, an argument that cannot make a plan, DuckDB not installed, a stale lock reclaimed, the calculator changed</td></tr>
+      <tr><td class="m"><span class="pill acc">any change</span></td><td class="mono">I002</td><td class="r">the change recorded nothing, because it was already so</td></tr>
+      <tr><td class="m">while reading input</td><td class="mono">E007 E009</td><td class="r">a parameter name a formula could not use, an impossible repeat rule; neither can exist once the plan is built</td></tr>
     </table>
   </div>
 </section>
 
 <!-- 19 · Storage -->
 <section class="slide" id="s19">
-  <p class="eyebrow">Storage <span class="sec">PRD §3.3 · cashkit/stores · ADR-0018</span></p>
-  <h2>Tracked config in canonical YAML. Derived and high-volume data ignored. Three protocols.</h2>
+  <p class="eyebrow">Where things live on disk <span class="sec">PRD §3.3 · cashkit/stores · ADR-0018</span></p>
+  <h2>The plan is plain text files under version control. Anything that can be recomputed, and anything bulky, stays out of it.</h2>
   <div class="cols two">
     <pre class="code">&lt;book_root&gt;/
   .cashkit/version              # schema generation; migrated forward on at()
@@ -1252,26 +1252,26 @@ class LedgerStore(Protocol):              # SqliteLedger
 
 class FrameStore(Protocol):               # DuckdbFrameStore
     materialize(run_id, result, book) · frame · pivot · compare · export</pre>
-      <p class="note"><strong>Every kit write that recorded something is on disk before it returns</strong> (ADR-0031); the working tree is the working state, and <code>commit()</code> is the only thing that makes a revision. <strong>One driver import per module</strong>: pygit2 in <code>git_store.py</code>, sqlite3 in <code>ledger.py</code>, duckdb in <code>frames.py</code>. A structural test greps the package. The wall clock is read in <code>stores/clock.py</code> alone, for commit and lock timestamps, unreachable from engine or model.</p>
+      <p class="note"><strong>Every change is on disk before the call returns</strong> (ADR-0031): what is in the folder is what the kit holds, and only <code>commit()</code> turns it into a saved version. <strong>Each storage technology is used in one file</strong>: git, SQLite and DuckDB each have theirs, and a test checks that stays true. The clock is read in one file only, to timestamp saves and locks, and the calculator can never reach it.</p>
     </div>
   </div>
 </section>
 
 <!-- 20 · Guards -->
 <section class="slide" id="s20">
-  <p class="eyebrow">Determinism guards <span class="sec">ADR-0010 · ADR-0016 · tests/</span></p>
-  <h2>What keeps a number from being silently wrong</h2>
+  <p class="eyebrow">The safety rails <span class="sec">ADR-0010 · ADR-0016 · tests/</span></p>
+  <h2>What keeps a number from being quietly wrong</h2>
   <div class="guards">
-    <div class="guard"><b>No float in money paths</b><span>Type-audit test; <code>Money</code> validator rejects <code>float</code>; escalation factors in Decimal (ADR-0002).</span></div>
-    <div class="guard"><b>No wall clock in engine/ or model/</b><span>Lint test bans <code>today()</code>, <code>now()</code>, <code>time.time()</code>. Cutover is authored; holidays are snapshotted into the book.</span></div>
-    <div class="guard"><b>Dual-engine gate</b><span>Vectorized int64 engine vs naive Decimal oracle: exact integer equality on every cell of a deterministic corpus, every test run.</span></div>
-    <div class="guard"><b>Both branches always evaluate</b><span><code>where</code>, never <code>if</code>. Proved structurally: the whitelist is the translator.</span></div>
-    <div class="guard"><b>Single writer</b><span>One lock across all three stores. A second writer gets <code>CK-E013</code>; nothing ever merges silently.</span></div>
-    <div class="guard"><b>Canonical serialization</b><span>Byte-stable YAML; a phantom diff is a build failure. Semantic diffs compare models, not bytes.</span></div>
-    <div class="guard"><b>No LLM under cashkit/</b><span>Test asserts no model dependency. The engine is content-free: tax mechanics and the agent are app-layer (ADR-0021).</span></div>
-    <div class="guard"><b>Diagnostic over guess</b><span>Cross-currency <code>agg()</code> refuses. Actual after cutover warns. Broken formula zeroes one line, never the run.</span></div>
+    <div class="guard"><b>No floating point near money</b><span>A test audits every type; money refuses to be built from a float; yearly increase factors are computed exactly (ADR-0002).</span></div>
+    <div class="guard"><b>The calculator never looks at the clock</b><span>A test forbids any call that reads today's date. The cutover is set by you, and public holidays are stored with the plan.</span></div>
+    <div class="guard"><b>Two calculators must agree</b><span>The fast one and a deliberately simple one are compared cell by cell on a fixed set of plans, on every test run, and must match exactly.</span></div>
+    <div class="guard"><b>Both sides of a choice are always computed</b><span><code>where</code>, never <code>if</code>, so a formula cannot hide an error in the branch that was not taken.</span></div>
+    <div class="guard"><b>One writer at a time</b><span>One lock covers all three stores. A second writer is told no (<code>CK-E013</code>); two sets of changes are never merged quietly.</span></div>
+    <div class="guard"><b>Files are always written the same way</b><span>Saving the same plan twice gives identical bytes, so a version difference always means a real change.</span></div>
+    <div class="guard"><b>No AI inside the calculator</b><span>A test checks for it. The calculator knows nothing about any country's taxes; that knowledge and the AI agent live in the app on top (ADR-0021).</span></div>
+    <div class="guard"><b>Say so rather than guess</b><span>Adding up two currencies is refused. An actual after the cutover is flagged. A broken formula zeroes one item, never the whole result.</span></div>
   </div>
-  <p class="note" style="margin-top:2rem">Sources: <code>PRD-cashkit.md</code> §3–§6, <code>DECISIONS.md</code>, <code>km/adr/</code>, and the module docstrings under <code>cashkit/sdk</code>, <code>cashkit/engine</code>, <code>cashkit/stores</code>.</p>
+  <p class="note" style="margin-top:2rem">Sources: the product requirements (<code>PRD-cashkit.md</code> §3–§6), the decision records in <code>km/adr/</code>, and the explanations written at the top of each source file.</p>
 </section>
 
 <div class="hint"><kbd>→</kbd> <kbd>←</kbd> or scroll</div>
