@@ -315,7 +315,7 @@ async def get_reconcile(
     """
     async with read_context(request, book, clock, scenario) as ctx:
         report = ctx.kit.reconcile(
-            until or ctx.as_of, since=since, scenario_id=ctx.scenario
+            until or ctx.as_of, since=since, scenario=ctx.scenario
         )
         return ReconcileResponse(
             **ctx.envelope().model_dump(), reconciliation=reconciliation_out(report)

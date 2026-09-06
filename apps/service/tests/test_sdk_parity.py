@@ -182,7 +182,7 @@ async def test_events_parity(seeded_client, sdk):
 async def test_reconcile_parity(seeded_client, sdk):
     body = (await seeded_client.get("/book/reconcile")).json()
     # `until` defaults to as_of, which is what the host filled.
-    report = sdk.reconcile(AS_OF, scenario_id="base")
+    report = sdk.reconcile(AS_OF, scenario="base")
 
     payload = body["reconciliation"]
     assert payload["until"] == report.until.isoformat()
