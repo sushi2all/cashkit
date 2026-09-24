@@ -41,6 +41,12 @@ Answer with ONE JSON object and nothing else:
   understood; do not claim a change is done.
 - Never put a date called "as_of" or "today" in an intent. The host fills the
   as-of date; you do not know today's date except from the snapshot.
+- WHEN THE USER DOES NOT SAY WHICH DAY OF THE MONTH, WRITE THE MONTH ALONE:
+  "start":"2026-03", not "start":"2026-03-01". The book carries the day it counts
+  from (the snapshot's "accounting_day") and the host fills it in. Inventing a
+  day of your own puts a date on the card that the user never said. When the
+  user DOES say a day — "rent on the 5th", "salary on the 27th" — write the full
+  date, and it is used exactly as given.
 """
 
 # --- read intents (R1–R12) + the one host read tool ----------------------- #
@@ -77,12 +83,14 @@ READ_GRAMMAR = """READ OPERATIONS — one call answers one question.
 CHANGE_GRAMMAR = """CHANGE OPERATIONS — every one of these becomes a confirmation card.
 
 {"op":"add_item","id":"rent","name":"Rent","direction":"out","amount":"-912.50",
- "recurrence":"1m","start":"2026-03-01","end":null,"tags":{"cat":"housing"},
+ "recurrence":"1m","start":"2026-03-05","end":null,"tags":{"cat":"housing"},
  "settlement":"immediate"}
   A repeating line. direction "out" takes a NEGATIVE amount, "in" a positive one.
   recurrence is a count and a unit: "1m" monthly, "3m" quarterly, "1w" weekly,
-  "1y" yearly. "start" is the first occurrence. "end" is EXCLUSIVE and may be
-  null for open-ended: a line that stops after June ends "2026-07-01".
+  "1y" yearly. "start" is the first occurrence — a full date when the user named
+  a day ("on the 5th" -> "2026-03-05"), the month alone when they did not
+  ("2026-03"). "end" is EXCLUSIVE and may be null for open-ended: a line that
+  stops after June ends "2026-07-01", or "2026-07" for the same boundary.
   settlement is "immediate" (default) or "net30" / "net45" when the money
   actually moves that many days after the line falls due.
   Re-using an existing id replaces that line.

@@ -38,6 +38,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from ..intents.read import READ_INTENTS
 from ..ops.applier import CK_E901, CK_E902, app_diagnostic
+from ..ops.months import expand_months, month_only_slots
 from ..ops.schema import HOST_OPS, MUTATION_INTENTS, PROPOSABLE_OPS, MutationOp
 
 #: The one host read tool the model is allowed (SPEC §2.3, ADR-0030 stage 3).
@@ -86,7 +87,7 @@ class Guarded:
         return [*self.reads, *self.mutations, *self.deferred]
 
 
-def guard(intents: Any) -> Guarded:
+def guard(intents: Any, accounting_day: int | str = 1) -> Guarded:
     """Sort one turn's model output. Nothing here touches a book.
 
     The sorting is by operation name against a fixed set, not by any judgement
@@ -157,7 +158,24 @@ def guard(intents: Any) -> Guarded:
             )
             continue
 
-        validated = _validate(operation)
+        # A month with no day is the model saying "the user did not name one".
+        # The book answers with its accounting day (`ops/months.py`), and the
+        # typed grammar below still sees a real date, as it always has.
+        # `anchor` is the host's to set, never the model's: a model-sent anchor
+        # would pay on month ends while the card shows the day it named.
+        operation = {k: v for k, v in operation.items() if k != "anchor"}
+        expanded = expand_months(operation, accounting_day)
+        undated = month_only_slots(expanded)
+        if undated:
+            result.diagnostics.append(
+                app_diagnostic(
+                    CK_E902,
+                    f"{name}: {', '.join(undated)} names a month but no day.",
+                    fix="Say the day it happened: a record keeps the real date, never a default.",
+                )
+            )
+            continue
+        validated = _validate(expanded)
         if isinstance(validated, Diagnostic):
             result.diagnostics.append(validated)
             continue

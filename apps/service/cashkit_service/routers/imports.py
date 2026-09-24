@@ -129,6 +129,7 @@ async def start_import(
             request_id=getattr(request.state, "request_id", ""),
             data=data,
             target=target,
+            accounting_day=book.accounting_day,
         )
     )
     return ImportStarted(

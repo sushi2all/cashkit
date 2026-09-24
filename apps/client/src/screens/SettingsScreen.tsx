@@ -79,6 +79,13 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** Typed exactly, or the account is not deleted. */
 const DELETE_PHRASE = "delete my account";
 
+/**
+ * The days a book may count from. It stops at 28 on purpose: a month step
+ * clamps to month end, so a default of the 30th would mean the 28th every
+ * February and the 30th otherwise — a default that quietly changes meaning.
+ */
+const ACCOUNTING_DAYS = Array.from({ length: 28 }, (_, index) => index + 1);
+
 export function SettingsScreen({ onBack, testID = "settings-screen" }: { onBack: () => void; testID?: string }) {
   const book = useBook();
   const session = useSession();
@@ -94,6 +101,9 @@ export function SettingsScreen({ onBack, testID = "settings-screen" }: { onBack:
   const [cutover, setCutover] = useState("");
   const [phrase, setPhrase] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [accountingDay, setAccountingDay] = useState("1");
+  const [daySaved, setDaySaved] = useState<number | "eom" | null>(null);
+  const [dayError, setDayError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -130,6 +140,9 @@ export function SettingsScreen({ onBack, testID = "settings-screen" }: { onBack:
     setHorizonEnd(state.book.horizon_end);
     setOpening(state.book.opening_balance.exact);
     setCutover(state.book.cutover);
+    // "eom" is not a day, so it does not go in the day field: the field keeps
+    // whatever fixed day would be saved, and the note says which is in force.
+    setAccountingDay(state.book.accounting_day === "eom" ? "" : String(state.book.accounting_day));
   }, [state]);
 
   const proposeHorizon = useCallback(async () => {
@@ -148,6 +161,41 @@ export function SettingsScreen({ onBack, testID = "settings-screen" }: { onBack:
   const proposeCutover = useCallback(async () => {
     await edit.propose([{ op: "set_cutover", date: cutover.trim() }], { origin: "settings" });
   }, [edit, cutover]);
+
+  /**
+   * The accounting day is a **setting, not a proposal**: it moves no figure
+   * that already exists. Every line already in the book keeps the date it was
+   * authored with; this is the day the next line lands on when the user names
+   * none. So it saves directly, like activating a scenario does, rather than
+   * coming back as a card to confirm.
+   */
+  const saveAccountingDay = useCallback(
+    async (value: number | "eom") => {
+      const { error: err, response } = await api.POST("/book/preferences", {
+        body: { accounting_day: value },
+      });
+      if (err) {
+        setDayError(describeError(err, response.status));
+        return;
+      }
+      setDayError(null);
+      setDaySaved(value);
+      await book.refresh();
+    },
+    [book],
+  );
+
+  const saveFixedDay = useCallback(async () => {
+    // Matched against the days themselves rather than parsed: the lint rule
+    // that keeps money out of arithmetic also keeps stray numeric conversion
+    // out of screens, and a lookup says what this is — one of 28 known days.
+    const day = ACCOUNTING_DAYS.find((candidate) => String(candidate) === accountingDay.trim());
+    if (day === undefined) {
+      setDayError("A day from 1 to 28.");
+      return;
+    }
+    await saveAccountingDay(day);
+  }, [accountingDay, saveAccountingDay]);
 
   const deleteAccount = useCallback(async () => {
     setDeleting(true);
@@ -169,6 +217,9 @@ export function SettingsScreen({ onBack, testID = "settings-screen" }: { onBack:
   if (loading && !me) return <LoadingState label="Reading your account…" />;
   if (error && !me) return <ErrorState message={error} onRetry={() => void load()} testID={`${testID}-error`} />;
   if (!me) return <EmptyState title="No account." example="sign in again" />;
+
+  /** What the book counts from right now: the saved answer, or the book's. */
+  const inForce: number | "eom" | null = daySaved ?? state?.book.accounting_day ?? null;
 
   const horizonReady = ISO_DATE.test(horizonStart.trim()) && ISO_DATE.test(horizonEnd.trim());
   const openingReady = DECIMAL.test(opening.trim());
@@ -267,6 +318,49 @@ export function SettingsScreen({ onBack, testID = "settings-screen" }: { onBack:
               disabled={edit.busy || !cutoverReady}
               onPress={() => void proposeCutover()}
             />
+          </Card>
+        ) : null}
+
+        {state ? (
+          <Card testID={`${testID}-accounting-day-card`}>
+            <Stamp tone="sub">ACCOUNTING DAY · APPLIES TO WHAT YOU AUTHOR NEXT</Stamp>
+            <Text style={styles.explainer}>
+              {`When you say "rent is 950 a month" without naming a day, the line falls on this day of the month — or on the last day of each month, which is 28, 29, 30 or 31 as the month runs. Say a day — "on the 5th" — and that day is used instead. Lines already in your book keep the dates they have.`}
+            </Text>
+            <View style={styles.inline}>
+              <TextInput
+                testID={`${testID}-accounting-day`}
+                accessibilityLabel="Default day of the month"
+                style={styles.input}
+                value={accountingDay}
+                onChangeText={setAccountingDay}
+                inputMode="numeric"
+                placeholder="1"
+                placeholderTextColor={color.faint}
+              />
+              <Button
+                label="Save the day"
+                testID={`${testID}-accounting-day-submit`}
+                onPress={() => void saveFixedDay()}
+              />
+            </View>
+            <View style={styles.actions}>
+              <Button
+                label="End of month instead"
+                variant={inForce === "eom" ? "primary" : "secondary"}
+                testID={`${testID}-accounting-day-eom`}
+                onPress={() => void saveAccountingDay("eom")}
+              />
+            </View>
+            <Stamp testID={`${testID}-accounting-day-note`} tone={dayError ? "rust" : "faint"}>
+              {dayError
+                ? dayError.toUpperCase()
+                : inForce === "eom"
+                  ? "IN FORCE · THE LAST DAY OF EACH MONTH · 28, 29, 30 OR 31"
+                  : inForce !== null
+                    ? `IN FORCE · DAY ${inForce} OF THE MONTH`
+                    : "A FIXED DAY IS 1 TO 28 · SO IT MEANS THE SAME DAY IN FEBRUARY"}
+            </Stamp>
           </Card>
         ) : null}
 

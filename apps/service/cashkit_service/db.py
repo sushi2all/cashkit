@@ -73,6 +73,9 @@ books = sa.Table(
     sa.Column("user_id", UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True),
     sa.Column("storage_path", sa.Text, nullable=False),
     sa.Column("active_scenario", sa.Text, nullable=False, server_default="base"),
+    #: The day an authored line falls on when the user names none (migration
+    #: 0003): "1".."28", or "eom" for the last day of whichever month it is.
+    sa.Column("accounting_day", sa.Text, nullable=False, server_default="1"),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
 

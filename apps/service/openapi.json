@@ -202,6 +202,18 @@
             "title": "Amount",
             "type": "string"
           },
+          "anchor": {
+            "anyOf": [
+              {
+                "const": "eom",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anchor"
+          },
           "direction": {
             "enum": [
               "in",
@@ -393,6 +405,18 @@
       },
       "BookParams": {
         "properties": {
+          "accounting_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "const": "eom",
+                "type": "string"
+              }
+            ],
+            "title": "Accounting Day"
+          },
           "currency": {
             "title": "Currency",
             "type": "string"
@@ -439,7 +463,8 @@
           "horizon_end",
           "cutover",
           "opening_balance",
-          "params"
+          "params",
+          "accounting_day"
         ],
         "title": "BookParams",
         "type": "object"
@@ -2220,6 +2245,35 @@
           "period"
         ],
         "title": "PeriodMove",
+        "type": "object"
+      },
+      "Preferences": {
+        "description": "``POST /book/preferences`` \u2014 how a line is authored, not what it is worth.\n\nOne field so far: the day of the month a line falls on when the user names\nno day. It is a setting rather than a proposal (ADR-0029 is about changes to\nthe book's figures) because it moves nothing that already exists \u2014 the next\nline authored without a day lands on this day, and every line already in the\nbook keeps the date it was authored with.",
+        "properties": {
+          "accounting_day": {
+            "anyOf": [
+              {
+                "maximum": 28.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "const": "eom",
+                "type": "string"
+              }
+            ],
+            "examples": [
+              1,
+              27,
+              "eom"
+            ],
+            "title": "Accounting Day"
+          }
+        },
+        "required": [
+          "accounting_day"
+        ],
+        "title": "Preferences",
         "type": "object"
       },
       "ProposalAction": {
@@ -4602,6 +4656,65 @@
           }
         },
         "summary": "Get History",
+        "tags": [
+          "book"
+        ]
+      }
+    },
+    "/book/preferences": {
+      "post": {
+        "operationId": "set_preferences_book_preferences_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Preferences"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preferences"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Preferences",
         "tags": [
           "book"
         ]

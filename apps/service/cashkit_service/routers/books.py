@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 from cashkit.model import Grain, PeriodRange
 
 from ..db import books
-from ..deps import ClockDep, ConnDep, PrincipalDep, get_books, load_book_row
+from ..deps import BookDep, ClockDep, ConnDep, PrincipalDep, get_books, load_book_row
 from ..errors import bad_request, book_exists
 from ..serialize import diagnostics_out, DiagnosticOut
 
@@ -107,3 +107,36 @@ async def create_book_endpoint(
         revision=revision,
         diagnostics=diagnostics_out(diagnostics),
     )
+
+
+AccountingDay = Annotated[int, Field(ge=1, le=28)] | Literal["eom"]
+
+
+class Preferences(BaseModel):
+    """``POST /book/preferences`` — how a line is authored, not what it is worth.
+
+    One field so far: the day of the month a line falls on when the user names
+    no day. It is a setting rather than a proposal (ADR-0029 is about changes to
+    the book's figures) because it moves nothing that already exists — the next
+    line authored without a day lands on this day, and every line already in the
+    book keeps the date it was authored with.
+    """
+
+    #: A fixed day 1..28, or ``"eom"`` for the last day of whichever month the
+    #: line falls in. A fixed day stops at 28 because a month step clamps to
+    #: month end, so a default of the 30th would mean the 28th every February
+    #: and the 30th otherwise. ``"eom"`` means month end on purpose, through the
+    #: engine's own anchor rather than through clamping.
+    accounting_day: AccountingDay = Field(examples=[1, 27, "eom"])
+
+
+@router.post("/book/preferences")
+async def set_preferences(
+    body: Preferences, book: BookDep, conn: ConnDep
+) -> Preferences:
+    await conn.execute(
+        books.update()
+        .where(books.c.id == book.id)
+        .values(accounting_day=str(body.accounting_day))
+    )
+    return Preferences(accounting_day=body.accounting_day)

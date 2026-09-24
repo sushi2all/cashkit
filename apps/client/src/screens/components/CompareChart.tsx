@@ -12,12 +12,13 @@
  */
 import React from "react";
 import { Text, View, StyleSheet } from "react-native";
-import Svg, { Circle, Line, Path, Rect } from "react-native-svg";
+import Svg, { Circle, Path, Rect } from "react-native-svg";
 
 import type { Money } from "@cashkit/api-types";
 
 import { formatMoney } from "../../money/money";
 import { bandBelow, scaleTogether, toLinePath, toX, toY } from "../../money/plot";
+import { AXIS_GUTTER, ChartAxis } from "./ChartAxis";
 import { monthLabel } from "../../ui/provenance";
 import { color, font } from "../../ui/tokens";
 
@@ -45,13 +46,15 @@ export function CompareChart({
   width?: number;
   testID?: string;
 }) {
-  const box = { width, height, padTop: 14, padBottom: 18 };
-  const { scales, zero, hasNegative } = scaleTogether(series.map((s) => s.values));
+  const box = { width, height, padTop: 14, padBottom: 18, padLeft: AXIS_GUTTER };
+  const { scales, zero, hasNegative, combined } = scaleTogether(series.map((s) => s.values));
+  // The axis belongs to the shared range, so it is labelled from every series
+  // at once — in the same flattened order `scaleTogether` plotted them in.
+  const allFigures = series.flatMap((one) => one.values);
   const strokes = [color.ink, color.pine, color.rust, color.sub];
   const divergeIndex = divergePeriod
     ? months.findIndex((m) => m.slice(0, 7) === divergePeriod.slice(0, 7))
     : -1;
-  const zeroY = zero === null ? null : toY(zero, box);
   const negativeBand = zero === null ? null : bandBelow(zero, box);
 
   return (
@@ -67,19 +70,22 @@ export function CompareChart({
         ))}
       </View>
 
-      <Svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
+      <Svg
+        width="100%"
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="xMinYMid meet"
+      >
         {negativeBand !== null && hasNegative ? (
           <Rect
-            x={0}
+            x={AXIS_GUTTER}
             y={negativeBand.y}
-            width={width}
+            width={width - AXIS_GUTTER}
             height={negativeBand.height}
             fill={color.areaFill}
           />
         ) : null}
-        {zeroY !== null && hasNegative ? (
-          <Line x1={0} x2={width} y1={zeroY} y2={zeroY} stroke={color.rust} strokeWidth={0.8} />
-        ) : null}
+        <ChartAxis scale={combined} figures={allFigures} box={box} testID={`${testID}-axis`} />
         {scales.map((scale, index) => {
           const d = toLinePath(scale, box);
           if (!d) return null;
@@ -125,7 +131,9 @@ export function CompareChart({
         )}
       </View>
 
-      <View style={styles.months}>
+      {/* The ticks are bounded by the drawing, which keeps its own aspect
+          ratio and so never grows past `width` on a wide screen. */}
+      <View style={[styles.months, { maxWidth: width }]}>
         {months.map((month) => (
           <Text key={month} style={styles.monthTick}>
             {monthLabel(month).slice(0, 3)}
@@ -145,6 +153,12 @@ const styles = StyleSheet.create({
   labels: { flexDirection: "row", justifyContent: "space-between", width: "100%", paddingTop: 4 },
   label: { fontFamily: font.mono, fontSize: 8, letterSpacing: 0.6, color: color.sub },
   diverge: { fontFamily: font.mono, fontSize: 8.5, letterSpacing: 0.6, color: color.rust },
-  months: { flexDirection: "row", justifyContent: "space-between", width: "100%", paddingTop: 6 },
+  months: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    paddingTop: 6,
+    paddingLeft: AXIS_GUTTER,
+  },
   monthTick: { fontFamily: font.mono, fontSize: 8.5, color: color.faint },
 });

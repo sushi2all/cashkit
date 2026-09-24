@@ -55,6 +55,12 @@ class AddItem(_Op):
     direction: Literal["in", "out"]
     amount: MoneyStr
     recurrence: str = Field(default="1m", examples=["1m", "3m", "1y"])
+    #: Set by the host, never by the model: `"eom"` when the book counts from
+    #: the end of the month and this line's start came from a month with no day
+    #: (`ops/months.py`). It selects the engine's own end-of-month recurrence
+    #: anchor, so every occurrence lands on that month's last day rather than on
+    #: a fixed day clamped backwards.
+    anchor: Literal["eom"] | None = None
     start: _dt.date
     end: _dt.date | None = None
     tags: dict[str, str] = Field(default_factory=dict)

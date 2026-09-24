@@ -40,6 +40,7 @@ from ..clock import Clock
 from ..config import Settings
 from ..db import Database
 from ..deps import BookRow
+from ..ops.months import parse_accounting_day
 from ..ops.applier import CK_E901, CK_E902, app_diagnostic
 from ..ops.dryrun import DryRun, dry_run
 from ..reads import read_context
@@ -132,7 +133,12 @@ async def run_turn(
 
     # --- 2. snapshot, under the lock -------------------------------------- #
     async with read_context(request, book, clock, scenario) as ctx:
-        state = snapshot_module.build(ctx.kit, scenario=ctx.scenario, as_of=ctx.as_of)
+        state = snapshot_module.build(
+            ctx.kit,
+            scenario=ctx.scenario,
+            as_of=ctx.as_of,
+            accounting_day=parse_accounting_day(book.accounting_day),
+        )
         target, as_of = ctx.scenario, ctx.as_of
         revision, clean = ctx.revision, ctx.clean
     snapshot_json = snapshot_module.compact(state)
@@ -245,7 +251,7 @@ async def _pipeline(
     declared = parsed.get("kind")
 
     # --- 4. guard: structural, post-interpretation (ADR-0029) ------------- #
-    guarded = guard(parsed.get("intents"))
+    guarded = guard(parsed.get("intents"), book.accounting_day)
     result.diagnostics.extend(guarded.diagnostics)
     log_chain(
         "turn.guarded",
@@ -345,7 +351,7 @@ async def _read_phase(
         # alongside a question is held for the change phase exactly as one
         # emitted during interpretation would be; dropping it on the way out
         # would lose the user's change without a word about it.
-        follow_up = guard(parsed.get("intents"))
+        follow_up = guard(parsed.get("intents"), book.accounting_day)
         result.diagnostics.extend(follow_up.diagnostics)
         if follow_up.mutations:
             guarded.mutations.extend(follow_up.mutations)
@@ -403,7 +409,7 @@ async def _change_phase(
                 purpose="repair",
                 settings=settings,
             )
-            fixed = guard(repaired.get("intents"))
+            fixed = guard(repaired.get("intents"), book.accounting_day)
             result.diagnostics.extend(fixed.diagnostics)
             if fixed.mutations:
                 operations = fixed.mutations
@@ -497,7 +503,7 @@ async def _verify_phase(
     )
     if verdict.get("confirmed") is True:
         return operations
-    corrective = guard(verdict.get("intents"))
+    corrective = guard(verdict.get("intents"), book.accounting_day)
     result.diagnostics.extend(corrective.diagnostics)
     if not corrective.mutations:
         return operations

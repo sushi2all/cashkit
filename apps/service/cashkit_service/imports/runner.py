@@ -101,6 +101,7 @@ async def run_job(
     request_id: str,
     data: bytes,
     target: Target,
+    accounting_day: int | str = 1,
 ) -> None:
     """Run one import to completion and emit its terminal event.
 
@@ -138,6 +139,7 @@ async def run_job(
             data=data,
             request_id=request_id,
             target=target,
+            accounting_day=accounting_day,
         )
         outcome = await loop.run()
         proposal = None

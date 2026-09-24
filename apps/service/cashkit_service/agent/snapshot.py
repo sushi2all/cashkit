@@ -38,7 +38,9 @@ from ..serialize import period_starts
 EVENT_LIMIT = 40
 
 
-def build(kit: CashKit, *, scenario: str, as_of: _dt.date) -> dict[str, Any]:
+def build(
+    kit: CashKit, *, scenario: str, as_of: _dt.date, accounting_day: int | str = 1
+) -> dict[str, Any]:
     """The whole snapshot: what the book is, and what it computes."""
     book = kit.resolve(scenario).book
     scenarios = sorted(kit.scenarios) or ["base"]
@@ -53,6 +55,10 @@ def build(kit: CashKit, *, scenario: str, as_of: _dt.date) -> dict[str, Any]:
             "opening_balance": display_str(book.opening_balance),
             "cutover": book.cutover.isoformat() if book.cutover else None,
             "params": {k: str(v) for k, v in book.params.items()},
+            # The day a line falls on when the user names a month and no day:
+            # a number, or "eom" for the last day of the month. The model reads
+            # it so its reply can say which day the card will carry.
+            "accounting_day": accounting_day,
             "scenarios": scenarios,
         },
         "items": [_item(item) for item in book.items.values()],

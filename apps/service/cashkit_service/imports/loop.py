@@ -162,6 +162,7 @@ class ImportLoop:
         data: bytes,
         request_id: str,
         target: Target,
+        accounting_day: int | str = 1,
     ) -> None:
         self.kit_lock = kit_lock
         self.database = database
@@ -181,6 +182,8 @@ class ImportLoop:
         self.filename = filename
         self.data = data
         self.request_id = request_id
+        #: The day a line falls on when the sheet names a month and not a date.
+        self.accounting_day = accounting_day
 
         self.sheets: sheet_reader.Sheets | None = None
         #: Decided by the endpoint, under the book lock, before the first model
@@ -496,7 +499,7 @@ class ImportLoop:
 
     def _accept(self, raw: Any, section_name: str) -> list[dict[str, Any]]:
         """Guard the model's output, keep what an import may author, stamp the target."""
-        guarded = guard(raw)
+        guarded = guard(raw, self.accounting_day)
         self.diagnostics.extend(guarded.diagnostics)
         allowed = FORK_SAFE_OPS if self.target.created_fork else IMPORT_OPS
         accepted: list[dict[str, Any]] = []

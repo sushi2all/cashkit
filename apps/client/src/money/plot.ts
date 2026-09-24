@@ -51,6 +51,19 @@ export interface PlotScale {
 
 const ratio = (n: number): PlotRatio => n as PlotRatio;
 
+/** Two marks closer than this share a line of text, so the lower one is dropped. */
+const TICK_SEPARATION = 0.12;
+
+export interface AxisTick {
+  /**
+   * The figure this mark is named after, as an index into the plotted series.
+   * `null` on the zero line, which is a reference rather than a figure.
+   */
+  index: number | null;
+  ratio: PlotRatio;
+  kind: "high" | "low" | "zero";
+}
+
 function magnitude(value: Money): number {
   // The single conversion this module exists for. `exact` rather than
   // `display`, so the dot sits where the engine's own figure is.
@@ -105,6 +118,8 @@ export interface Box {
   height: number;
   padTop?: number;
   padBottom?: number;
+  /** Left gutter the y-axis labels occupy, so the curve starts clear of them. */
+  padLeft?: number;
 }
 
 /** Turn a ratio into a y coordinate inside a drawing box (SVG y grows down). */
@@ -117,8 +132,43 @@ export function toY(r: PlotRatio, box: Box): number {
 
 /** Turn an index into an x coordinate inside a drawing box. */
 export function toX(index: number, count: number, box: Box): number {
-  if (count <= 1) return box.width / 2;
-  return (index / (count - 1)) * box.width;
+  const left = box.padLeft ?? 0;
+  const usable = box.width - left;
+  if (count <= 1) return left + usable / 2;
+  return left + (index / (count - 1)) * usable;
+}
+
+/**
+ * Where the y axis is labelled, and which figure names each mark.
+ *
+ * A chart with no scale asks the reader to guess what the curve is worth, so
+ * every chart gets a reference. The reference is deliberately **not** a set of
+ * round numbers: an axis reading "5 000 / 2 500 / 0" would put figures on the
+ * screen that the engine never computed, and this client does not invent
+ * figures. So the axis is labelled with the series' own high and low, named by
+ * index — the caller reads their `display` strings out of the payload — plus
+ * the zero line when the series crosses it.
+ *
+ * Returned top-first. When two marks would overlap, the one earlier in
+ * high → low → zero wins: a small negative low is the figure the reader most
+ * needs, and the ZERO word must never push it off the axis.
+ */
+export function axisTicks(scale: PlotScale): AxisTick[] {
+  const marks: AxisTick[] = [];
+  const high = scale.maxIndex >= 0 ? scale.points[scale.maxIndex] : null;
+  const low = scale.minIndex >= 0 ? scale.points[scale.minIndex] : null;
+  if (high !== null && high !== undefined) marks.push({ index: scale.maxIndex, ratio: high, kind: "high" });
+  if (low !== null && low !== undefined) marks.push({ index: scale.minIndex, ratio: low, kind: "low" });
+  // The zero line is a reference and not a figure, so it carries no index: the
+  // caller labels it with a word, never with a money string of its own making.
+  if (scale.zero !== null && scale.hasNegative) marks.push({ index: null, ratio: scale.zero, kind: "zero" });
+
+  const kept: AxisTick[] = [];
+  for (const mark of marks) {
+    if (kept.some((other) => Math.abs(other.ratio - mark.ratio) < TICK_SEPARATION)) continue;
+    kept.push(mark);
+  }
+  return kept.sort((a, b) => b.ratio - a.ratio);
 }
 
 const round = (n: number): string => n.toFixed(2);
@@ -164,7 +214,7 @@ export function toAreaPath(scale: PlotScale, box: Box): string {
  */
 export function scaleTogether(
   series: readonly (readonly (Money | null | undefined)[])[],
-): { scales: PlotScale[]; zero: PlotRatio | null; hasNegative: boolean } {
+): { scales: PlotScale[]; zero: PlotRatio | null; hasNegative: boolean; combined: PlotScale } {
   const flat = series.flat();
   const combined = scaleSeries(flat);
   let cursor = 0;
@@ -186,7 +236,9 @@ export function scaleTogether(
       hasNegative: combined.hasNegative,
     };
   });
-  return { scales, zero: combined.zero, hasNegative: combined.hasNegative };
+  // `combined` goes back out as well: the shared axis is labelled from the
+  // whole range, not from whichever series happens to be first.
+  return { scales, zero: combined.zero, hasNegative: combined.hasNegative, combined };
 }
 
 /**

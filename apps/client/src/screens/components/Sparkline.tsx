@@ -15,6 +15,7 @@ import type { Money } from "@cashkit/api-types";
 
 import { formatMoney } from "../../money/money";
 import { scaleSeries, toAreaPath, toLinePath, toX, toY } from "../../money/plot";
+import { AXIS_GUTTER, ChartAxis } from "./ChartAxis";
 import { color, font } from "../../ui/tokens";
 import { monthLabel, shortDate } from "../../ui/provenance";
 
@@ -33,7 +34,7 @@ export function Sparkline({
   width?: number;
   testID?: string;
 }) {
-  const box = { width, height, padTop: 6, padBottom: 6 };
+  const box = { width, height, padTop: 6, padBottom: 6, padLeft: AXIS_GUTTER };
   const scale = scaleSeries(closing);
   const line = toLinePath(scale, box);
   const area = toAreaPath(scale, box);
@@ -41,19 +42,14 @@ export function Sparkline({
 
   return (
     <View testID={testID} style={styles.sparkWrap}>
-      <Svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
+      <Svg
+        width="100%"
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="xMinYMid meet"
+      >
+        <ChartAxis scale={scale} figures={closing} box={box} testID={`${testID}-axis`} />
         {area ? <Path d={area} fill={color.areaFill} /> : null}
-        {scale.zero !== null && scale.hasNegative ? (
-          <Line
-            x1={0}
-            x2={width}
-            y1={toY(scale.zero, box)}
-            y2={toY(scale.zero, box)}
-            stroke={color.rust}
-            strokeWidth={0.7}
-            strokeDasharray="3 3"
-          />
-        ) : null}
         {line ? <Path d={line} stroke={color.pine} strokeWidth={1.8} fill="none" /> : null}
         {lowPoint != null ? (
           <Circle
@@ -96,7 +92,7 @@ export function ForecastChart({
   width?: number;
   testID?: string;
 }) {
-  const box = { width, height, padTop: 14, padBottom: 18 };
+  const box = { width, height, padTop: 14, padBottom: 18, padLeft: AXIS_GUTTER };
   const scale = scaleSeries(closing);
   const line = toLinePath(scale, box);
   const area = toAreaPath(scale, box);
@@ -106,21 +102,23 @@ export function ForecastChart({
 
   return (
     <View testID={testID} style={styles.chartWrap}>
-      <Svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
-        {cutoverX !== null && cutoverX > 0 ? (
-          <Rect x={0} y={0} width={cutoverX} height={height} fill={color.recordedBand} />
-        ) : null}
-        {area ? <Path d={area} fill={color.areaFill} /> : null}
-        {scale.zero !== null && scale.hasNegative ? (
-          <Line
-            x1={0}
-            x2={width}
-            y1={toY(scale.zero, box)}
-            y2={toY(scale.zero, box)}
-            stroke={color.rust}
-            strokeWidth={0.8}
+      <Svg
+        width="100%"
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="xMinYMid meet"
+      >
+        {cutoverX !== null && cutoverX > AXIS_GUTTER ? (
+          <Rect
+            x={AXIS_GUTTER}
+            y={0}
+            width={cutoverX - AXIS_GUTTER}
+            height={height}
+            fill={color.recordedBand}
           />
         ) : null}
+        <ChartAxis scale={scale} figures={closing} box={box} testID={`${testID}-axis`} />
+        {area ? <Path d={area} fill={color.areaFill} /> : null}
         {line ? <Path d={line} stroke={color.pine} strokeWidth={1.8} fill="none" /> : null}
         {cutoverX !== null ? (
           <Line x1={cutoverX} x2={cutoverX} y1={4} y2={height - 12} stroke={color.ink} strokeWidth={1} />
@@ -145,7 +143,9 @@ export function ForecastChart({
           </Text>
         ) : null}
       </View>
-      <View style={styles.months}>
+      {/* The ticks are bounded by the drawing, which keeps its own aspect
+          ratio and so never grows past `width` on a wide screen. */}
+      <View style={[styles.months, { maxWidth: width }]}>
         {months.map((month) => (
           <Text key={month} style={styles.monthTick}>
             {monthLabel(month).slice(0, 3)}
@@ -163,6 +163,13 @@ const styles = StyleSheet.create({
   chartWrap: { width: "100%" },
   chartLabels: { flexDirection: "row", justifyContent: "space-between", width: "100%", paddingTop: 4 },
   chartLabel: { fontFamily: font.mono, fontSize: 8, letterSpacing: 0.6, color: color.sub },
-  months: { flexDirection: "row", justifyContent: "space-between", width: "100%", paddingTop: 6 },
+  // The ticks line up with the curve, which starts clear of the axis gutter.
+  months: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    paddingTop: 6,
+    paddingLeft: AXIS_GUTTER,
+  },
   monthTick: { fontFamily: font.mono, fontSize: 8.5, color: color.faint },
 });

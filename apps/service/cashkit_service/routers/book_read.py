@@ -9,6 +9,7 @@ SDK call on the same book, revision and as_of.
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
@@ -17,6 +18,7 @@ from ..deps import BookDep, ClockDep
 from ..envelope import Envelope
 from ..errors import bad_request, not_found
 from ..money import Money, money
+from ..ops.months import parse_accounting_day
 from ..reads import read_context
 from ..serialize import (
     EventOut,
@@ -51,6 +53,11 @@ class BookParams(BaseModel):
     cutover: date
     opening_balance: Money
     params: dict[str, str]
+    #: The day a line falls on when the user names no day (migration 0003): a
+    #: fixed day 1..28, or ``"eom"`` for the last day of the month. A setting,
+    #: not a modelled figure: it changes nothing that already exists, only how
+    #: the next line is authored.
+    accounting_day: int | Literal["eom"]
 
 
 class BookState(Envelope):
@@ -95,6 +102,7 @@ async def get_state(
                 cutover=resolved.cutover,
                 opening_balance=money(resolved.opening_balance),
                 params={k: str(v) for k, v in resolved.params.items()},
+                accounting_day=parse_accounting_day(book.accounting_day),
             ),
             months=period_starts(run),
             closing=[money(v) for v in closing_series(run)],

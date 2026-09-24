@@ -82,26 +82,40 @@ PrincipalDep = Annotated[Principal, Depends(current_principal)]
 class BookRow:
     """The caller's book row, as the service needs it."""
 
-    __slots__ = ("id", "user_id", "storage_path", "active_scenario")
+    __slots__ = ("id", "user_id", "storage_path", "active_scenario", "accounting_day")
 
-    def __init__(self, id: uuid.UUID, user_id: uuid.UUID, storage_path: str, active_scenario: str) -> None:
+    def __init__(
+        self,
+        id: uuid.UUID,
+        user_id: uuid.UUID,
+        storage_path: str,
+        active_scenario: str,
+        accounting_day: str = "1",
+    ) -> None:
         self.id = id
         self.user_id = user_id
         self.storage_path = storage_path
         self.active_scenario = active_scenario
+        #: The day a line falls on when the user did not say one (SPEC §6-S15):
+        #: a numeral "1".."28", or "eom" for the last day of the month.
+        self.accounting_day = accounting_day
 
 
 async def load_book_row(conn: AsyncConnection, user_id: uuid.UUID) -> BookRow | None:
     row = (
         await conn.execute(
-            sa.select(books.c.id, books.c.user_id, books.c.storage_path, books.c.active_scenario).where(
-                books.c.user_id == user_id
-            )
+            sa.select(
+                books.c.id,
+                books.c.user_id,
+                books.c.storage_path,
+                books.c.active_scenario,
+                books.c.accounting_day,
+            ).where(books.c.user_id == user_id)
         )
     ).first()
     if row is None:
         return None
-    return BookRow(row.id, row.user_id, row.storage_path, row.active_scenario)
+    return BookRow(row.id, row.user_id, row.storage_path, row.active_scenario, row.accounting_day)
 
 
 async def current_book(conn: ConnDep, principal: PrincipalDep) -> BookRow:

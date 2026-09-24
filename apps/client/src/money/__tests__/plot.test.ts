@@ -54,6 +54,63 @@ describe("the quarantined plot module", () => {
     expect(d).not.toMatch(/[€\u2212\u2009]/);
   });
 
+  describe("the y-axis reference", () => {
+    it("names its marks by index, so the axis text is the service's own", () => {
+      const scale = plot.scaleSeries([money("100"), money("200"), money("50")]);
+      const ticks = plot.axisTicks(scale);
+      const high = ticks.find((t) => t.kind === "high");
+      const low = ticks.find((t) => t.kind === "low");
+      expect(high?.index).toBe(1);
+      expect(low?.index).toBe(2);
+      // Nothing here carries text: a label is read from the payload by index.
+      for (const tick of ticks) expect(typeof tick.ratio).toBe("number");
+    });
+
+    it("reads top to bottom", () => {
+      const ticks = plot.axisTicks(plot.scaleSeries([money("100"), money("-50")]));
+      const ratios = ticks.map((t) => t.ratio);
+      expect([...ratios].sort((a, b) => b - a)).toEqual(ratios);
+    });
+
+    it("marks zero only when the series crosses it", () => {
+      const crossing = plot.axisTicks(plot.scaleSeries([money("100"), money("-50")]));
+      expect(crossing.some((t) => t.kind === "zero")).toBe(true);
+      expect(crossing.find((t) => t.kind === "zero")?.index).toBeNull();
+      const positive = plot.axisTicks(plot.scaleSeries([money("100"), money("200")]));
+      expect(positive.some((t) => t.kind === "zero")).toBe(false);
+    });
+
+    it("keeps a small negative low when it would collide with the zero line", () => {
+      const ticks = plot.axisTicks(plot.scaleSeries([money("10000"), money("-1")]));
+      expect(ticks.some((t) => t.kind === "low")).toBe(true);
+      expect(ticks.some((t) => t.kind === "zero")).toBe(false);
+    });
+
+    it("drops a mark that would sit on the one above it", () => {
+      // A flat series has one figure worth naming, not two stacked on a line.
+      const ticks = plot.axisTicks(plot.scaleSeries([money("100"), money("100")]));
+      expect(ticks).toHaveLength(1);
+      expect(ticks[0]?.kind).toBe("high");
+    });
+
+    it("says nothing about an empty series", () => {
+      expect(plot.axisTicks(plot.scaleSeries([]))).toEqual([]);
+    });
+  });
+
+  describe("the axis gutter", () => {
+    it("starts the curve clear of the labels", () => {
+      const box = { width: 100, height: 50, padLeft: 40 };
+      expect(plot.toX(0, 3, box)).toBe(40);
+      expect(plot.toX(2, 3, box)).toBe(100);
+      expect(plot.toX(0, 1, box)).toBe(70);
+    });
+
+    it("is absent by default, so a chart without an axis is unchanged", () => {
+      expect(plot.toX(0, 3, { width: 100, height: 50 })).toBe(0);
+    });
+  });
+
   describe("scaleTogether", () => {
     it("puts every series on one range, so two curves are comparable", () => {
       const { scales } = plot.scaleTogether([

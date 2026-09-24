@@ -182,6 +182,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/book/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set Preferences */
+        post: operations["set_preferences_book_preferences_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/book/reconcile": {
         parameters: {
             query?: never;
@@ -685,6 +702,8 @@ export interface components {
              * @example -912.50
              */
             amount: string;
+            /** Anchor */
+            anchor?: "eom" | null;
             /**
              * Direction
              * @enum {string}
@@ -762,6 +781,8 @@ export interface components {
         };
         /** BookParams */
         BookParams: {
+            /** Accounting Day */
+            accounting_day: number | "eom";
             /** Currency */
             currency: string;
             /**
@@ -1498,6 +1519,25 @@ export interface components {
             before?: string | null;
             /** Period */
             period: string | null;
+        };
+        /**
+         * Preferences
+         * @description ``POST /book/preferences`` — how a line is authored, not what it is worth.
+         *
+         *     One field so far: the day of the month a line falls on when the user names
+         *     no day. It is a setting rather than a proposal (ADR-0029 is about changes to
+         *     the book's figures) because it moves nothing that already exists — the next
+         *     line authored without a day lands on this day, and every line already in the
+         *     book keeps the date it was authored with.
+         */
+        Preferences: {
+            /**
+             * Accounting Day
+             * @example 1
+             * @example 27
+             * @example eom
+             */
+            accounting_day: number | "eom";
         };
         /** ProposalAction */
         ProposalAction: {
@@ -2558,6 +2598,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HistoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_preferences_book_preferences_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Preferences"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preferences"];
                 };
             };
             /** @description Validation Error */

@@ -66,12 +66,19 @@ class OpResult:
 # --- normalizations (proto TESTLOG item 4) -------------------------------- #
 
 
-def parse_recurrence(text: str) -> Recurrence:
-    """``"3m"`` → every 3 months. A bare number means months at book grain."""
+def parse_recurrence(text: str, anchor: str | None = None) -> Recurrence:
+    """``"3m"`` → every 3 months. A bare number means months at book grain.
+
+    ``anchor="eom"`` selects the engine's end-of-month anchor: each occurrence
+    is the last day of its own month (28, 29, 30 or 31), which a fixed day can
+    never express — 31 clamps to 30 in April and stays 30 in May.
+    """
     value = (text or "1m").strip().lower()
     unit = _GRAIN_LETTERS.get(value[-1:], Grain.MONTH)
     digits = value[:-1] if value[-1:] in _GRAIN_LETTERS else value
     every = int(digits) if digits.isdigit() and int(digits) > 0 else 1
+    if anchor == "eom":
+        return Recurrence(every=every, unit=unit, anchor="eom")
     return Recurrence(every=every, unit=unit)
 
 
@@ -293,7 +300,9 @@ def _build_item(payload: dict[str, Any]) -> Item:
             Segment(
                 start=_as_date(payload["start"]),
                 end=_as_date(payload["end"]) if payload.get("end") else None,
-                recurrence=parse_recurrence(payload.get("recurrence") or "1m"),
+                recurrence=parse_recurrence(
+                    payload.get("recurrence") or "1m", payload.get("anchor")
+                ),
                 amount=Amount(constant=signed(payload["amount"], payload["direction"])),
             )
         ],

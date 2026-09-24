@@ -84,6 +84,7 @@ def test_the_only_write_routes_are_the_proposal_pipeline(app):
         "/auth/verify",        # opens a session, touches no book
         "/book/discard",       # reverts the overlay to HEAD; removes, never authors
         "/book/edits",         # produces a proposal — applies nothing
+        "/book/preferences",   # authoring default only; changes no figure (D-MLP-140)
         "/book/save",          # commits changes already confirmed one card at a time
         "/book/scenarios",     # produces a proposal (D-MLP-14)
         "/book/scenarios/{scenario_id}/activate",  # app state, not book content
