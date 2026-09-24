@@ -22,6 +22,10 @@ What this process is, and what it deliberately is not:
 Run it directly for a manual poke:
 
     uv run python apps/client/e2e/harness/server.py --port 8099
+
+Add ``--live`` to that command to talk to the real provider instead of the
+scripted one. Without it the scripted provider has nothing queued for a
+sentence you type yourself, and the turn fails.
 """
 
 from __future__ import annotations
@@ -52,6 +56,7 @@ SERVICE_ROOT = REPO_ROOT / "apps" / "service"
 sys.path.insert(0, str(SERVICE_ROOT))
 sys.path.insert(0, str(SERVICE_ROOT / "tests"))
 
+from cashkit_service.agent.transport import OpenRouterTransport  # noqa: E402
 from cashkit_service.app import create_app  # noqa: E402
 from cashkit_service.books import BookRuntime  # noqa: E402
 from cashkit_service.clock import FixedClock  # noqa: E402
@@ -77,7 +82,14 @@ class ScriptRequest(BaseModel):
     replace: bool = True
 
 
-async def build() -> tuple[FastAPI, dict[str, Any]]:
+async def build(*, live: bool = False) -> tuple[FastAPI, dict[str, Any]]:
+    """Build the service behind the harness.
+
+    ``live=True`` swaps the scripted provider for the real one (``--live``), so
+    a person can type a sentence of their own into the web app and get a real
+    turn back. Playwright never passes it: a browser test must not spend money
+    and must not depend on a provider being up.
+    """
     name = f"ck_e2e_{uuid.uuid4().hex[:12]}"
     admin = Database(ADMIN_URL + "?prepared_statement_cache_size=0")
     engine = admin.engine.execution_options(isolation_level="AUTOCOMMIT")
@@ -99,7 +111,23 @@ async def build() -> tuple[FastAPI, dict[str, Any]]:
         web_app_url="http://127.0.0.1:8099",
     )
     mailer = CapturingMailer()
-    transport = ScriptedTransport(script=[])
+    transport: Any = ScriptedTransport(script=[])
+    if live:
+        # The repo-root `.env` is where the key already lives, so a manual run
+        # needs no second copy of it.
+        live_settings = Settings(_env_file=REPO_ROOT / ".env")
+        if not live_settings.llm_api_key:
+            raise SystemExit(
+                "--live needs a model key: set OPENROUTER_API_KEY in the "
+                f"environment or in {REPO_ROOT / '.env'}"
+            )
+        transport = OpenRouterTransport(
+            api_key=live_settings.llm_api_key,
+            model=live_settings.llm_model,
+            base_url=live_settings.llm_base_url,
+            timeout_seconds=live_settings.llm_timeout_seconds,
+            max_tokens=live_settings.llm_max_tokens,
+        )
     clock = FixedClock(FROZEN_NOW)
 
     service = create_app(
@@ -122,7 +150,7 @@ async def build() -> tuple[FastAPI, dict[str, Any]]:
 def make_harness(service: FastAPI, ctx: dict[str, Any]) -> FastAPI:
     app = FastAPI(title="CashKit web E2E harness")
     mailer: CapturingMailer = ctx["mailer"]
-    transport: ScriptedTransport = ctx["transport"]
+    transport: Any = ctx["transport"]
     forwarder = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=service), base_url="http://service"
     )
@@ -136,6 +164,8 @@ def make_harness(service: FastAPI, ctx: dict[str, Any]) -> FastAPI:
     @app.post("/__control/script")
     async def script(body: ScriptRequest) -> dict[str, int]:
         """Queue the provider's answers. Only the provider is replaced."""
+        if not isinstance(transport, ScriptedTransport):
+            raise HTTPException(status_code=409, detail="the harness is running --live")
         if body.replace:
             transport.script.clear()
         transport.script.extend(body.responses)
@@ -143,7 +173,7 @@ def make_harness(service: FastAPI, ctx: dict[str, Any]) -> FastAPI:
 
     @app.get("/__control/calls")
     async def calls() -> dict[str, int]:
-        return {"calls": len(transport.calls)}
+        return {"calls": len(getattr(transport, "calls", []))}
 
     @app.get("/__control/workbook")
     async def workbook(kind: str = "simple") -> Response:
@@ -262,14 +292,29 @@ def make_harness(service: FastAPI, ctx: dict[str, Any]) -> FastAPI:
 async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8099)
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="call the real model provider instead of the scripted one",
+    )
     args = parser.parse_args()
 
-    service, ctx = await build()
+    service, ctx = await build(live=args.live)
     harness = make_harness(service, ctx)
 
     config = uvicorn.Config(harness, host="127.0.0.1", port=args.port, log_level="warning")
     server = uvicorn.Server(config)
-    print(json.dumps({"ready": True, "port": args.port, "database": ctx["database_name"]}), flush=True)
+    print(
+        json.dumps(
+            {
+                "ready": True,
+                "port": args.port,
+                "database": ctx["database_name"],
+                "model": ctx["transport"].model,
+            }
+        ),
+        flush=True,
+    )
     try:
         await server.serve()
     finally:

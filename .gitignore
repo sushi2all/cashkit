@@ -30,3 +30,5 @@ apps/client/expo-env.d.ts
 apps/client/playwright-report/
 apps/client/test-results/
 apps/client/e2e/.artifacts/
+ops/.env.local
+design/web/config.local.js

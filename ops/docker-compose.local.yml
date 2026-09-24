@@ -1,9 +1,17 @@
 # Run the production stack on this machine, over plain HTTP.
 #
+#   ops/run-local.sh                       # the whole thing, UI included
+#
+# or by hand:
+#
 #   docker compose --env-file /path/to/env \
 #     -f ops/docker-compose.prod.yml -f ops/docker-compose.local.yml up -d --wait
 #
-# It exists for two things the gate needs and a laptop can do honestly:
+# It exists for three things a laptop can do honestly:
+#
+#   * **the app end to end** — the `web` service below serves the exported
+#     Expo web bundle and hands `/api/*` to the production Caddy, so one
+#     browser origin drives the real service against a real OpenRouter key;
 #
 #   * the **end-to-end streaming check** — a real import through the real
 #     Caddy with the committed Caddyfile, watched with `curl -N`, which is what
@@ -15,7 +23,8 @@
 # measurements can be read with them in mind:
 #   - `SITE_ADDRESS: :8080` — plain HTTP, no ACME, no certificate. Everything
 #     else in the Caddyfile is the production file, mounted unchanged.
-#   - Caddy publishes 58090 on the loopback instead of 80/443.
+#   - Caddy publishes 58090 on the loopback instead of 80/443, and a second
+#     Caddy (`web`) publishes 58080 with the web bundle on it.
 #   - The backup sidecar and the metrics agent are not started (they need
 #     object-storage and Grafana Cloud credentials); `ops/backup/` has its own
 #     drill, and so does the alarm stack.
@@ -30,6 +39,22 @@ services:
   service:
     environment:
       CASHKIT_ENVIRONMENT: local
+
+  # The web app, on its own origin, in front of the stack. Production serves
+  # it from elsewhere (`WEB_APP_URL` is a different host in every environment
+  # past development), so this container exists only here — and it proxies to
+  # the production Caddy rather than to the service, so nothing in the API
+  # path is skipped. Built by `ops/run-local.sh`; `dist/` is gitignored.
+  web:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      caddy: {condition: service_started}
+    ports:
+      - "127.0.0.1:58080:8080"
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - ../apps/client/dist:/srv/www:ro
 
   backup:
     profiles: ["never"]

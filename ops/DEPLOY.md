@@ -13,6 +13,41 @@ See §7 of `km/notes/handoff-mlp-s6.md` for what that means and who owns it.
 
 ---
 
+## Run it locally first
+
+The same stack, on this machine, in one command — with the web app in front of
+it and a real OpenRouter key behind it:
+
+```bash
+ops/run-local.sh                # app on :58080, API on :58090
+ops/run-local.sh --rebuild-web  # …after a client change
+ops/run-local.sh --down         # stop; the books and the database survive
+```
+
+It needs Docker, Node 22 and `OPENROUTER_API_KEY` in the repo-root `.env` —
+nothing else. The script exports the Expo web bundle, generates
+`ops/.env.local` (placeholders for the values only a real deploy uses), brings
+up `docker-compose.prod.yml` with the local overlay, and applies the
+migrations.
+
+What runs is the production stack: the real service image, a real Postgres, the
+production Caddy reading the committed `ops/Caddyfile`, and the model provider
+you actually pay. The web container serves `apps/client/dist` and hands
+`/api/*` to that Caddy, so the browser has one origin and no API call skips the
+proxy configuration production uses.
+
+Four things differ from production, and each one is a credential a laptop has
+no business holding: **no TLS** (plain HTTP on the loopback), **no backup
+sidecar**, **no metrics agent**, and **no mail provider** — so the magic link
+is printed to the service log instead of being sent. The script prints the
+`docker compose logs` line that shows it.
+
+There is no other login path: no endpoint returns a link token in any mode
+(`apps/service/cashkit_service/mail.py`), and adding one for local convenience
+would be the debug flag that defeats the flow.
+
+---
+
 ## 0. What you need before you start
 
 | Thing | Why | Where it goes |

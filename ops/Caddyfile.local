@@ -1,0 +1,34 @@
+# The local web origin (`ops/run-local.sh` only — production serves the web app
+# from its own host, see `ops/DEPLOY.md` §0).
+#
+# One origin for the browser: the exported Expo web app on `/`, and `/api/*`
+# handed — path stripped — to the **production** Caddy in front of the service.
+# The bundle is built with `EXPO_PUBLIC_API_URL=/api`, so this is the shape it
+# expects, and every API call still crosses `ops/Caddyfile` unchanged. That is
+# the point: the streaming and latency checks stay honest with the UI in front.
+{
+	admin off
+	# No ACME on a laptop: plain HTTP on the loopback.
+	auto_https off
+}
+
+:8080 {
+	handle_path /api/* {
+		reverse_proxy caddy:8080 {
+			# The import stream crosses this hop too, so it gets the same
+			# no-buffering treatment as the production route it feeds into.
+			flush_interval -1
+			transport http {
+				read_timeout 300s
+			}
+		}
+	}
+
+	# `expo.web.output` is `single` (apps/client/app.json): one index.html, and
+	# a deep link such as /auth/verify is routed in the browser.
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+}
