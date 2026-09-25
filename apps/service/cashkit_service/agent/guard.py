@@ -175,6 +175,18 @@ def guard(intents: Any, accounting_day: int | str = 1) -> Guarded:
                 )
             )
             continue
+        # "2026-04" to "2026-04" under day 27 is 27 Apr → 1 Apr: a line with no
+        # occurrence that would still reach the card. Ask instead.
+        start, end = expanded.get("start"), expanded.get("end")
+        if name == "add_item" and isinstance(start, str) and isinstance(end, str) and end <= start:
+            result.diagnostics.append(
+                app_diagnostic(
+                    CK_E902,
+                    f"add_item: end {end} is not after start {start}, so the line never pays.",
+                    fix="Say the first month it no longer applies: end is exclusive.",
+                )
+            )
+            continue
         validated = _validate(expanded)
         if isinstance(validated, Diagnostic):
             result.diagnostics.append(validated)

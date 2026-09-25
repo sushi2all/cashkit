@@ -18,7 +18,7 @@ import type { Money } from "@cashkit/api-types";
 
 import { formatMoney } from "../../money/money";
 import { bandBelow, scaleTogether, toLinePath, toX, toY } from "../../money/plot";
-import { AXIS_GUTTER, ChartAxis } from "./ChartAxis";
+import { axisGutter, ChartAxis } from "./ChartAxis";
 import { monthLabel } from "../../ui/provenance";
 import { color, font } from "../../ui/tokens";
 
@@ -46,11 +46,12 @@ export function CompareChart({
   width?: number;
   testID?: string;
 }) {
-  const box = { width, height, padTop: 14, padBottom: 18, padLeft: AXIS_GUTTER };
   const { scales, zero, hasNegative, combined } = scaleTogether(series.map((s) => s.values));
   // The axis belongs to the shared range, so it is labelled from every series
   // at once — in the same flattened order `scaleTogether` plotted them in.
   const allFigures = series.flatMap((one) => one.values);
+  const gutter = axisGutter(combined, allFigures);
+  const box = { width, height, padTop: 14, padBottom: 18, padLeft: gutter };
   const strokes = [color.ink, color.pine, color.rust, color.sub];
   const divergeIndex = divergePeriod
     ? months.findIndex((m) => m.slice(0, 7) === divergePeriod.slice(0, 7))
@@ -78,9 +79,9 @@ export function CompareChart({
       >
         {negativeBand !== null && hasNegative ? (
           <Rect
-            x={AXIS_GUTTER}
+            x={gutter}
             y={negativeBand.y}
-            width={width - AXIS_GUTTER}
+            width={width - gutter}
             height={negativeBand.height}
             fill={color.areaFill}
           />
@@ -133,7 +134,7 @@ export function CompareChart({
 
       {/* The ticks are bounded by the drawing, which keeps its own aspect
           ratio and so never grows past `width` on a wide screen. */}
-      <View style={[styles.months, { maxWidth: width }]}>
+      <View style={[styles.months, { maxWidth: width, paddingLeft: gutter }]}>
         {months.map((month) => (
           <Text key={month} style={styles.monthTick}>
             {monthLabel(month).slice(0, 3)}
@@ -158,7 +159,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     width: "100%",
     paddingTop: 6,
-    paddingLeft: AXIS_GUTTER,
   },
   monthTick: { fontFamily: font.mono, fontSize: 8.5, color: color.faint },
 });

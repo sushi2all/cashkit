@@ -15,7 +15,7 @@ import type { Money } from "@cashkit/api-types";
 
 import { formatMoney } from "../../money/money";
 import { scaleSeries, toAreaPath, toLinePath, toX, toY } from "../../money/plot";
-import { AXIS_GUTTER, ChartAxis } from "./ChartAxis";
+import { axisGutter, ChartAxis } from "./ChartAxis";
 import { color, font } from "../../ui/tokens";
 import { monthLabel, shortDate } from "../../ui/provenance";
 
@@ -34,8 +34,8 @@ export function Sparkline({
   width?: number;
   testID?: string;
 }) {
-  const box = { width, height, padTop: 6, padBottom: 6, padLeft: AXIS_GUTTER };
   const scale = scaleSeries(closing);
+  const box = { width, height, padTop: 6, padBottom: 6, padLeft: axisGutter(scale, closing) };
   const line = toLinePath(scale, box);
   const area = toAreaPath(scale, box);
   const lowPoint = scale.minIndex >= 0 ? scale.points[scale.minIndex] : null;
@@ -92,8 +92,9 @@ export function ForecastChart({
   width?: number;
   testID?: string;
 }) {
-  const box = { width, height, padTop: 14, padBottom: 18, padLeft: AXIS_GUTTER };
   const scale = scaleSeries(closing);
+  const gutter = axisGutter(scale, closing);
+  const box = { width, height, padTop: 14, padBottom: 18, padLeft: gutter };
   const line = toLinePath(scale, box);
   const area = toAreaPath(scale, box);
   const lowPoint = scale.minIndex >= 0 ? scale.points[scale.minIndex] : null;
@@ -108,11 +109,11 @@ export function ForecastChart({
         viewBox={`0 0 ${width} ${height}`}
         preserveAspectRatio="xMinYMid meet"
       >
-        {cutoverX !== null && cutoverX > AXIS_GUTTER ? (
+        {cutoverX !== null && cutoverX > gutter ? (
           <Rect
-            x={AXIS_GUTTER}
+            x={gutter}
             y={0}
-            width={cutoverX - AXIS_GUTTER}
+            width={cutoverX - gutter}
             height={height}
             fill={color.recordedBand}
           />
@@ -138,14 +139,14 @@ export function ForecastChart({
         </Text>
         {minCash ? (
           <Text testID={`${testID}-min`} style={[styles.chartLabel, { color: color.rust }]}>
-            MIN {formatMoney(minCash)}
+            LOWEST POINT {formatMoney(minCash)}
             {minCashPeriod ? ` · ${monthLabel(minCashPeriod)}` : ""}
           </Text>
         ) : null}
       </View>
       {/* The ticks are bounded by the drawing, which keeps its own aspect
           ratio and so never grows past `width` on a wide screen. */}
-      <View style={[styles.months, { maxWidth: width }]}>
+      <View style={[styles.months, { maxWidth: width, paddingLeft: gutter }]}>
         {months.map((month) => (
           <Text key={month} style={styles.monthTick}>
             {monthLabel(month).slice(0, 3)}
@@ -169,7 +170,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     width: "100%",
     paddingTop: 6,
-    paddingLeft: AXIS_GUTTER,
   },
   monthTick: { fontFamily: font.mono, fontSize: 8.5, color: color.faint },
 });

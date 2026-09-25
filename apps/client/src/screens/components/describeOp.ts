@@ -50,6 +50,8 @@ export function describeOperation(operation: Record<string, unknown>): Operation
         title: join([kind, str(operation["name"]) ?? str(operation["id"])]),
         meta: join([
           str(operation["recurrence"]),
+          // Without this the card shows "from 30 Apr" and the user reads "the 30th".
+          operation["anchor"] === "eom" ? "on each month end" : null,
           str(operation["start"]) ? `from ${shortDate(str(operation["start"]))}` : null,
           str(operation["end"]) ? `to ${shortDate(str(operation["end"]))}` : null,
           str(operation["settlement"]),

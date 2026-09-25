@@ -83,6 +83,9 @@ def _item(item: Any) -> dict[str, Any]:
             "end_exclusive": segment.end.isoformat() if segment.end else None,
             "recurrence": f"{segment.recurrence.every}{segment.recurrence.unit.value[0]}",
         }
+        # A month-end line looks like any line dated the 30th unless it says so.
+        if segment.recurrence.anchor == "eom":
+            entry["anchor"] = "eom"
         if segment.amount.constant is not None:
             entry["amount"] = display_str(segment.amount.constant)
         if segment.amount.schedule:

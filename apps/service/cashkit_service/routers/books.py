@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Request, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StrictInt, field_validator
 
 from cashkit.model import Grain, PeriodRange
 
@@ -109,7 +109,7 @@ async def create_book_endpoint(
     )
 
 
-AccountingDay = Annotated[int, Field(ge=1, le=28)] | Literal["eom"]
+AccountingDay = Annotated[StrictInt, Field(ge=1, le=28)] | Literal["eom"]
 
 
 class Preferences(BaseModel):

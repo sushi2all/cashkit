@@ -159,7 +159,7 @@ async def test_the_day_is_set_and_read_back(book_client):
     assert state["book"]["accounting_day"] == 27
 
 
-@pytest.mark.parametrize("day", [0, 29, 31, -1, "last", "31"])
+@pytest.mark.parametrize("day", [0, 29, 31, -1, "last", "31", "27", True, 27.0])
 async def test_a_day_outside_the_window_is_refused(book_client, day):
     response = await book_client.post("/book/preferences", json={"accounting_day": day})
     assert response.status_code == 422
@@ -220,7 +220,7 @@ async def test_the_model_reads_the_day_out_of_the_snapshot(book_client, model_sc
 
 
 async def test_a_turn_under_end_of_month_lands_on_the_last_day_and_stays_there(
-    book_client, model_script
+    book_client, model_script, transport
 ):
     """The engine's anchor, not a clamped day: every month ends where it ends."""
     await book_client.post("/book/preferences", json={"accounting_day": "eom"})
@@ -240,6 +240,30 @@ async def test_a_turn_under_end_of_month_lands_on_the_last_day_and_stays_there(
         f"/proposals/{body['proposal']['id']}", json={"action": "accept"}
     )
     assert applied.status_code == 200, applied.text
+
+    # The next turn must be able to see that this line is a month-end line.
+    model_script.append({"kind": "answer", "reply": "ok", "intents": []})
+    await book_client.post("/turns", json={"text": "what do I pay every month?"})
+    snapshot = next(m["content"] for m in transport.calls[-1]["messages"] if "accounting_day" in m["content"])
+    assert '"anchor":"eom"' in snapshot.replace(", ", ",").replace(": ", ":")
+
+
+async def test_a_start_and_end_in_the_same_month_is_a_diagnostic_and_not_a_500(
+    book_client, model_script
+):
+    """Day 27 and "2026-04".."2026-04" gives an end before the start."""
+    await book_client.post("/book/preferences", json={"accounting_day": 27})
+    model_script.append({
+        "kind": "answer",
+        "reply": "Rent for April.",
+        "intents": [dict(RENT_NO_DAY, end="2026-04")],
+    })
+    # The diagnostic goes back to the model once; this time it asks instead.
+    model_script.append({"kind": "answer", "reply": "Through which month?", "intents": []})
+    response = await book_client.post("/turns", json={"text": "rent 950 in April only"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["kind"] != "proposal" or not body["proposal"]["operations"], body
 
 
 def test_the_anchor_is_what_keeps_a_line_on_month_ends():

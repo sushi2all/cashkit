@@ -46,7 +46,9 @@ Answer with ONE JSON object and nothing else:
   from (the snapshot's "accounting_day") and the host fills it in. Inventing a
   day of your own puts a date on the card that the user never said. When the
   user DOES say a day — "rent on the 5th", "salary on the 27th" — write the full
-  date, and it is used exactly as given.
+  date, and it is used exactly as given. A segment marked "anchor":"eom" in the
+  snapshot pays on each month's last day; to keep that when you re-add or split
+  the line, write its month alone again, never a full date.
 """
 
 # --- read intents (R1–R12) + the one host read tool ----------------------- #
