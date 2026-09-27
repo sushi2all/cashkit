@@ -1,0 +1,20 @@
+# Lucide icon names that render in Pen (pen.dev) — probed 2026-09-26. Names not in this list were rejected by Pen.
+# Rejected (do NOT use): alert-triangle alert-circle filter more-horizontal circle-help help-circle clock bar-chart-3 line-chart home fingerprint wand-2 x-circle check-circle check-circle-2 file-warning plus-circle minus-circle function-square area-chart pie-chart
+layout-dashboard table-2 list receipt git-branch git-compare scale bell message-square activity history settings upload download search command
+chevron-down chevron-right chevron-up plus x check triangle-alert circle-alert trending-up trending-down calendar book users building-2 briefcase landmark
+file-spreadsheet ellipsis sliders-horizontal eye lock log-out info pencil trash-2 copy external-link arrow-right arrow-up-right arrow-down-right minus circle-dot
+flag shield-check refresh-cw play columns-3 panel-right keyboard zap percent coins wallet credit-card banknote calculator scroll-text badge-check git-commit-horizontal
+undo-2 save mic send arrow-up file-text folder check-check square-check square-check-big chart-column chart-line diff link unlink rotate-ccw hash tag tags user circle-user printer
+file-down import database hard-drive cloud-off wifi-off sun moon inbox layers split merge target crosshair bookmark pin paperclip alarm-clock calendar-check calendar-clock calendar-x
+arrow-left corner-down-right list-tree network workflow key-round mail phone globe languages euro circle-x octagon-alert ban lightbulb sparkles bot brain chevrons-up-down
+arrow-up-down arrow-down-up move-vertical maximize-2 minimize-2 circle-check circle-check-big clipboard-check clipboard-list notebook-pen pen-line file-check file-x
+circle-minus circle-plus square-pen square-x asterisk equal divide sigma square-function binary code terminal braces brackets regex git-fork git-merge git-pull-request
+package box boxes truck factory warehouse store shopping-cart hand-coins piggy-bank trending-up-down chart-no-axes-column chart-bar chart-area chart-pie gauge timer hourglass calendar-days calendar-range
+# Second probe — also valid:
+funnel house clock-3 clock-4 clock-8 circle-question-mark message-circle-question-mark wand-sparkles arrow-down file-clock file-diff git-graph chart-spline chart-candlestick chart-no-axes-combined
+list-checks list-filter list-ordered rows-3 grid-2x2 table table-properties panel-left panel-left-close panel-right-close circle-slash circle-off shield-alert lock-keyhole key user-round users-round building
+calendar-plus calendar-minus calendar-search receipt-text receipt-euro scale-3d banknote-arrow-up banknote-arrow-down arrow-right-left arrow-left-right repeat repeat-2 infinity step-forward skip-forward rewind fast-forward
+square-arrow-out-up-right corner-up-left reply forward milestone route map-pin navigation compass anchor life-buoy circle-dashed circle-dot-dashed dot ellipsis-vertical grip-vertical grip-horizontal move hand pointer
+mouse-pointer-click text-cursor-input type heading pilcrow quote text-quote message-square-quote message-square-text message-square-warning message-square-x bell-ring bell-off bell-dot bell-plus circle-fading-arrow-up
+badge-euro badge-percent badge-alert badge-info badge-x badge-minus badge-plus
+# Second probe — rejected: file-warning sidebar sidebar-close

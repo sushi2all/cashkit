@@ -39,3 +39,4 @@ Numbered, append-only. Status: accepted unless noted.
 | [0033](0033-read-only-kit.md) | A past revision is a type, not a flag: `at()` returns a `ReadOnlyKit` | 2026-09-05 |
 | [0034](0034-reads-live-on-what-they-read.md) | Reads live on what they read; `validate()` is the run; `resolve()` carries its diagnostics | 2026-09-05 |
 | [0035](0035-trace-reads-the-engines-records.md) | `trace()` reads the engine's own occurrence records, never a re-derivation | 2026-09-05 |
+| [0036](0036-desktop-swiss-ledger-desk.md) | The desktop app is Swiss Ledger Desk over one generated demo book | 2026-09-26 |
