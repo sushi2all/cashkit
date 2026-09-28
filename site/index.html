@@ -3,599 +3,901 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CashKit — Budget in your own words</title>
-<meta name="description" content="CashKit turns plain words into real budget line items and an exact cash forecast. The AI writes the plan. It never does the math.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233E6B4F'/%3E%3Ctext x='16' y='22' font-family='Georgia,serif' font-size='17' fill='%23FAF9F6' text-anchor='middle'%3E%E2%82%AC%3C/text%3E%3C/svg%3E">
-<script>document.documentElement.classList.add("js")</script>
+<title>CashKit — Ditch your budget spreadsheet</title>
+<meta name="description" content="Tell CashKit what's coming in plain words. It keeps your six-month cash forecast up to date, answers “can we afford it?” with exact numbers, and shows the math behind every figure. Join the early-access list.">
+<meta name="theme-color" content="#F6F5F0">
+<meta name="color-scheme" content="light">
+<meta property="og:type" content="website">
+<meta property="og:title" content="CashKit — Ditch your budget spreadsheet. Keep every number exact.">
+<meta property="og:description" content="Say what's coming. CashKit rolls your forecast forward and shows the math behind every figure. The AI writes the plan; it never does the math.">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230B5A48'/%3E%3Cpath d='M7 21l6-4 5 3 7-9' stroke='%23F6F5F0' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Schibsted+Grotesk:wght@400;500;600;700&family=Fragment+Mono&display=swap" rel="stylesheet">
+<script>document.documentElement.classList.add("js")</script>
 <style>
+/* Tokens: the design.pen variable set, 1:1. */
 :root{
-  --bg:#FAF9F6; --card:#FFFFFF; --wash:#F1EFE8;
-  --ink:#20211E; --sub:#6B6E66; --line:#E4E2DA; --faint:#A9ACA3;
-  --pine:#3E6B4F; --pine-d:#2F5340; --pine-soft:#E4EDE6;
-  --serif:"Fraunces",Georgia,serif;
-  --sans:"Instrument Sans","Helvetica Neue",Arial,sans-serif;
-  --mono:"IBM Plex Mono","Courier New",monospace;
+  --paper:#F6F5F0; --ink:#1C201D; --sub:#6A6F69; --faint:#A8ACA3;
+  --hair:#E5E3D9; --hair-soft:#F0EEE6; --dotted:#CBC8BB; --edge:#B9BDB3;
+  --pine:#0B5A48; --pine-d:#084638; --pine-tint:#EBF2EE;
+  --rust:#A5471D; --rust-tint:#F6ECE6; --card:#FFFFFF;
+  --display:"Newsreader",Georgia,"Times New Roman",serif;
+  --ui:"Schibsted Grotesk","Helvetica Neue",Arial,sans-serif;
+  --mono:"Fragment Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  --ease:cubic-bezier(.2,.7,.2,1);
+  --gutter:clamp(16px,4vw,40px);
 }
-*{margin:0;padding:0;box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{
-  font-family:var(--sans);background:var(--bg);color:var(--ink);
-  line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden;
-}
-body::after{
-  content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;opacity:.05;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
-}
+*,*::before,*::after{box-sizing:border-box}
+*{margin:0;padding:0}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{font-family:var(--ui);background:var(--paper);color:var(--ink);line-height:1.55;
+  -webkit-font-smoothing:antialiased;overflow-x:hidden}
 a{color:inherit}
-.wrap{max-width:1200px;margin:0 auto;padding:0 32px}
-.mono-label{font-family:var(--mono);font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--pine)}
-.num{font-family:var(--serif);font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit}
+.wrap{max-width:1140px;margin:0 auto;padding:0 var(--gutter)}
+.stamp{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--sub)}
+.stamp.pine{color:var(--pine)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
-/* ---------- reveal on scroll (only when JS is active) ---------- */
-.js .reveal{opacity:0;transform:translateY(20px)}
-.reveal.in{opacity:1;transform:none;transition:opacity .7s ease,transform .7s cubic-bezier(.2,.7,.2,1)}
-.reveal.d1.in{transition-delay:.08s}.reveal.d2.in{transition-delay:.16s}.reveal.d3.in{transition-delay:.24s}
-
-/* ---------- nav ---------- */
-nav{display:flex;justify-content:space-between;align-items:center;padding:26px 0}
-.wordmark{font-family:var(--serif);font-weight:600;font-size:24px;text-decoration:none}
-.wordmark span{color:var(--pine)}
-.nav-note{font-size:13px;color:var(--sub)}
+/* ---------- header ---------- */
+.top{position:sticky;top:0;z-index:50;background:rgba(246,245,240,.86);
+  -webkit-backdrop-filter:saturate(1.4) blur(10px);backdrop-filter:saturate(1.4) blur(10px);
+  border-bottom:1px solid transparent;transition:border-color .3s}
+.top.scrolled{border-bottom-color:var(--hair)}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;gap:16px}
+.brand{display:flex;align-items:center;gap:9px;text-decoration:none;font-family:var(--display);font-size:22px;font-weight:600;letter-spacing:-.01em}
+.brand svg{width:22px;height:22px;flex:none}
+.top-right{display:flex;align-items:center;gap:18px}
+.top-note{font-size:13px;color:var(--sub)}
+.btn-ghost{display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 16px;border-radius:999px;
+  border:1px solid var(--ink);background:transparent;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;
+  transition:background .2s,color .2s}
+.btn-ghost:hover{background:var(--ink);color:var(--paper)}
 
 /* ---------- hero ---------- */
-.hero{display:grid;grid-template-columns:1.05fr .95fr;gap:64px;align-items:center;padding-top:56px;padding-bottom:96px}
-h1{font-family:var(--serif);font-weight:500;font-size:clamp(44px,5.2vw,68px);line-height:1.04;letter-spacing:-.01em}
-h1 em{font-style:italic;font-weight:400;white-space:nowrap;position:relative;display:inline-block}
-h1 em svg{position:absolute;left:0;bottom:-10px;width:100%;height:14px;overflow:visible}
-h1 em svg path{stroke:var(--pine);stroke-width:3;fill:none;stroke-linecap:round;
-  stroke-dasharray:var(--ul,320);stroke-dashoffset:var(--ul,320);animation:draw 1s .9s cubic-bezier(.6,0,.3,1) forwards}
-@keyframes draw{to{stroke-dashoffset:0}}
-.hero-copy>*+*{margin-top:26px}
-.subhead{font-size:18px;color:var(--sub);max-width:34em}
-.subhead strong{color:var(--ink);font-weight:600}
+.hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:clamp(40px,5vw,72px);align-items:center;
+  padding-top:clamp(24px,4vw,48px);padding-bottom:clamp(64px,8vw,112px)}
+.hero-copy>*+*{margin-top:22px}
+h1{font-family:var(--display);font-weight:500;font-size:clamp(40px,4.9vw,62px);line-height:1.03;letter-spacing:-.025em}
+h1 .second{color:var(--pine)}
+.lede{font-size:clamp(17px,1.5vw,19px);color:var(--sub);max-width:31em;line-height:1.55}
+.lede q{quotes:"“" "”";color:var(--ink);white-space:nowrap}
 
-/* load-in stagger */
-.hero-copy>*{opacity:0;transform:translateY(16px);animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards}
-.hero-copy>*:nth-child(1){animation-delay:.05s}.hero-copy>*:nth-child(2){animation-delay:.15s}
-.hero-copy>*:nth-child(3){animation-delay:.25s}.hero-copy>*:nth-child(4){animation-delay:.35s}
-.hero-copy>*:nth-child(5){animation-delay:.45s}
-@keyframes rise{to{opacity:1;transform:none}}
+/* ---------- signup ---------- */
+.signup{max-width:500px}
+.field{display:flex;gap:8px;padding:6px;background:var(--card);border:1px solid var(--hair);border-radius:14px;
+  box-shadow:0 1px 0 rgba(28,32,29,.03),0 10px 30px -18px rgba(28,32,29,.25);transition:border-color .2s,box-shadow .2s}
+.field:focus-within{border-color:var(--pine);box-shadow:0 0 0 4px var(--pine-tint),0 10px 30px -18px rgba(28,32,29,.25)}
+.field input{flex:1 1 auto;min-width:0;border:0;outline:0;background:transparent;padding:0 12px;
+  font:inherit;font-size:16px;color:var(--ink);height:48px}
+.field input::placeholder{color:var(--faint)}
+.cta{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:48px;padding:0 20px;
+  border:0;border-radius:10px;background:var(--pine);color:#fff;font-size:15px;font-weight:600;cursor:pointer;
+  transition:background .2s,transform .12s}
+.cta:hover{background:var(--pine-d)}
+.cta:active{transform:scale(.98)}
+.cta:focus-visible,.btn-ghost:focus-visible,.ask-chip:focus-visible,summary:focus-visible,.link-btn:focus-visible{outline:2px solid var(--pine);outline-offset:3px}
+.cta svg{width:16px;height:16px;transition:transform .2s var(--ease)}
+.cta:hover svg{transform:translateX(3px)}
+.cta[disabled]{opacity:.7;cursor:progress}
+.fine{margin-top:12px;font-size:13px;color:var(--sub);line-height:1.5}
+.fine a{color:var(--sub)}
+.hint{display:none;margin-top:10px;font-size:14px;color:var(--ink)}
+.hint.show{display:block}
+.link-btn{background:none;border:0;padding:0;color:var(--pine);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.err{display:none;margin-top:10px;font-size:14px;color:var(--rust)}
+.err.show{display:block}
+.assure{display:flex;flex-wrap:wrap;gap:8px 18px;list-style:none;margin-top:22px;font-size:13.5px;color:var(--ink)}
+.assure li{display:flex;align-items:center;gap:7px}
+.assure svg{width:15px;height:15px;color:var(--pine);flex:none}
 
-/* ---------- signup form ---------- */
-.signup{display:flex;gap:10px;flex-wrap:wrap}
-.signup input[type=email]{
-  flex:1 1 240px;min-width:0;padding:15px 18px;font:inherit;font-size:15px;color:var(--ink);
-  background:var(--card);border:1px solid var(--line);border-radius:10px;outline:none;
-  transition:border-color .2s,box-shadow .2s;
-}
-.signup input[type=email]::placeholder{color:var(--faint)}
-.signup input[type=email]:focus{border-color:var(--pine);box-shadow:0 0 0 3px var(--pine-soft)}
-.signup button{
-  padding:15px 26px;font:inherit;font-size:15px;font-weight:600;color:#fff;cursor:pointer;
-  background:var(--pine);border:none;border-radius:10px;transition:background .2s,transform .15s;
-}
-.signup button:hover{background:var(--pine-d)}
-.signup button:active{transform:scale(.98)}
-.signup button:focus-visible,.persona-tab:focus-visible{outline:2px solid var(--pine);outline-offset:2px}
-.micro{font-size:13px;color:var(--sub)}
-.signup-done{display:none;font-size:16px;color:var(--pine-d);font-weight:600;padding:14px 0}
-.signup-done .num{font-size:18px}
-form.done .signup,form.done+ .micro{display:none}
+/* confirmation receipt (replaces the form on success) */
+.done{display:none;max-width:500px;background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:20px 22px;
+  box-shadow:0 10px 30px -18px rgba(28,32,29,.25)}
+.signup.is-done .field,.signup.is-done .fine,.signup.is-done .hint,.signup.is-done .err{display:none}
+.signup.is-done .done{display:block;animation:rise .5s var(--ease) both}
+.done .verdict{font-family:var(--display);font-size:21px;font-weight:600;margin:8px 0 12px;line-height:1.25}
+.done .seg{margin-top:16px;font-size:14px;color:var(--sub)}
+.seg-opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.seg-opts .ask-chip{height:30px;font-size:13px;padding:0 12px}
+.done .share{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--hair-soft);font-size:14px;color:var(--sub)}
+.done .share .btn-ghost{height:34px;font-size:13px}
 
-/* ---------- phone demo ---------- */
-.stage{position:relative;display:flex;flex-direction:column;align-items:center;gap:22px}
-.device{
-  position:relative;border-radius:58px;padding:5px;
-  background:linear-gradient(155deg,#C4C6BF 0%,#A9ACA3 12%,#95988F 50%,#A9ACA3 88%,#C4C6BF 100%);
-  box-shadow:0 34px 80px -22px rgba(32,33,30,.38),0 6px 18px rgba(32,33,30,.10),inset 0 0 0 1px #8F928A,inset 0 1px 1px rgba(255,255,255,.5);
-  transition:transform .5s cubic-bezier(.2,.7,.2,1);
-}
-.stage:hover .device{transform:translateY(-4px)}
-.device .btn{
-  position:absolute;width:3px;border-radius:2px;
-  background:linear-gradient(180deg,#B8BAB2,#93968C);
-  box-shadow:inset 0 0 0 1px #83867D;
-}
-.device .btn.b1{left:-3px;top:140px;height:26px}
-.device .btn.b2{left:-3px;top:178px;height:44px}
-.device .btn.b3{left:-3px;top:232px;height:44px}
-.device .btn.b4{right:-3px;top:190px;height:64px}
-.island{
-  position:absolute;top:22px;left:50%;transform:translateX(-50%);
-  width:96px;height:24px;background:#0B0C0A;border-radius:13px;z-index:5;
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);
-}
-.island::after{
-  content:"";position:absolute;top:50%;right:10px;transform:translateY(-50%);
-  width:8px;height:8px;border-radius:50%;
-  background:radial-gradient(circle at 35% 35%,#3a5f8f,#0B0C0A 70%);
-}
-.homebar{
-  position:absolute;bottom:19px;left:50%;transform:translateX(-50%);
-  width:108px;height:4px;background:rgba(32,33,30,.28);border-radius:2px;z-index:5;
-}
-.phone{
-  width:330px;height:648px;background:var(--card);border-radius:47px;
-  padding:14px 0 22px;display:flex;flex-direction:column;overflow:hidden;
-}
-.statusbar{display:flex;justify-content:space-between;padding:4px 30px 4px;font-size:12px;font-weight:600}
-.statusbar span:last-child{color:var(--faint);letter-spacing:2px}
-.ph-head{display:flex;justify-content:space-between;align-items:baseline;padding:12px 26px 4px}
-.ph-head .month{font-family:var(--serif);font-size:23px;font-weight:500}
-.ph-head .bal{font-family:var(--serif);font-size:15px;color:var(--pine)}
-.chartcard{margin:10px 22px 0;background:#F6F4EE;border-radius:14px;padding:12px 14px 10px;position:relative}
-.chartcard .mono-label{font-size:9.5px;color:var(--sub);letter-spacing:.18em}
-.chart{position:relative;margin-top:6px}
-.chart svg{display:block;width:100%;height:auto}
-#curve{stroke:var(--pine);stroke-width:2.4;fill:none;stroke-linecap:round}
-#dipdot{fill:var(--pine-d);opacity:0;transition:opacity .3s .1s}
-.chip{
-  position:absolute;background:var(--ink);color:#fff;font-family:var(--mono);font-size:10px;
-  padding:4px 10px;border-radius:20px;white-space:nowrap;transform:translate(-50%,6px) scale(.6);
-  opacity:0;transition:opacity .35s,transform .35s cubic-bezier(.3,1.4,.5,1);
-}
-.chip.show{opacity:1;transform:translate(-50%,6px) scale(1)}
-.months{display:flex;justify-content:space-between;padding:6px 4px 0;font-family:var(--mono);font-size:9.5px;color:var(--faint)}
-.items{list-style:none;padding:12px 26px 0;flex:1}
-.items .lbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;color:var(--pine);text-transform:uppercase}
-.items li{
-  display:flex;align-items:baseline;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);
-  opacity:0;transform:translateX(14px);transition:opacity .4s,transform .4s cubic-bezier(.2,.7,.2,1);
-}
-.items li.show{opacity:1;transform:none}
-.items .name{font-size:13.5px;font-weight:500}
-.items .date{font-size:10.5px;color:var(--sub)}
-.items .dots{flex:1;border-bottom:2px dotted var(--line);transform:translateY(-3px);min-width:14px}
-.items .amt{font-family:var(--serif);font-size:14.5px;font-variant-numeric:tabular-nums}
-.items .amt.pos{color:var(--pine-d)}
-.inputbar{display:flex;gap:8px;align-items:center;padding:12px 18px 4px}
-.pill{
-  flex:1;background:var(--wash);border-radius:22px;padding:11px 16px;
-  font-size:12.5px;min-height:40px;display:flex;align-items:center;
-}
-.caret{display:inline-block;width:1.5px;height:14px;background:var(--ink);margin-left:2px;animation:blink 1s steps(1) infinite;vertical-align:-2px}
+/* ---------- receipt primitives (ADR-0023 language) ---------- */
+.rows{display:grid;gap:10px}
+.row{display:flex;align-items:baseline;gap:8px;font-size:14px}
+.row .l{color:var(--sub);white-space:nowrap}
+.row .l.ink{color:var(--ink);font-weight:600}
+.row i{flex:1;min-width:12px;border-bottom:1.5px dotted var(--dotted);transform:translateY(-4px)}
+.row b{font-weight:600;white-space:nowrap}
+.neg{color:var(--rust)}
+.pos{color:var(--pine)}
+.meta{display:block;font-family:var(--mono);font-size:10.5px;color:var(--faint);letter-spacing:.02em;margin-top:1px}
+.card{background:var(--card);border:1px solid var(--hair);border-radius:8px}
+.quote{align-self:flex-end;max-width:88%;text-align:right;padding-right:12px;border-right:2px solid var(--pine);
+  font-family:var(--display);font-size:18px;line-height:1.35;color:var(--ink)}
+.pending{border:1px dashed var(--edge);border-radius:8px;background:var(--card);padding:14px 16px;display:grid;gap:10px}
+.btns{display:flex;gap:10px}
+.btns span{flex:1;height:40px;border-radius:8px;display:grid;place-items:center;font-size:14px;font-weight:600;border:1px solid var(--hair)}
+.btns .go{background:var(--pine);border-color:var(--pine);color:#fff}
+
+/* ---------- phone ---------- */
+.stage{display:flex;flex-direction:column;align-items:center;gap:20px}
+.device-box{--s:.8;width:calc(410px * var(--s));height:calc(864px * var(--s));position:relative}
+.device{position:absolute;left:0;top:0;width:410px;height:864px;transform:scale(var(--s));transform-origin:0 0;
+  border-radius:62px;padding:10px;background:var(--ink);
+  box-shadow:0 50px 90px -40px rgba(28,32,29,.45),0 18px 36px -24px rgba(28,32,29,.35),inset 0 0 0 1.5px #3a403b}
+.screen{position:relative;width:390px;height:844px;border-radius:52px;overflow:hidden;background:var(--paper);
+  display:flex;flex-direction:column;padding:58px 20px 26px}
+.island{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:112px;height:32px;border-radius:20px;background:var(--ink)}
+.sbar{position:absolute;top:18px;left:0;right:0;display:flex;justify-content:space-between;padding:0 34px;font-size:15px;font-weight:600}
+.sbar svg{width:44px;height:14px}
+.eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.07em;color:var(--sub);margin-top:6px}
+.bal{display:flex;align-items:flex-end;gap:10px;margin-top:10px}
+.bal .big{font-family:var(--display);font-size:56px;font-weight:500;line-height:1;letter-spacing:-.02em}
+.bal .today{font-size:13px;color:var(--sub);padding-bottom:10px}
+.spark{margin-top:14px;width:350px;height:54px;display:block;overflow:visible}
+.spark-labels{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--faint);padding-top:4px}
+.spark-labels .lowlab{transition:color .4s}
+.chat{margin-top:auto;display:flex;flex-direction:column;gap:14px}
+.applied{align-self:flex-start;font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;color:var(--pine);
+  display:flex;align-items:center;gap:6px}
+.applied svg{width:11px;height:11px}
+.answer{padding:18px;display:grid;gap:12px}
+.answer .v{font-family:var(--display);font-size:19px;font-weight:600;line-height:1.3}
+.answer .foot{display:flex;justify-content:space-between;align-items:center;padding-top:12px;border-top:1px solid var(--hair-soft);
+  font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--faint)}
+.answer .foot .tr{color:var(--pine);font-size:10px}
+.answer .row{font-size:13px}
+.answer .row b{font-size:15px}
+.ask{display:flex;gap:10px;margin-top:18px}
+.ask .in{flex:1;height:48px;border-radius:999px;background:var(--card);border:1px solid var(--hair);display:flex;align-items:center;padding:0 18px;font-size:15px;color:var(--faint)}
+.ask .mic{width:48px;height:48px;border-radius:50%;background:var(--pine);display:grid;place-items:center}
+.ask .mic svg{width:18px;height:18px}
+.caret{display:inline-block;width:1.5px;height:17px;background:var(--pine);margin-left:2px;vertical-align:-3px;animation:blink 1s steps(1) infinite}
 @keyframes blink{50%{opacity:0}}
-.micbtn{width:40px;height:40px;flex:none;border-radius:50%;background:var(--pine);display:grid;place-items:center}
-.micbtn svg{width:15px;height:15px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-
-/* persona tabs */
-.personas{display:flex;gap:8px}
-.persona-tab{
-  font:inherit;font-size:13px;font-weight:500;color:var(--sub);cursor:pointer;
-  background:none;border:1px solid var(--line);border-radius:20px;padding:7px 16px;
-  position:relative;overflow:hidden;transition:color .25s,border-color .25s;
-}
-.persona-tab.active{color:var(--pine-d);border-color:var(--pine)}
+.js .fx{opacity:0;transform:translateY(10px)}
+.fx{transition:opacity .45s var(--ease),transform .45s var(--ease)}
+.fx.on{opacity:1;transform:none}
+.hide{display:none!important}
+.ask-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}
+.ask-bar .stamp{margin-right:2px}
+.ask-chip{height:34px;padding:0 14px;border-radius:999px;border:1px solid var(--hair);background:var(--card);font-size:13.5px;
+  font-weight:500;color:var(--sub);cursor:pointer;transition:border-color .2s,color .2s,background .2s}
+.ask-chip:hover{border-color:var(--edge);color:var(--ink)}
+.ask-chip[aria-pressed="true"]{border-color:var(--pine);color:var(--pine);background:var(--pine-tint)}
 
 /* ---------- sections ---------- */
-section{padding:96px 0}
-.sec-head{max-width:640px}
-h2{font-family:var(--serif);font-weight:500;font-size:clamp(30px,3.4vw,42px);line-height:1.12;margin:14px 0 16px}
-.sec-sub{font-size:17px;color:var(--sub)}
+section{padding:clamp(72px,9vw,120px) 0}
+.kicker{display:flex;align-items:center;gap:10px}
+.kicker::before{content:"";width:18px;height:1px;background:currentColor;opacity:.6}
+h2{font-family:var(--display);font-weight:500;font-size:clamp(32px,3.8vw,48px);line-height:1.08;letter-spacing:-.02em;margin-top:14px}
+.sec-head{max-width:680px}
+.sec-sub{margin-top:16px;font-size:18px;color:var(--sub);max-width:36em}
+.band{background:var(--card);border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
 
-/* demo strip */
-.demo{background:var(--card);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-.beats{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:52px}
-.beat-visual{
-  background:var(--bg);border:1px solid var(--line);border-radius:16px;height:190px;
-  padding:22px;display:flex;flex-direction:column;justify-content:center;gap:9px;
-}
-.beat-cap{display:flex;gap:12px;margin-top:18px;align-items:flex-start}
-.beat-num{
-  width:28px;height:28px;flex:none;border-radius:50%;background:var(--wash);
-  display:grid;place-items:center;font-family:var(--serif);font-size:14px;color:var(--pine-d);
-}
-.beat-cap p{font-size:15px}
-.demo-pill{background:var(--card);border:1.5px solid var(--pine);border-radius:22px;padding:12px 16px;font-size:13.5px}
-.demo-hint{font-size:12px;color:var(--sub)}
-.demo-row{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:12.5px}
-.demo-row svg{width:13px;height:13px;stroke:var(--pine);fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
-.demo-row .amt{margin-left:auto;font-family:var(--serif);font-size:12.5px}
-.beat3 svg{width:100%}
-.demo-tag{margin-top:44px;font-size:17px;color:var(--sub)}
-.demo-tag strong{color:var(--ink)}
+/* before / after */
+.ba{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:48px}
+.ba-col{border-radius:14px;padding:26px;display:flex;flex-direction:column;gap:20px}
+.ba-before{background:var(--paper);border:1px solid var(--hair)}
+.ba-after{background:var(--pine-tint);border:1px solid #D6E5DC}
+.ba-col h3{font-size:17px;font-weight:600}
+.ba-col p{font-size:15px;color:var(--sub);margin-top:6px}
+.ba-col ol{list-style:none;counter-reset:c;display:grid;gap:6px;font-size:15px;color:var(--sub)}
+.ba-col ol li{counter-increment:c;display:flex;gap:10px}
+.ba-col ol li::before{content:counter(c);font-family:var(--mono);font-size:11px;color:var(--faint);padding-top:3px;width:12px}
+.sheet{font-family:var(--mono);font-size:11.5px;border-collapse:collapse;width:100%;background:var(--card);color:var(--ink)}
+.sheet th,.sheet td{border:1px solid var(--hair);padding:6px 8px;text-align:right;white-space:nowrap}
+.sheet th{background:var(--hair-soft);color:var(--sub);font-weight:400}
+.sheet td:first-child,.sheet th:first-child{text-align:left}
+.sheet .bad{color:var(--rust);background:var(--rust-tint)}
+.sheet .sel{outline:2px solid var(--pine);outline-offset:-2px}
+.sheet-wrap{overflow:hidden;border-radius:6px}
+.ba-after .demo{display:flex;flex-direction:column;gap:14px}
+.delta{font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;color:var(--sub)}
+.delta b{color:var(--ink);font-weight:400}
 
-/* trust */
-.trust{background:var(--wash)}
-.trust-grid{display:grid;grid-template-columns:400px 1fr;gap:72px;align-items:center}
-.receipt{
-  background:var(--card);border-radius:4px;padding:30px 28px;transform:rotate(-1.4deg);
-  box-shadow:0 18px 44px -12px rgba(32,33,30,.18),0 2px 8px rgba(32,33,30,.05);
-  font-family:var(--mono);font-size:13px;position:relative;
-}
-.receipt::before{
-  content:"";position:absolute;top:-7px;left:0;right:0;height:7px;
-  background:radial-gradient(circle at 7px 0,transparent 6px,var(--card) 6.5px);background-size:14px 7px;
-}
-.receipt-title{font-size:11px;letter-spacing:.18em;color:var(--sub);margin-bottom:14px}
-.receipt-row{display:flex;justify-content:space-between;padding:5px 0}
-.receipt-row.hl{color:var(--pine-d);font-weight:500}
-.receipt-total{display:flex;justify-content:space-between;border-top:1px solid var(--line);margin-top:10px;padding-top:12px;font-weight:600}
-.stamp{margin-top:16px;font-size:10px;color:var(--faint)}
-.steps{counter-reset:step}
-.step{display:flex;gap:22px;padding:26px 0;border-bottom:1px solid var(--line)}
-.step:last-child{border-bottom:none}
-.step-num{font-family:var(--serif);font-size:26px;color:#B9BCB1;line-height:1.2;flex:none;width:38px}
-.step h3{font-size:18px;font-weight:600;margin-bottom:6px}
-.step p{font-size:15px;color:var(--sub)}
-
-/* capabilities: scenarios + Q&A */
-.caps{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:52px}
-.cap-screen{
-  background:var(--card);border:1px solid var(--line);border-radius:24px;padding:24px;
-  display:flex;flex-direction:column;gap:14px;min-height:330px;
-  box-shadow:0 14px 36px -18px rgba(32,33,30,.14);
-}
-.cap h3{font-size:18px;font-weight:600;margin:20px 0 8px}
-.cap>p{font-size:15px;color:var(--sub);max-width:30em}
-.cap-head{display:flex;justify-content:space-between;align-items:center}
-.cap-title{font-family:var(--serif);font-size:19px;font-weight:500}
-.cap-badge{font-family:var(--mono);font-size:10px;letter-spacing:.14em;background:var(--pine-soft);color:var(--pine-d);padding:4px 10px;border-radius:14px}
-.scen-chart svg{width:100%;display:block}
-.legend{display:flex;gap:18px;font-family:var(--mono);font-size:10.5px;color:var(--sub)}
-.legend span{display:flex;align-items:center;gap:6px}
-.legend i{width:16px;height:0;border-top:2.5px solid var(--pine);border-radius:2px}
-.legend .base i{border-top-style:dotted;border-top-color:#A9ACA3}
-.scen-row{display:flex;align-items:baseline;gap:8px;border-top:1px solid var(--line);padding-top:14px;font-size:13.5px}
-.scen-row .date{font-size:11px;color:var(--sub)}
-.scen-row .dots{flex:1;border-bottom:2px dotted var(--line);transform:translateY(-3px);min-width:14px}
-.scen-row .amt{font-family:var(--serif);font-size:14px}
-.scen-delta{font-family:var(--mono);font-size:11px;color:var(--pine-d)}
-.bubble{max-width:88%;padding:12px 15px;border-radius:16px;font-size:13.5px;line-height:1.5}
-.bubble.q{align-self:flex-end;background:var(--ink);color:#fff;border-bottom-right-radius:4px}
-.bubble.a{align-self:flex-start;background:var(--wash);border-bottom-left-radius:4px}
-.bubble.a .num{font-weight:600;color:var(--pine-d);font-family:var(--sans)}
-.bubble-stamp{font-family:var(--mono);font-size:9.5px;color:var(--faint);align-self:flex-start;padding-left:4px}
-.qa-actions{display:flex;gap:8px;margin-top:auto}
-.qa-actions span{font-size:12.5px;font-weight:500;border:1px solid var(--line);border-radius:18px;padding:7px 14px;color:var(--pine-d)}
-.qa-actions span:first-child{background:var(--pine);border-color:var(--pine);color:#fff}
+/* how it works */
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin-top:52px}
+.step-vis{background:var(--paper);border:1px solid var(--hair);border-radius:14px;padding:22px;height:330px;
+  display:flex;flex-direction:column;justify-content:center;gap:14px;overflow:hidden}
+.step-cap{margin-top:20px;display:grid;grid-template-columns:auto 1fr;gap:4px 14px}
+.step-cap .n{font-family:var(--mono);font-size:12px;color:var(--pine);padding-top:4px;grid-row:span 2}
+.step-cap h3{font-size:19px;font-weight:600;line-height:1.3}
+.step-cap p{font-size:15px;color:var(--sub)}
+.fc{padding:14px 14px 10px}
+.fc svg{display:block;width:100%;height:auto}
+.fc .top-l{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.trace-q{font-family:var(--display);font-size:22px;font-weight:600;line-height:1.2}
+.trace{padding:14px 16px;display:grid;gap:9px}
+.trace .row{font-size:13px}
+.trace .row .l{color:var(--ink)}
+.trace .row .l small{color:var(--sub);font-size:13px}
+.trace .tot{border-top:1px solid var(--hair);padding-top:10px}
+.trace .tot b{font-family:var(--display);font-size:20px}
 
 /* proof */
-.proof{display:grid;grid-template-columns:repeat(3,1fr);gap:48px}
-.proof-card svg{width:24px;height:24px;stroke:var(--pine);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.proof-card h3{font-size:17px;font-weight:600;margin:14px 0 8px}
-.proof-card p{font-size:14.5px;color:var(--sub)}
+.proof{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:clamp(40px,6vw,88px);align-items:center}
+.no-stack{display:flex;flex-direction:column;gap:14px;max-width:420px;width:100%;justify-self:center}
+.no-note{font-size:14px;color:var(--sub);text-align:center;margin-top:6px}
+.points{display:grid;gap:0;margin-top:36px;border-top:1px solid var(--hair)}
+.point{display:grid;grid-template-columns:32px 1fr;gap:16px;padding:22px 0;border-bottom:1px solid var(--hair)}
+.point svg{width:22px;height:22px;color:var(--pine);margin-top:2px}
+.point h3{font-size:17px;font-weight:600}
+.point p{font-size:15px;color:var(--sub);margin-top:4px}
 
-/* close */
-.close{background:var(--card);border-top:1px solid var(--line);text-align:center}
-.close h2{margin:14px auto 6px}
-.close .sec-sub{margin-bottom:34px}
-.close .signup{justify-content:center}
-.close form{max-width:480px;margin:0 auto}
-.close .micro{margin-top:14px}
+/* import */
+.import{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(40px,6vw,88px);align-items:center}
+.recon{padding:20px 22px;display:grid;gap:10px}
+.recon .file{display:flex;align-items:center;gap:10px;padding-bottom:14px;border-bottom:1px solid var(--hair-soft);font-size:14px;font-weight:600}
+.recon .file svg{width:20px;height:20px;color:var(--pine)}
+.recon .file span{font-family:var(--mono);font-size:10px;color:var(--faint);font-weight:400;margin-left:auto;letter-spacing:.06em}
+.ok{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--pine);white-space:nowrap}
 
-/* footer */
-footer{border-top:1px solid var(--line);background:var(--card)}
-.foot{display:flex;justify-content:space-between;align-items:center;padding-top:26px;padding-bottom:26px;font-size:13px;color:var(--sub);gap:16px;flex-wrap:wrap}
-.foot .fm{font-family:var(--serif);font-size:16px;color:var(--ink)}
-.foot .powered a{text-decoration:none;border-bottom:1px dotted var(--faint)}
-.foot nav-links{display:flex;gap:18px}
+/* founder */
+.founder{max-width:760px;margin:0 auto;text-align:center}
+.founder blockquote{font-family:var(--display);font-size:clamp(22px,2.4vw,29px);line-height:1.4;letter-spacing:-.01em}
+.founder .sig{margin-top:22px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:14px;color:var(--sub)}
+.founder .sig .av{width:36px;height:36px;border-radius:50%;background:var(--pine-tint);color:var(--pine);display:grid;place-items:center;font-family:var(--display);font-weight:600;font-size:16px}
+
+/* faq */
+.faq-grid{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:clamp(32px,6vw,88px)}
+.faq details{border-bottom:1px solid var(--hair)}
+.faq details:first-child{border-top:1px solid var(--hair)}
+.faq summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;gap:16px;align-items:center;padding:20px 0;font-size:17px;font-weight:600}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"";flex:none;width:10px;height:10px;border-right:1.5px solid var(--sub);border-bottom:1.5px solid var(--sub);transform:rotate(45deg) translate(-3px,-3px);transition:transform .25s var(--ease)}
+.faq details[open] summary::after{transform:rotate(225deg) translate(-3px,-3px)}
+.faq details p{padding:0 0 22px;font-size:15.5px;color:var(--sub);max-width:40em}
+
+/* closing */
+.closing{text-align:center}
+.closing h2{max-width:14em;margin-left:auto;margin-right:auto}
+.closing .sec-sub{margin-left:auto;margin-right:auto}
+.closing .signup{margin:36px auto 0;text-align:left}
+.closing .assure{justify-content:center}
+
+footer{border-top:1px solid var(--hair)}
+footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;padding-top:28px;padding-bottom:28px;font-size:13px;color:var(--sub)}
+footer nav{display:flex;gap:18px}
+footer a{text-decoration:none}
+footer a:hover{text-decoration:underline}
+
+/* mobile sticky CTA */
+.dock{position:fixed;left:12px;right:12px;bottom:12px;z-index:60;display:none;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 10px 10px 18px;border-radius:14px;background:var(--ink);color:var(--paper);box-shadow:0 18px 40px -16px rgba(28,32,29,.5);
+  transform:translateY(140%);transition:transform .35s var(--ease)}
+.dock.show{transform:none}
+.dock span{font-size:14px}
+.dock .cta{height:40px;font-size:14px;padding:0 16px;width:auto;flex:none;text-decoration:none}
+
+/* reveal */
+.js .reveal{opacity:0;transform:translateY(18px)}
+.reveal.in{opacity:1;transform:none;transition:opacity .7s var(--ease),transform .7s var(--ease)}
+.reveal.d1.in{transition-delay:.08s}.reveal.d2.in{transition-delay:.16s}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.hero-copy>*{animation:rise .7s var(--ease) both}
+.hero-copy>*:nth-child(2){animation-delay:.06s}.hero-copy>*:nth-child(3){animation-delay:.12s}
+.hero-copy>*:nth-child(4){animation-delay:.18s}.hero-copy>*:nth-child(5){animation-delay:.24s}
 
 /* ---------- responsive ---------- */
-@media(max-width:980px){
-  .hero{grid-template-columns:1fr;padding-top:24px;gap:56px}
-  .trust-grid{grid-template-columns:1fr;gap:56px}
-  .receipt{max-width:400px}
-  .beats,.proof,.caps{grid-template-columns:1fr;gap:32px}
-  section{padding:72px 0}
+@media (max-width:1040px){
+  .steps{grid-template-columns:1fr;max-width:520px;margin-left:auto;margin-right:auto}
+  .step-vis{height:auto;min-height:280px}
 }
-@media(prefers-reduced-motion:reduce){
+@media (max-width:920px){
+  .hero,.proof,.import,.faq-grid,.ba{grid-template-columns:minmax(0,1fr)}
+  .hero{gap:48px}
+  .hero-copy{max-width:600px}
+  .proof .no-stack{order:2}
+  .top-note{display:none}
+}
+@media (max-width:560px){
+  .field{flex-direction:column;padding:6px}
+  .field input{height:50px}
+  .cta{width:100%;height:50px}
+  .device-box{--s:.74}
+  .dock{display:flex}
+  .ba-col{padding:20px}
+  .sheet{font-size:10.5px}
+  .sheet th,.sheet td{padding:5px 6px}
+  footer{padding-bottom:76px}
+}
+@media (max-width:380px){ .device-box{--s:.68} }
+@media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-delay:0ms!important;transition-duration:.01ms!important}
-  .reveal{opacity:1;transform:none}
   html{scroll-behavior:auto}
+  .js .reveal,.js .fx{opacity:1;transform:none}
 }
 </style>
 </head>
 <body>
 
-<header class="wrap">
-  <nav>
-    <a class="wordmark" href="#">Cash<span>Kit</span></a>
-    <span class="nav-note">Early access · autumn 2026</span>
-  </nav>
+<header class="top" id="top">
+  <div class="wrap">
+    <a class="brand" href="#" aria-label="CashKit home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0B5A48"/><path d="M7 21l6-4 5 3 7-9" stroke="#F6F5F0" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      CashKit
+    </a>
+    <div class="top-right">
+      <span class="top-note">Early access · iPhone, Android &amp; web</span>
+      <a class="btn-ghost js-jump" href="#join">Get early access</a>
+    </div>
+  </div>
 </header>
 
 <main>
+  <!-- ================= HERO ================= -->
   <div class="wrap hero">
     <div class="hero-copy">
-      <p class="mono-label">CashKit Mobile</p>
-      <h1>You can finally ditch your <em>Excel budget.<svg viewBox="0 0 300 14" aria-hidden="true" preserveAspectRatio="none"><path d="M3 10 C 60 4, 150 3, 297 8"/></svg></em></h1>
-      <p class="subhead">Explain your finances in plain words and see them come to life. Same flexibility, same precision, <strong>none of the manual rework.</strong></p>
-      <form class="signup-form" novalidate>
-        <div class="signup">
-          <input type="email" name="EMAIL" placeholder="you@email.com" required aria-label="Email address">
-          <button type="submit">Get early access</button>
+      <p class="stamp pine kicker">For people who budget in a spreadsheet</p>
+      <h1>Ditch your budget spreadsheet. <span class="second">Keep every number exact.</span></h1>
+      <p class="lede">Tell CashKit what's coming — <q>€1,800 trip in October</q>, <q>nursery goes up in January</q>. It rolls your six-month forecast forward for you, and answers <q>can we afford it?</q> with math you can check line by line.</p>
+
+      <form class="signup" id="join" novalidate>
+        <div class="field">
+          <label class="sr" for="email-hero">Email address</label>
+          <input id="email-hero" type="email" name="email" placeholder="you@email.com" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false" required>
+          <button class="cta" type="submit">Get early access <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button>
         </div>
-        <p class="signup-done" role="status">You're in. One email when it launches.</p>
+        <p class="hint" aria-live="polite"></p>
+        <p class="err" role="alert"></p>
+        <p class="fine">Free to join. We'll only email you about your invite — unsubscribe in one click. <a href="#privacy">Privacy</a></p>
+        <div class="done" role="status" aria-live="polite"></div>
       </form>
-      <p class="micro">Email only. One email when it launches, nothing else.</p>
+
+      <ul class="assure" aria-label="What to know">
+        <li><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>No bank login needed</li>
+        <li><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Hosted in the EU</li>
+        <li><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Brings your .xlsx with it</li>
+      </ul>
     </div>
 
+    <!-- Phone: design.pen "Home - Chat" + "Alert - Negative What-if", figures verbatim -->
     <div class="stage">
-      <div class="device" aria-hidden="true">
-      <span class="island"></span><span class="homebar"></span>
-      <span class="btn b1"></span><span class="btn b2"></span><span class="btn b3"></span><span class="btn b4"></span>
-      <div class="phone">
-        <div class="statusbar"><span>9:41</span><span>●●●</span></div>
-        <div class="ph-head"><span class="month" id="ph-month">September</span><span class="bal num" id="ph-bal">€2,430.00</span></div>
-        <div class="chartcard">
-          <span class="mono-label">Forecast · 4 months</span>
-          <div class="chart">
-            <svg viewBox="0 0 280 120">
-              <path id="curve" d=""/>
-              <circle id="dipdot" r="4.5" cx="0" cy="0"/>
+      <div class="device-box">
+        <div class="device" aria-hidden="true">
+          <div class="screen">
+            <div class="island"></div>
+            <div class="sbar"><span>9:41</span><svg viewBox="0 0 44 14" fill="#1C201D"><rect x="0" y="8" width="3" height="5" rx="1"/><rect x="5" y="6" width="3" height="7" rx="1"/><rect x="10" y="3.5" width="3" height="9.5" rx="1"/><rect x="15" y="1" width="3" height="12" rx="1"/><rect x="23" y="1.5" width="19" height="11" rx="3.2" fill="none" stroke="#1C201D" stroke-opacity=".4"/><rect x="25" y="3.5" width="13" height="7" rx="1.6"/></svg></div>
+            <p class="eyebrow">CASA · BASE · AS-OF 19 AUG 2026</p>
+            <div class="bal"><span class="big">€7,412</span><span class="today">today</span></div>
+            <svg class="spark" viewBox="0 0 350 54" aria-hidden="true">
+              <path id="sp-area" fill="#0B5A48" fill-opacity=".07" d=""/>
+              <path id="sp-line" fill="none" stroke="#0B5A48" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" d=""/>
+              <circle id="sp-dot" r="3" fill="#6A6F69"/>
             </svg>
-            <span class="chip" id="chip"></span>
+            <div class="spark-labels"><span>NEXT 6 MONTHS</span><span class="lowlab" id="sp-low">LOW €4,740 · OCT 27</span></div>
+
+            <div class="chat">
+              <p class="applied fx" id="ph-applied"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.5l2.5 2.5L10 3.5"/></svg>APPLIED · TRIP −€1,800 · 12 OCT</p>
+              <p class="quote" id="ph-q"><span id="ph-q-text"></span><span class="caret" id="ph-caret"></span></p>
+              <div class="card answer fx" id="ph-answer">
+                <p class="v" id="ph-v"></p>
+                <div class="rows">
+                  <div class="row"><span class="l" id="ph-r1l"></span><i></i><b id="ph-r1"></b></div>
+                  <div class="row"><span class="l" id="ph-r2l"></span><i></i><b id="ph-r2" class="neg"></b></div>
+                </div>
+                <div class="btns hide" id="ph-no-btns"><span>Discard</span><span class="go">Keep as scenario</span></div>
+                <div class="foot"><span id="ph-stamp"></span><span class="tr">TRACE ›</span></div>
+              </div>
+              <div class="pending fx" id="ph-pending">
+                <span class="stamp" style="font-size:9.5px">PENDING · ADD_EVENT</span>
+                <div class="row"><span class="l ink">Trip · one-off · 12 Oct · travel</span><i></i><b>−€1,800</b></div>
+                <div class="btns"><span>Edit</span><span class="go" id="ph-apply">Apply</span></div>
+              </div>
+            </div>
+
+            <div class="ask">
+              <div class="in">Ask or tell me anything…</div>
+              <div class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div>
+            </div>
           </div>
-          <div class="months" id="months"></div>
-        </div>
-        <ul class="items" id="items"><span class="lbl">Planned · just added</span></ul>
-        <div class="inputbar">
-          <div class="pill"><span id="typed"></span><span class="caret"></span></div>
-          <div class="micbtn"><svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/></svg></div>
         </div>
       </div>
+      <div class="ask-bar" role="group" aria-label="Replay an example question">
+        <span class="stamp">Ask it</span>
+        <button class="ask-chip" type="button" data-q="trip" aria-pressed="true">Book the trip?</button>
+        <button class="ask-chip" type="button" data-q="car" aria-pressed="false">Replace the car?</button>
       </div>
-      <div class="personas" role="tablist" aria-label="Example plans">
-        <button class="persona-tab" role="tab" data-p="0">Student</button>
-        <button class="persona-tab" role="tab" data-p="1">Freelancer</button>
-        <button class="persona-tab" role="tab" data-p="2">Family</button>
-      </div>
+      <p class="sr" id="ph-sr" aria-live="polite"></p>
     </div>
   </div>
 
-  <section class="demo">
+  <!-- ================= BEFORE / AFTER ================= -->
+  <section class="band" id="why">
     <div class="wrap">
       <div class="sec-head reveal">
-        <p class="mono-label">The whole app in three beats</p>
-        <h2>That's it. You talk, it plans.</h2>
+        <p class="stamp pine kicker">Why switch</p>
+        <h2>Your spreadsheet is precise. Keeping it that way is the chore.</h2>
+        <p class="sec-sub">A budget spreadsheet is only right the day you fix it. CashKit keeps the precision and takes the upkeep.</p>
       </div>
-      <div class="beats">
-        <div class="beat reveal d1">
-          <div class="beat-visual">
-            <div class="demo-pill">Invoice #214, €4,800, two tranches — Nov and Jan<span class="caret"></span></div>
-            <p class="demo-hint">or say it out loud</p>
+      <div class="ba">
+        <div class="ba-col ba-before reveal d1">
+          <div>
+            <p class="stamp">Every month, in the spreadsheet</p>
           </div>
-          <div class="beat-cap"><span class="beat-num">1</span><p>You type what's coming.</p></div>
-        </div>
-        <div class="beat reveal d2">
-          <div class="beat-visual">
-            <div class="demo-row"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Invoice #214 · 1/2 · Nov 15<span class="amt">+€2,400.00</span></div>
-            <div class="demo-row"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Invoice #214 · 2/2 · Jan 15<span class="amt">+€2,400.00</span></div>
-            <div class="demo-row"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>VAT set-aside · Nov 30<span class="amt">−€1,056.00</span></div>
+          <div class="sheet-wrap" aria-hidden="true">
+            <table class="sheet">
+              <tr><th></th><th>Nov</th><th>Dec</th><th>Jan</th></tr>
+              <tr><td>Rent</td><td>−1,200</td><td>−1,200</td><td class="sel">−1,224</td></tr>
+              <tr><td>Nursery</td><td>−310</td><td>−310</td><td>−310</td></tr>
+              <tr><td>Salary</td><td>3,100</td><td>3,100</td><td>3,100</td></tr>
+              <tr><td>Balance</td><td>4,890</td><td class="bad">#REF!</td><td class="bad">#REF!</td></tr>
+            </table>
           </div>
-          <div class="beat-cap"><span class="beat-num">2</span><p>It becomes real line items. You confirm them.</p></div>
+          <ol>
+            <li>Copy last month's tab.</li>
+            <li>Drag the formulas across. Fix the one that broke.</li>
+            <li>Re-type everything that changed.</li>
+            <li>Hope the balance at the bottom is still right.</li>
+          </ol>
         </div>
-        <div class="beat reveal d3">
-          <div class="beat-visual beat3">
-            <svg viewBox="0 0 320 120" aria-hidden="true">
-              <path d="M4 66 C40 74 60 84 88 92 C120 101 150 96 180 74 C210 52 250 42 316 26" stroke="#C9CCC2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-dasharray="4 5"/>
-              <path d="M4 60 C36 66 66 78 96 86 C130 95 160 88 192 62 C224 38 270 30 316 18" stroke="#3E6B4F" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-              <circle cx="96" cy="86" r="4.5" fill="#2F5340"/>
-              <text x="96" y="110" font-family="IBM Plex Mono,monospace" font-size="10" fill="#20211E" text-anchor="middle">Nov low €920</text>
-            </svg>
+        <div class="ba-col ba-after reveal d2">
+          <div>
+            <p class="stamp pine">With CashKit</p>
           </div>
-          <div class="beat-cap"><span class="beat-num">3</span><p>The forecast is recomputed. Exactly.</p></div>
-        </div>
-      </div>
-      <p class="demo-tag reveal">That's the whole app. <strong>You talk, it plans, the numbers are exact.</strong></p>
-    </div>
-  </section>
-
-  <section class="trust">
-    <div class="wrap trust-grid">
-      <div class="receipt reveal" aria-label="Example calculation receipt">
-        <p class="receipt-title">OCT 2026 · CLOSING BALANCE</p>
-        <div class="receipt-row"><span>Opening balance</span><span>€2,430.00</span></div>
-        <div class="receipt-row"><span>Salary · Sep 27</span><span>+€2,600.00</span></div>
-        <div class="receipt-row"><span>Rent</span><span>−€1,240.00</span></div>
-        <div class="receipt-row"><span>Groceries</span><span>−€640.00</span></div>
-        <div class="receipt-row hl"><span>College fees 2/3</span><span>−€1,000.00</span></div>
-        <div class="receipt-row"><span>Other committed</span><span>−€1,670.00</span></div>
-        <div class="receipt-total"><span>CLOSING</span><span>€480.00</span></div>
-        <p class="stamp">engine v1 · deterministic · exact integers</p>
-      </div>
-      <div class="steps-col">
-        <div class="reveal">
-          <p class="mono-label">How the trust works</p>
-          <h2>Why you can trust it with numbers</h2>
-        </div>
-        <div class="steps">
-          <div class="step reveal d1"><span class="step-num">01</span><div><h3>Say it.</h3><p>Instalments, raises, one-offs, "rent goes up 3% in January". Whatever the plan is, in whatever words you'd use to a person.</p></div></div>
-          <div class="step reveal d2"><span class="step-num">02</span><div><h3>Confirm it.</h3><p>The AI drafts the line items and shows you exactly what it understood. Nothing enters your budget without your OK.</p></div></div>
-          <div class="step reveal d3"><span class="step-num">03</span><div><h3>It computes. Not the AI.</h3><p>A deterministic engine does all arithmetic on exact integers. Same inputs, same forecast, every time. Tap any number to see the receipt behind it.</p></div></div>
+          <div class="demo" aria-label="Example: you type a change, CashKit shows the effect before applying it">
+            <p class="quote" style="font-size:19px">Nursery goes up to €340 from January.</p>
+            <div class="pending">
+              <span class="stamp" style="font-size:10px">PENDING · SET_AMOUNT</span>
+              <div class="row"><span class="l ink">Nursery · monthly · from 1 Jan</span><i></i><b>−€340</b></div>
+              <p class="delta">WAS −€310 · JAN 31 BALANCE <b>€4,420 → €4,390</b></p>
+              <div class="btns"><span>Edit</span><span class="go">Apply</span></div>
+            </div>
+          </div>
+          <ol>
+            <li>Say what changed, in your own words.</li>
+            <li>See exactly what it will do — before anything changes.</li>
+            <li>Tap Apply. Every month it touches is recomputed.</li>
+          </ol>
         </div>
       </div>
     </div>
   </section>
 
-  <section>
+  <!-- ================= HOW IT WORKS ================= -->
+  <section id="how">
     <div class="wrap">
       <div class="sec-head reveal">
-        <p class="mono-label">Beyond the plan</p>
-        <h2>Ask it. Test it.</h2>
-        <p class="sec-sub">The same exact engine plays out scenarios and answers questions. Computed numbers, never guesses.</p>
+        <p class="stamp pine kicker">How it works</p>
+        <h2>Say it. See it. Check it.</h2>
       </div>
-      <div class="caps">
-        <div class="cap reveal d1">
-          <div class="cap-screen">
-            <div class="cap-head"><span class="cap-title">Scenarios</span><span class="cap-badge">1 ACTIVE</span></div>
-            <div class="scen-chart">
-              <svg viewBox="0 0 360 130" aria-hidden="true">
-                <path d="M6 46 C50 42 90 48 130 44 C180 40 230 34 292 28 C316 26 336 24 354 22" stroke="#A9ACA3" stroke-width="2" fill="none" stroke-linecap="round" stroke-dasharray="1 6"/>
-                <path d="M6 46 C50 48 90 62 130 74 C170 86 210 100 250 104 C286 107 322 92 354 78" stroke="#3E6B4F" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-                <circle cx="250" cy="104" r="4.5" fill="#2F5340"/>
-                <text x="250" y="124" font-family="IBM Plex Mono,monospace" font-size="10" fill="#20211E" text-anchor="middle">Mar low €410 · was €1,490</text>
+      <div class="steps">
+        <div class="step reveal">
+          <div class="step-vis" aria-hidden="true">
+            <p class="quote">Can we book the trip now — €1,800 in October?</p>
+            <div class="pending">
+              <span class="stamp" style="font-size:9.5px">PENDING · ADD_EVENT</span>
+              <div class="row"><span class="l ink">Trip · one-off · 12 Oct</span><i></i><b>−€1,800</b></div>
+              <div class="btns"><span>Edit</span><span class="go">Apply</span></div>
+            </div>
+          </div>
+          <div class="step-cap"><span class="n">01</span><h3>Say what's coming</h3><p>Type it or say it out loud. CashKit turns it into a change you can read — nothing touches your plan until you tap Apply.</p></div>
+        </div>
+
+        <div class="step reveal d1">
+          <div class="step-vis" aria-hidden="true">
+            <div class="card fc">
+              <div class="top-l"><span class="stamp" style="font-size:9.5px">FORECAST · AUG – JAN</span><span class="stamp neg" style="font-size:9.5px">MIN €2,940</span></div>
+              <!-- design.pen "Forecast" chart geometry, verbatim -->
+              <svg viewBox="0 0 322 192">
+                <rect x="0" y="0" width="44" height="176" fill="#1C201D" fill-opacity=".035"/>
+                <rect x="0" y="80" width="322" height="1" fill="#EFEDE4"/><rect x="0" y="126" width="322" height="1" fill="#EFEDE4"/><rect x="0" y="157" width="322" height="1" fill="#EFEDE4"/>
+                <path d="M7 98l8-3 5 2 8-5 7 1 9-4" fill="none" stroke="#9BA09A" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+                <rect x="44" y="6" width="1" height="170" fill="#1C201D" opacity=".35"/>
+                <path d="M44 89l20 4 51 10 44 35 7 1 50-11 51 18 50-11 0 41-273 0z" fill="#0B5A48" fill-opacity=".07"/>
+                <path d="M44 89l20 4 51 10 44 35 7 1 50-11 51 18 50-11" fill="none" stroke="#0B5A48" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+                <rect x="159" y="138" width="1" height="20" fill="#A5471D" opacity=".6"/>
+                <circle cx="159" cy="157.5" r="3.5" fill="#A5471D"/>
+                <g font-family="Fragment Mono,monospace" font-size="8" fill="#A8ACA3"><text x="300" y="77">8K</text><text x="300" y="123">5K</text><text x="300" y="154">3K</text></g>
+                <text x="4" y="14" font-family="Fragment Mono,monospace" font-size="7.5" fill="#6A6F69">REC.</text>
+                <text x="50" y="14" font-family="Fragment Mono,monospace" font-size="7.5" fill="#0B5A48">COMPUTED · CUTOVER 19 AUG</text>
+                <text x="166" y="172" font-family="Fragment Mono,monospace" font-size="8" fill="#A5471D">MIN 2,940 · OCT 27</text>
+                <g font-family="Fragment Mono,monospace" font-size="8.5" fill="#A8ACA3"><text x="14" y="189">AUG</text><text x="64" y="189">SEP</text><text x="115" y="189">OCT</text><text x="166" y="189">NOV</text><text x="216" y="189">DEC</text><text x="267" y="189">JAN</text></g>
               </svg>
             </div>
-            <div class="legend"><span class="base"><i></i>today's plan</span><span><i></i>with the car</span></div>
-            <div class="scen-row"><span><strong>New car</strong> <span class="date">€270.00 × 36 · from Dec</span></span><span class="dots"></span><span class="amt">−€9,720.00</span></div>
-            <span class="scen-delta">4 instalments by March → −€1,080.00, exactly</span>
+            <div class="card" style="padding:12px 14px">
+              <div class="rows" style="gap:7px">
+                <div class="row" style="font-size:13px"><span class="l">Sep · end</span><i></i><b>€6,540</b></div>
+                <div class="row" style="font-size:13px"><span class="l ink">Oct · end</span><i></i><b>€4,210</b></div>
+                <div class="row" style="font-size:13px"><span class="l">Nov · end</span><i></i><b>€4,890</b></div>
+              </div>
+            </div>
           </div>
-          <h3>Scenarios, side by side</h3>
-          <p>"What if we take the car loan in December?" Every scenario is a full forecast, recomputed exactly. Compare the curves, keep the plan you like.</p>
+          <div class="step-cap"><span class="n">02</span><h3>See the next six months</h3><p>Every change recomputes every month it touches. You see the low point before it arrives — no formulas to drag.</p></div>
         </div>
-        <div class="cap reveal d2">
-          <div class="cap-screen">
-            <div class="cap-head"><span class="cap-title">Ask anything</span><span class="cap-badge">COMPUTED</span></div>
-            <div class="bubble q">Can we afford three weeks in Japan next July?</div>
-            <div class="bubble a">Yes. Set aside <span class="num">€410 × 10 months</span> from October. That covers the <span class="num">€4,100</span> trip, and July's closing balance stays at <span class="num">€620</span>.</div>
-            <span class="bubble-stamp">computed from your forecast · engine v1 · not a guess</span>
-            <div class="qa-actions"><span>Add the plan</span><span>Show receipt</span></div>
+
+        <div class="step reveal d2">
+          <div class="step-vis" aria-hidden="true">
+            <p class="trace-q">Why <span class="neg">€2,940</span> on Oct 27?</p>
+            <!-- design.pen "Trace": 6,540 − 1,200 − 310 − 1,800 − 290 = 2,940 -->
+            <div class="card trace">
+              <div class="row"><span class="l"><small>Opening · Oct 1</small></span><i></i><b>€6,540</b></div>
+              <div class="row"><span class="l">Rent <small>· Oct 1</small></span><i></i><span>−1,200</span></div>
+              <div class="row"><span class="l">Nursery <small>· Oct 4</small></span><i></i><span>−310</span></div>
+              <div class="row"><span class="l">Trip <small>· Oct 12</small></span><i></i><span>−1,800</span></div>
+              <div class="row"><span class="l">Groceries <small>· to Oct 27</small></span><i></i><span>−290</span></div>
+              <div class="row tot"><span class="l" style="font-weight:600">Lowest · Oct 27</span><i></i><b class="neg">€2,940</b></div>
+            </div>
+            <p class="stamp" style="font-size:9.5px;text-align:center">ENGINE V1 · DETERMINISTIC · REPRODUCIBLE</p>
           </div>
-          <h3>Questions with receipts</h3>
-          <p>"Can we afford it?" The AI reads your forecast and answers with the engine's numbers. Tap the answer and the math behind it opens.</p>
+          <div class="step-cap"><span class="n">03</span><h3>Tap any number to check it</h3><p>Every figure opens into the lines that produced it. If it looks wrong, you'll see exactly why — and fix it in a sentence.</p></div>
         </div>
       </div>
     </div>
   </section>
 
-  <section>
+  <!-- ================= PROOF ================= -->
+  <section class="band" id="trust">
     <div class="wrap proof">
-      <div class="proof-card reveal d1">
-        <svg viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><line x1="8" x2="8" y1="12" y2="12"/><line x1="12" x2="12" y1="12" y2="12"/><line x1="16" x2="16" y1="12" y2="12"/><line x1="8" x2="8" y1="16" y2="16"/><line x1="12" x2="12" y1="16" y2="16"/><line x1="16" x2="16" y1="16" y2="16"/></svg>
-        <h3>Exact arithmetic</h3><p>Money is stored as integers, never floats. No rounding drift, no invented numbers.</p>
+      <div class="no-stack reveal" aria-label="Example: CashKit answers no when a purchase would take you negative">
+        <p class="quote">Can we replace the car in November — €6,200?</p>
+        <div class="card answer">
+          <p class="v">No — the car takes you negative from Nov 25.</p>
+          <div class="rows">
+            <div class="row"><span class="l">Balance · Nov 30</span><i></i><b class="neg">−€1,310</b></div>
+            <div class="row"><span class="l">Lowest · Dec 27</span><i></i><b class="neg">−€3,120</b></div>
+          </div>
+          <div class="btns"><span>Discard</span><span class="go">Keep as scenario</span></div>
+          <div class="foot"><span class="neg">WHAT-IF · NEGATIVE CASH</span><span class="tr">TRACE ›</span></div>
+        </div>
+        <p class="no-note">It tells you <em>no</em>, too — and exactly when.</p>
       </div>
-      <div class="proof-card reveal d2">
-        <svg viewBox="0 0 24 24"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1z"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="13" y2="16"/></svg>
-        <h3>Every number has a receipt</h3><p>Tap a forecast figure and see the items, rates, and rounding steps that produced it.</p>
-      </div>
-      <div class="proof-card reveal d3">
-        <svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="3"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
-        <h3>Yours, on your phone</h3><p>Local-first. Your budget works offline and doesn't live on our servers.</p>
+      <div class="reveal d1">
+        <p class="stamp pine kicker">Why you can trust the numbers</p>
+        <h2>The AI writes the plan. It never does the math.</h2>
+        <p class="sec-sub">AI is good with words and bad with sums. So CashKit splits the job: the AI turns what you say into a change you approve. A separate calculation engine works out every euro — the same way, every time.</p>
+        <div class="points">
+          <div class="point">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 12h2M12 12h2M16 12h0M8 16h2M12 16h2M16 16h0"/></svg>
+            <div><h3>Exact arithmetic</h3><p>Money is kept as exact whole numbers, never rounded floating-point. Your forecast is only as good as your plan — but the math is never the weak link.</p></div>
+          </div>
+          <div class="point">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3v18l2-1.2L9 21l2-1.2L13 21l2-1.2L17 21l2-1.2V3"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+            <div><h3>Every number has a receipt</h3><p>Tap any figure to see the items and dates behind it — and reproduce it on demand.</p></div>
+          </div>
+          <div class="point">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>
+            <div><h3>Nothing changes without your OK</h3><p>Every edit arrives as a card you approve. Past changes keep their history; nothing is silently overwritten.</p></div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
 
-  <section class="close">
+  <!-- ================= IMPORT ================= -->
+  <section id="import">
+    <div class="wrap import">
+      <div class="reveal">
+        <p class="stamp pine kicker">Moving over</p>
+        <h2>Bring your spreadsheet. We check our totals against yours.</h2>
+        <p class="sec-sub">Drop in your .xlsx on the web. CashKit rebuilds it as a plan, then compares its totals with your sheet's own totals, row by row. Anything that doesn't match is flagged — never hidden — and nothing lands until you apply it.</p>
+      </div>
+      <div class="card recon reveal d1" aria-label="Example import check">
+        <div class="file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13l3 4M11 13l-3 4M14 13h3M14 17h3"/></svg>budget-2026.xlsx<span>IMPORT CHECK</span></div>
+        <div class="row"><span class="l">Aug · total out</span><i></i><span>−4,830.00</span><span class="ok">✓ MATCH</span></div>
+        <div class="row"><span class="l">Sep · total out</span><i></i><span>−3,740.00</span><span class="ok">✓ MATCH</span></div>
+        <div class="row"><span class="l">Sep · closing balance</span><i></i><span>6,540.00</span><span class="ok">✓ MATCH</span></div>
+        <div class="row"><span class="l">Nov · total in</span><i></i><span>3,100.00</span><span class="ok">✓ MATCH</span></div>
+        <div class="row"><span class="l">Dec · total in</span><i></i><span>4,650.00</span><span class="ok">✓ MATCH</span></div>
+        <p class="stamp" style="font-size:9.5px;margin-top:6px">5 OF 5 CHECKS MATCH YOUR SHEET · READY TO APPLY</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= FOUNDER ================= -->
+  <section class="band">
+    <div class="wrap founder reveal">
+      <blockquote>“My budget spreadsheet was precise. Keeping it precise cost me an evening every month. I built CashKit so I could say what changed and get the same precision back — with the math on show.”</blockquote>
+      <div class="sig"><span class="av" aria-hidden="true">L</span><span>Luca · founder, CashKit</span></div>
+    </div>
+  </section>
+
+  <!-- ================= FAQ ================= -->
+  <section id="faq">
+    <div class="wrap faq-grid">
+      <div class="reveal">
+        <p class="stamp pine kicker">Questions</p>
+        <h2>Before you join</h2>
+      </div>
+      <div class="faq reveal d1">
+        <details>
+          <summary>Do I have to connect my bank?</summary>
+          <p>No. You tell CashKit what's coming — typed or spoken — or import your existing spreadsheet. It never asks for your bank login.</p>
+        </details>
+        <details>
+          <summary>What if the AI misunderstands me?</summary>
+          <p>You'll see it before it matters. Every change arrives as a card that spells out what CashKit understood — amount, date, how often. Apply it, edit it, or discard it.</p>
+        </details>
+        <details>
+          <summary>Is this financial advice?</summary>
+          <p>No. CashKit computes your own plan and answers questions about it — “can we afford it?”, “why is October low?”. It won't tell you what to buy, borrow or invest in.</p>
+        </details>
+        <details>
+          <summary>Can I track what actually happened?</summary>
+          <p>Yes. Record what you really spent and CashKit shows plan and actual side by side. Corrections are kept with a note, never overwritten, so your history stays honest.</p>
+        </details>
+        <details id="privacy">
+          <summary>Where does my data live?</summary>
+          <p>On servers in the EU. You can export everything or delete your account at any time — deletion erases your data, including backups within 30 days.</p>
+        </details>
+        <details>
+          <summary>When can I use it, and what does it cost?</summary>
+          <p>CashKit is coming to iPhone, Android and the web, in euros. We're opening access in small groups, and the early-access list goes first. Joining the list is free; we'll tell you the price before you're ever asked to pay.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CLOSE ================= -->
+  <section class="band closing" id="join-end">
     <div class="wrap">
       <div class="reveal">
-        <p class="mono-label">Get early access</p>
-        <h2>Your next six months, in plain words.</h2>
-        <p class="sec-sub">With numbers that are actually right.</p>
+        <p class="stamp pine" style="justify-content:center">Early access</p>
+        <h2>Close the spreadsheet. Keep the precision.</h2>
+        <p class="sec-sub">Join the list and we'll email you when your invite is ready.</p>
       </div>
-      <form class="signup-form reveal d1" novalidate>
-        <div class="signup">
-          <input type="email" name="EMAIL" placeholder="you@email.com" required aria-label="Email address">
-          <button type="submit">Get early access</button>
+      <form class="signup reveal d1" novalidate>
+        <div class="field">
+          <label class="sr" for="email-end">Email address</label>
+          <input id="email-end" type="email" name="email" placeholder="you@email.com" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false" required>
+          <button class="cta" type="submit">Get early access <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button>
         </div>
-        <p class="signup-done" role="status">You're in. One email when it launches.</p>
+        <p class="hint" aria-live="polite"></p>
+        <p class="err" role="alert"></p>
+        <p class="fine">Free to join. We'll only email you about your invite — unsubscribe in one click. <a href="#privacy">Privacy</a></p>
+        <div class="done" role="status" aria-live="polite"></div>
       </form>
-      <p class="micro">Email only. One email when it launches, nothing else.</p>
+      <ul class="assure reveal d2" aria-label="What to know">
+        <li><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>No bank login needed</li>
+        <li><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Hosted in the EU</li>
+        <li><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Not financial advice — just your numbers, exact</li>
+      </ul>
     </div>
   </section>
 </main>
 
 <footer>
-  <div class="wrap foot">
-    <span class="fm">CashKit</span>
-    <span class="powered">Powered by <a href="https://progresslab.it">Progress Lab</a></span>
-    <span><a href="mailto:hello@cashkit.app" style="text-decoration:none">contact</a> · <a href="#" style="text-decoration:none">privacy</a></span>
+  <div class="wrap">
+    <span>© 2026 CashKit · a <a href="https://progresslab.it">Progress Lab</a> product · Planning software — not a bank, not a financial adviser, never touches your money.</span>
+    <nav aria-label="Footer"><a href="mailto:hello@cashkit.app">Contact</a><a href="#privacy">Privacy</a></nav>
   </div>
 </footer>
 
+<div class="dock" id="dock" aria-hidden="true">
+  <span>Ditch the spreadsheet.</span>
+  <a class="cta js-jump" href="#join" tabindex="-1">Get early access</a>
+</div>
+
 <script>
-/* Replace with the Brevo form POST URL (Brevo → Forms → your form → "Share" → direct link/POST url). */
-const FORM_ENDPOINT="https://sibforms.com/serve/PLACEHOLDER";
+(() => {
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const $ = s => document.querySelector(s);
+const wait = ms => new Promise(r => setTimeout(r, reduced ? 0 : ms));
 
-const PERSONAS=[
- {month:"September",bal:"€2,430.00",typed:"College fees, €1,000 × 3, from September",
-  items:[["College fees 1/3","Sep 1","−€1,000.00",0],["College fees 2/3","Oct 1","−€1,000.00",0],["College fees 3/3","Nov 1","−€1,000.00",0]],
-  months:["Sep","Oct","Nov","Dec"],chip:"Oct low €480",dip:[168,93],
-  d:"M4 62 C34 52 56 56 88 44 C120 32 140 78 168 93 C186 102 202 97 226 66 C244 44 264 38 276 32"},
- {month:"October",bal:"€3,180.00",typed:"Invoice #214, €4,800, two tranches — Nov and Jan",
-  items:[["Invoice #214 · 1/2","Nov 15","+€2,400.00",1],["Invoice #214 · 2/2","Jan 15","+€2,400.00",1],["VAT set-aside","Nov 30","−€1,056.00",0]],
-  months:["Oct","Nov","Dec","Jan"],chip:"Nov low €920",dip:[84,89],
-  d:"M4 58 C26 62 46 74 64 82 C80 88 92 90 108 84 C136 74 158 58 186 46 C216 33 250 26 276 20"},
- {month:"January",bal:"€1,940.00",typed:"Mortgage rises to €1,310 in January; football for the kids, €85 a month",
-  items:[["Mortgage · new rate","from Jan 1","−€1,310.00",0],["Football · Leo","monthly ×9","−€85.00",0],["Football · Mia","monthly ×9","−€85.00",0]],
-  months:["Jan","Feb","Mar","Apr"],chip:"Feb low €640",dip:[150,88],
-  d:"M4 46 C34 48 60 56 92 64 C122 71 136 82 150 88 C168 95 198 90 226 80 C248 73 264 70 276 68"}
-];
-
-const $=s=>document.querySelector(s);
-const typedEl=$("#typed"),itemsEl=$("#items"),curve=$("#curve"),dot=$("#dipdot"),
-      chip=$("#chip"),monthsEl=$("#months"),monthEl=$("#ph-month"),balEl=$("#ph-bal");
-const tabs=[...document.querySelectorAll(".persona-tab")];
-const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;
-let runId=0;
-
-const delay=ms=>new Promise(r=>setTimeout(r,ms));
-
-async function play(i){
-  const id=++runId;
-  const p=PERSONAS[i];
-  tabs.forEach((t,k)=>t.classList.toggle("active",k===i));
-  tabs.forEach((t,k)=>t.setAttribute("aria-selected",k===i));
-
-  typedEl.textContent="";
-  itemsEl.querySelectorAll("li").forEach(li=>li.remove());
-  chip.classList.remove("show");dot.style.opacity=0;
-  monthEl.textContent=p.month;balEl.textContent=p.bal;
-  monthsEl.innerHTML=p.months.map(m=>`<span>${m}</span>`).join("");
-
-  if(reduced){typedEl.textContent=p.typed}
-  else{for(const ch of p.typed){if(id!==runId)return;typedEl.textContent+=ch;await delay(26)}}
-  if(id!==runId)return;await delay(350);
-
-  for(const [name,date,amt,pos] of p.items){
-    if(id!==runId)return;
-    const li=document.createElement("li");
-    li.innerHTML=`<span><span class="name">${name}</span> <span class="date">${date}</span></span><span class="dots"></span><span class="amt${pos?" pos":""}">${amt}</span>`;
-    itemsEl.appendChild(li);
-    requestAnimationFrame(()=>requestAnimationFrame(()=>li.classList.add("show")));
-    await delay(reduced?0:280);
-  }
-  if(id!==runId)return;await delay(250);
-
-  curve.setAttribute("d",p.d);
-  const len=curve.getTotalLength();
-  if(reduced){curve.style.strokeDasharray="none"}
-  else{
-    curve.style.transition="none";
-    curve.style.strokeDasharray=len;curve.style.strokeDashoffset=len;
-    curve.getBoundingClientRect();
-    curve.style.transition="stroke-dashoffset .9s cubic-bezier(.4,0,.2,1)";
-    curve.style.strokeDashoffset=0;
-  }
-  dot.setAttribute("cx",p.dip[0]);dot.setAttribute("cy",p.dip[1]);
-  await delay(reduced?0:750);
-  if(id!==runId)return;
-  dot.style.opacity=1;
-  chip.textContent=p.chip;
-  chip.style.left=(p.dip[0]/280*100)+"%";
-  chip.style.top=(p.dip[1]/120*100)+"%";
-  chip.classList.add("show");
+/* ---------- header border + mobile dock ---------- */
+const top = $("#top");
+addEventListener("scroll", () => top.classList.toggle("scrolled", scrollY > 8), {passive:true});
+const dock = $("#dock");
+const vis = new Map();
+// Mobile dock: only once the hero demo is behind you, and never while a form is on screen.
+function syncDock(){
+  const pastHero = $(".stage").getBoundingClientRect().bottom < 0;
+  const anyForm = [...vis.values()].some(Boolean);
+  dock.classList.toggle("show", pastHero && !anyForm && !document.body.classList.contains("joined"));
 }
-tabs.forEach(t=>t.addEventListener("click",()=>play(+t.dataset.p)));
-play(0);
+const dio = new IntersectionObserver(es => { es.forEach(e => vis.set(e.target, e.isIntersecting)); syncDock(); });
+document.querySelectorAll(".signup").forEach(f => dio.observe(f));
+addEventListener("scroll", syncDock, {passive:true});
 
-/* underline length for draw animation */
-const ul=document.querySelector("h1 em svg path");
-if(ul){const L=ul.getTotalLength();ul.parentElement.parentElement.style.setProperty("--ul",L)}
+/* "Get early access" links: go to the nearest form and put the cursor in it */
+document.querySelectorAll(".js-jump").forEach(a => a.addEventListener("click", e => {
+  e.preventDefault();
+  const forms = [...document.querySelectorAll(".signup")];
+  const target = forms.find(f => { const r = f.getBoundingClientRect(); return r.top > 0 && r.bottom < innerHeight; })
+    || (scrollY > document.body.scrollHeight / 2 ? forms[1] : forms[0]);
+  target.scrollIntoView({behavior: reduced ? "auto" : "smooth", block: "center"});
+  const input = target.querySelector("input");
+  if (input) setTimeout(() => input.focus({preventScroll:true}), reduced ? 0 : 450);
+}));
 
-/* scroll reveals */
-const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add("in");io.unobserve(e.target)}}),{threshold:.15});
-document.querySelectorAll(".reveal").forEach(el=>io.observe(el));
+/* ---------- hero phone: design.pen figures, verbatim ---------- */
+// Sparkline, Aug 19 → Jan 31. Month-end balances from the Forecast screen; the only
+// difference between the two lines is the €1,800 trip from Oct 12 on.
+const DAYS = [0,12,42,69,73,103,134,165];
+const COMMITTED = [7412,7180,6540,4740,6010,6690,5550,6220]; // before the trip is applied
+const WITH_TRIP = [7412,7180,6540,2940,4210,4890,3750,4420]; // after
+const LO = 2940, HI = 7412, LOW_I = 3;
+const pt = (d, v) => [d / 165 * 346 + 2, 6 + (HI - v) / (HI - LO) * 42];
+const line = vs => vs.map((v, i) => pt(DAYS[i], v));
+const toD = ps => ps.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+let current = line(COMMITTED);
+function drawSpark(ps){
+  $("#sp-line").setAttribute("d", toD(ps));
+  $("#sp-area").setAttribute("d", toD(ps) + " L348 54 L2 54 Z");
+  $("#sp-dot").setAttribute("cx", ps[LOW_I][0]); $("#sp-dot").setAttribute("cy", ps[LOW_I][1]);
+}
+function morphSpark(vals){
+  const from = current, to = line(vals), t0 = performance.now(), dur = reduced ? 0 : 700;
+  return new Promise(res => {
+    const step = now => {
+      const k = dur ? Math.min(1, (now - t0) / dur) : 1, e = 1 - Math.pow(1 - k, 3);
+      current = from.map((p, i) => [p[0], p[1] + (to[i][1] - p[1]) * e]);
+      drawSpark(current);
+      k < 1 ? requestAnimationFrame(step) : res();
+    };
+    requestAnimationFrame(step);
+  });
+}
+drawSpark(current);
 
-/* signup */
-document.querySelectorAll(".signup-form").forEach(f=>{
-  f.addEventListener("submit",async e=>{
+const STATES = {
+  trip: {
+    q: "Can we book the trip now — €1,800 in October?",
+    v: "Yes — you stay positive through October.",
+    r1l: "Balance · Oct 31", r1: "€4,210", r1neg: false,
+    r2l: "Lowest · Oct 27", r2: "€2,940",
+    stamp: "WHAT-IF · INCLUDES PENDING TRIP", stampNeg: false,
+    sr: "Question: Can we book the trip now, €1,800 in October? Answer: Yes, you stay positive through October. Balance on October 31: €4,210. Lowest: €2,940 on October 27."
+  },
+  car: {
+    q: "Can we replace the car in November — €6,200?",
+    v: "No — the car takes you negative from Nov 25.",
+    r1l: "Balance · Nov 30", r1: "−€1,310", r1neg: true,
+    r2l: "Lowest · Dec 27", r2: "−€3,120",
+    stamp: "WHAT-IF · DIAG CK-E031 · NEGATIVE CASH", stampNeg: true,
+    sr: "Question: Can we replace the car in November, €6,200? Answer: No, the car takes you negative from November 25. Balance on November 30: minus €1,310. Lowest: minus €3,120 on December 27."
+  }
+};
+const el = id => document.getElementById(id);
+const chips = [...document.querySelectorAll(".ask-chip")];
+let run = 0;
+
+function fill(s){
+  el("ph-v").textContent = s.v;
+  el("ph-r1l").textContent = s.r1l; el("ph-r1").textContent = s.r1;
+  el("ph-r1").className = s.r1neg ? "neg" : "";
+  el("ph-r2l").textContent = s.r2l; el("ph-r2").textContent = s.r2;
+  el("ph-stamp").textContent = s.stamp; el("ph-stamp").className = s.stampNeg ? "neg" : "";
+}
+async function type(text, id){
+  const t = el("ph-q-text"); el("ph-caret").classList.remove("hide"); t.textContent = "";
+  if (reduced){ t.textContent = text; }
+  else for (const ch of text){ if (id !== run) return false; t.textContent += ch; await wait(24); }
+  el("ph-caret").classList.add("hide");
+  return id === run;
+}
+const on = (id, v) => el(id).classList.toggle("on", v);
+
+async function play(which, id){
+  chips.forEach(c => c.setAttribute("aria-pressed", String(c.dataset.q === which)));
+  const s = STATES[which];
+  on("ph-answer", false); on("ph-pending", false);
+  el("ph-q-text").textContent = ""; el("ph-caret").classList.remove("hide");
+  if (which === "trip"){
+    el("ph-applied").classList.add("hide"); on("ph-applied", false);
+    el("ph-pending").classList.remove("hide"); el("ph-no-btns").classList.add("hide");
+    el("ph-apply").textContent = "Apply";
+    el("sp-low").textContent = "LOW €4,740 · OCT 27";
+    await morphSpark(COMMITTED);
+  } else {
+    el("ph-pending").classList.add("hide"); el("ph-no-btns").classList.remove("hide");
+    el("ph-applied").classList.remove("hide");
+    el("sp-low").textContent = "LOW €2,940 · OCT 27";
+    await morphSpark(WITH_TRIP);
+    on("ph-applied", true);
+  }
+  if (id !== run) return false;
+  fill(s); el("ph-sr").textContent = s.sr;
+  if (!(await type(s.q, id))) return false;
+  await wait(260); if (id !== run) return false;
+  on("ph-answer", true);
+  if (which === "trip"){ await wait(380); if (id !== run) return false; on("ph-pending", true); }
+  return true;
+}
+
+// Autoplay once: trip → Apply → car. Any click on a chip takes over.
+async function story(){
+  const id = ++run;
+  if (!(await play("trip", id))) return;
+  if (reduced) return;
+  await wait(4200); if (id !== run) return;
+  el("ph-apply").textContent = "Applied ✓";
+  await wait(900); if (id !== run) return;
+  await play("car", id);
+}
+chips.forEach(c => c.addEventListener("click", () => { const id = ++run; play(c.dataset.q, id); }));
+
+// Start the story when the phone is on screen (it is, on desktop; on mobile it's below the form).
+const pio = new IntersectionObserver(es => { if (es[0].isIntersecting){ pio.disconnect(); story(); } }, {threshold:.35});
+pio.observe($(".device-box"));
+
+/* ---------- scroll reveal ---------- */
+const rio = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting){ e.target.classList.add("in"); rio.unobserve(e.target); } }), {threshold:.12, rootMargin:"0px 0px -40px 0px"});
+document.querySelectorAll(".reveal").forEach(n => rio.observe(n));
+
+/* ---------- signup (front-end only; no backend wired yet) ---------- */
+const DOMAINS = ["gmail.com","googlemail.com","yahoo.com","yahoo.it","hotmail.com","hotmail.it","outlook.com","outlook.it","live.com","live.it",
+  "icloud.com","me.com","libero.it","virgilio.it","alice.it","tiscali.it","tim.it","fastwebnet.it","proton.me","protonmail.com","gmx.com","gmx.de","web.de","orange.fr","free.fr"];
+function lev(a, b){
+  const m = a.length, n = b.length, d = Array.from({length:m+1}, (_, i) => [i]);
+  for (let j = 1; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++)
+    d[i][j] = Math.min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+  return d[m][n];
+}
+function suggest(email){
+  const at = email.lastIndexOf("@"); if (at < 1) return null;
+  const dom = email.slice(at + 1).toLowerCase(); if (!dom || DOMAINS.includes(dom)) return null;
+  let best = null, bd = 3;
+  for (const c of DOMAINS){ const k = lev(dom, c); if (k < bd){ bd = k; best = c; } }
+  return best && bd <= 2 ? email.slice(0, at + 1) + best : null;
+}
+const valid = v => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
+const mask = v => { const [u, d] = v.split("@"); return (u.length <= 2 ? u[0] + "•" : u.slice(0, 2) + "•••") + "@" + d; };
+const esc = s => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const now = new Date();
+const today = `${String(now.getDate()).padStart(2, "0")} ${"JAN FEB MAR APR MAY JUN JUL AUG SEP OCT NOV DEC".split(" ")[now.getMonth()]} ${now.getFullYear()}`;
+
+function receipt(email){
+  return `<span class="stamp pine">Added · early-access list · ${today}</span>
+    <p class="verdict">You're on the list.</p>
+    <div class="rows">
+      <div class="row"><span class="l">Email</span><i></i><b>${esc(mask(email))}</b></div>
+      <div class="row"><span class="l">Next email from us</span><i></i><b>your invite</b></div>
+    </div>
+    <div class="seg"><span>Optional — where does your budget live today?</span>
+      <div class="seg-opts">${["Excel","Google Sheets","Numbers","An app","Nowhere yet"].map(o => `<button type="button" class="ask-chip js-seg" aria-pressed="false">${o}</button>`).join("")}</div></div>
+    <div class="share"><span>Know someone who still rolls a spreadsheet forward?</span><button type="button" class="btn-ghost js-share">Share CashKit</button></div>`;
+}
+function markDone(email){
+  document.body.classList.add("joined"); dock.classList.remove("show");
+  document.querySelectorAll(".signup").forEach(f => {
+    f.querySelector(".done").innerHTML = receipt(email);
+    f.classList.add("is-done");
+  });
+  document.querySelectorAll(".js-seg").forEach(b => b.addEventListener("click", () => {
+    // TODO(backend): send the answer with the signup. Kept local for now.
+    document.querySelectorAll(".js-seg").forEach(x => x.setAttribute("aria-pressed", String(x.textContent === b.textContent)));
+    try { localStorage.setItem("ck-budget-lives", b.textContent); } catch (_) {}
+  }));
+  document.querySelectorAll(".js-share").forEach(b => b.addEventListener("click", async () => {
+    const data = {title:"CashKit", text:"Ditch your budget spreadsheet. Keep every number exact.", url:location.href.split("#")[0]};
+    try {
+      if (navigator.share) { await navigator.share(data); return; }
+      await navigator.clipboard.writeText(data.url); b.textContent = "Link copied ✓";
+    } catch (_) { /* dismissed */ }
+  }));
+}
+
+document.querySelectorAll(".signup").forEach(form => {
+  const input = form.querySelector("input"), hint = form.querySelector(".hint"), err = form.querySelector(".err"), btn = form.querySelector(".cta");
+  const showHint = () => {
+    const s = suggest(input.value.trim());
+    hint.classList.toggle("show", !!s);
+    if (s){
+      hint.innerHTML = `Did you mean <button type="button" class="link-btn">${esc(s)}</button>?`;
+      hint.querySelector("button").onclick = () => { input.value = s; hint.classList.remove("show"); input.focus(); };
+    }
+  };
+  input.addEventListener("blur", showHint);
+  input.addEventListener("input", () => { err.classList.remove("show"); if (hint.classList.contains("show")) showHint(); });
+  form.addEventListener("submit", async e => {
     e.preventDefault();
-    const email=f.querySelector("input[type=email]");
-    if(!email.checkValidity()){email.reportValidity();return}
-    const btn=f.querySelector("button");btn.disabled=true;btn.textContent="Adding you…";
-    try{
-      const data=new FormData();data.append("EMAIL",email.value);
-      await fetch(FORM_ENDPOINT,{method:"POST",mode:"no-cors",body:data});
-    }catch(_){}
-    f.classList.add("done");
-    f.querySelector(".signup-done").style.display="block";
+    const v = input.value.trim();
+    if (!valid(v)){ err.textContent = v ? "That email doesn't look complete — check for a typo?" : "Add your email to join the list."; err.classList.add("show"); input.focus(); return; }
+    btn.disabled = true; btn.firstChild.textContent = "Adding you… ";
+    // TODO(backend): POST the address to the email provider here.
+    await wait(500);
+    try { localStorage.setItem("ck-joined", v); } catch (_) {}
+    markDone(v);
   });
 });
+try { const j = localStorage.getItem("ck-joined"); if (j) markDone(j); } catch (_) {}
+})();
 </script>
 </body>
 </html>
