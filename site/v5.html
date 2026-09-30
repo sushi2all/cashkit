@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CashKit — Your pocket forecast</title>
+<meta name="description" content="Say your plans like a text. CashKit works out your balance for every day ahead. The AI understands the plan. It never does the math.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Funnel+Sans:wght@500;600;700&family=Inter:wght@400;500;600;700&family=Geist:wght@500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --surface:#fff; --surface-2:#F8F8F8; --border:#E5E5E5;
+  --fg:#1A1A1A; --fg-2:#666; --fg-3:#999;
+  --accent:#4B0082; --accent-2:#90EE90; --night:#1E0B3A;
+  --r-sm:4px; --r-lg:8px;
+  --head:"Funnel Sans",system-ui,sans-serif; --body:"Inter",system-ui,sans-serif;
+  --data:"Geist","Inter",sans-serif; --mono:"Geist Mono",ui-monospace,monospace;
+  --gutter:20px;
+}
+*{box-sizing:border-box;margin:0}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--surface);color:var(--fg);font:16px/1.5 var(--body);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+img{display:block;max-width:100%;height:auto}
+a{color:inherit}
+.wrap{max-width:1200px;margin:0 auto;padding:0 var(--gutter)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.eyebrow{font:500 13px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+.on-dark .eyebrow{color:var(--accent-2)}
+h1,h2,h3{font-family:var(--head);font-weight:700;letter-spacing:-.03em;line-height:1.05;text-wrap:balance}
+p{text-wrap:pretty}
+
+/* nav */
+.nav{display:flex;justify-content:space-between;align-items:center;height:72px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;font:700 22px/1 var(--head);letter-spacing:-.02em}
+.logo svg{height:28px;width:auto;color:var(--accent)}
+.btn-ghost{font:500 14px/1 var(--body);padding:10px 16px;border:1px solid var(--border);border-radius:var(--r-sm);text-decoration:none;background:var(--surface)}
+
+/* forms */
+.signup{display:flex;gap:6px;padding:5px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);width:100%;max-width:480px}
+.signup input{flex:1;min-width:0;border:0;outline:0;background:transparent;padding:0 12px;font:16px var(--body);color:var(--fg)}
+.signup input::placeholder{color:var(--fg-3)}
+.signup button{border:0;border-radius:var(--r-sm);padding:14px 20px;font:600 15px/1 var(--body);background:var(--accent);color:#fff;cursor:pointer;white-space:nowrap}
+.signup button:disabled{opacity:.7}
+.signup:focus-within{border-color:var(--accent)}
+.signup.done input,.signup.done button{display:none}
+.signup-done{display:none;padding:12px;font-weight:600}
+.signup.done .signup-done{display:block}
+.micro{font-size:13.5px;color:var(--fg-2)}
+.btn-demo{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:14px 18px;border:1px solid var(--fg);border-radius:var(--r-sm);font:500 15px/1 var(--body);text-decoration:none;background:var(--surface)}
+.btn-demo svg{width:18px;height:18px}
+
+/* 01 hero */
+.hero-copy{text-align:center;padding-top:40px;padding-bottom:40px;display:flex;flex-direction:column;align-items:center;gap:20px}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-2);font:400 12px/1.3 var(--mono);letter-spacing:.1em;color:var(--fg-2)}
+.pill i{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.hero h1{font-size:clamp(40px,5.3vw,76px);max-width:1040px}
+.hero .support{font-size:clamp(16px,1.35vw,19px);line-height:1.55;color:var(--fg-2);max-width:680px}
+.actions{display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;padding-top:8px}
+.actions-row{display:flex;flex-direction:column;gap:12px;width:100%;align-items:stretch}
+.actions-row .signup{max-width:none}
+
+.stage{position:relative;overflow:hidden;height:540px;perspective:1400px;background:linear-gradient(200deg,#1E0B3A 0%,#4B0082 45%,#6FBF8E 85%,#90EE90 100%)}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%}
+.hero-phone{position:absolute;left:50%;top:48px;width:min(78vw,320px);margin-left:calc(min(78vw,320px) / -2);transform-style:preserve-3d;animation:rise 1.1s cubic-bezier(.2,.7,.2,1) both .15s}
+.hero-phone img{width:100%;transform:rotate(-6deg);transform-origin:50% 30%;filter:drop-shadow(0 40px 60px rgba(20,6,43,.45));will-change:transform}
+@keyframes rise{from{opacity:0;transform:translateY(80px) rotateX(18deg)}to{opacity:1;transform:none}}
+
+/* 02 how */
+.how{background:var(--surface-2);padding-top:72px;overflow:hidden}
+.how-head{display:flex;flex-direction:column;gap:16px}
+.how h2{font-size:clamp(32px,3.4vw,48px)}
+.how .sub{font-size:16px;color:var(--fg-2);max-width:440px}
+.steps{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding:0 var(--gutter);padding:40px var(--gutter) 0;margin:0 calc(var(--gutter) * -1);scrollbar-width:none;overscroll-behavior-x:contain}
+.steps::-webkit-scrollbar{display:none}
+.step{flex:0 0 min(340px,calc(100vw - 50px));scroll-snap-align:start;display:flex;flex-direction:column;gap:20px}
+.step-text{display:flex;flex-direction:column;gap:10px;padding:0 4px}
+.step-tag{display:flex;align-items:center;gap:10px;font:500 12px/1 var(--mono);letter-spacing:.12em}
+.step-tag b{display:grid;place-items:center;min-width:26px;height:22px;padding:0 5px;border-radius:3px;background:var(--accent);color:#fff;font:500 11px/1 var(--mono)}
+.step h3{font-size:26px;letter-spacing:-.02em;line-height:1.15}
+.step p{font-size:15px;color:var(--fg-2)}
+.crop{height:calc(min(340px,calc(100vw - 50px)) * 1.65);overflow:hidden;perspective:1200px;border-radius:24px 24px 0 0}
+.crop img{width:100%;transform-origin:50% 40%;will-change:transform}
+.dots{display:flex;justify-content:center;gap:8px;padding:24px 0 72px}
+.dots i{width:6px;height:6px;border-radius:3px;background:var(--border);transition:width .3s,background .3s}
+.dots i.on{width:20px;background:var(--accent)}
+
+/* 03 ranges */
+.ranges{padding:72px 0}
+.ranges .wrap{display:flex;flex-direction:column;gap:32px}
+.ranges-copy{display:flex;flex-direction:column;gap:20px}
+.ranges h2{font-size:32px}
+.ranges .support{font-size:16px;color:var(--fg-2)}
+.ranges .aside{font-size:14px;color:var(--fg-2)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:20px;box-shadow:0 1px 2px #0000000a;display:flex;flex-direction:column;gap:8px}
+.card-head{display:flex;justify-content:space-between;align-items:center;padding-bottom:8px;font:400 11px/1 var(--mono);letter-spacing:.12em;color:var(--fg-2)}
+.card-head span{display:flex;align-items:center;gap:6px}
+.dot{width:12px;height:12px;border-radius:50%;background:var(--surface);border:2px solid var(--fg)}
+.card-head .dot{width:10px;height:10px}
+.row{display:grid;grid-template-columns:1fr auto auto auto;grid-template-areas:"m l d h" "t t t t";column-gap:6px;row-gap:12px;align-items:center;padding:12px 10px;border-radius:var(--r-sm);border:1px solid transparent}
+.row.low{background:var(--surface-2);border-color:var(--border)}
+.row .m{grid-area:m;font:500 15px var(--body)}
+.row .l{grid-area:l;font:500 15px var(--data);color:var(--fg-2);font-variant-numeric:tabular-nums}
+.row .d{grid-area:d;color:var(--fg-3);font-family:var(--data)}
+.row .h{grid-area:h;font:500 15px var(--data);font-variant-numeric:tabular-nums}
+.row.low .m{font-weight:600}
+.row.low .l{color:var(--accent);font-weight:700}
+.track{grid-area:t;position:relative;height:6px;border-radius:3px;background:var(--border)}
+.range{position:absolute;top:0;height:6px;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent-2));transition:clip-path 1s cubic-bezier(.2,.7,.2,1)}
+.track .dot{position:absolute;top:-3px;margin-left:-6px;transition:opacity .4s}
+.axis{display:flex;justify-content:space-between;padding:4px 10px 0;font:400 11px/1 var(--mono);letter-spacing:.12em;color:var(--fg-3)}
+
+/* 04 proof */
+.proof{background:var(--night);color:#fff;padding-top:72px;overflow:hidden}
+.proof .wrap{display:flex;flex-direction:column;gap:40px}
+.proof-copy{display:flex;flex-direction:column;gap:28px}
+.proof h2{font-size:clamp(32px,3.4vw,48px)}
+.proof .support{font-size:16px;color:rgba(255,255,255,.72)}
+.vs{display:flex;flex-direction:column}
+.vs div{display:flex;flex-direction:column;gap:6px;padding:14px 0;border-top:1px solid rgba(255,255,255,.14)}
+.vs div:last-child{border-bottom:1px solid rgba(255,255,255,.14)}
+.vs dt{font:400 12px/1 var(--mono);letter-spacing:.1em;color:rgba(255,255,255,.5)}
+.vs dd{margin:0;font-size:16px;color:rgba(255,255,255,.6)}
+.vs .cash dt{color:var(--accent-2)}
+.vs .cash dd{color:#fff;font-weight:600}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.stats b{display:block;font:700 40px/1.1 var(--head);letter-spacing:-.02em}
+.stats span{font-size:13px;color:rgba(255,255,255,.6)}
+.proof-stage{height:600px;margin:0 calc(var(--gutter) * -1);overflow:hidden;perspective:1400px;display:flex;justify-content:center}
+.proof-stage img{width:min(86vw,380px);height:auto;align-self:flex-start;margin-top:40px;transform:rotate(4deg);transform-origin:50% 30%;filter:drop-shadow(0 40px 60px rgba(0,0,0,.45));will-change:transform}
+
+/* 05 close */
+.close{padding:40px 0 48px}
+.close-block{background:linear-gradient(160deg,#14062B 0%,#4B0082 60%,#3E8E6A 100%);color:#fff;text-align:center;padding:72px var(--gutter);margin:0 calc(var(--gutter) * -1);display:flex;flex-direction:column;align-items:center;gap:20px}
+.close h2{font-size:clamp(32px,3.6vw,52px);max-width:720px}
+.close .support{font-size:16px;color:rgba(255,255,255,.8);max-width:720px}
+.close .signup{border-color:transparent;max-width:720px}
+.close .signup button{background:var(--accent-2);color:var(--fg)}
+.close .micro{color:rgba(255,255,255,.65)}
+.close .eyebrow{font-size:12px}
+footer .wrap{display:flex;flex-direction:column;align-items:center;gap:20px;padding-bottom:40px}
+footer .logo{font-size:18px}
+footer .logo svg{height:22px}
+footer nav{display:flex;gap:28px;font-size:14px;color:var(--fg-2)}
+footer nav a{text-decoration:none}
+
+/* desktop */
+@media (min-width:900px){
+  :root{--gutter:40px}
+  .nav{height:83px}
+  .hero-copy{padding-top:80px;padding-bottom:72px;gap:28px}
+  .actions-row{flex-direction:row;width:auto;align-items:center}
+  .actions-row .signup{width:480px}
+  .stage{height:860px;border-radius:var(--r-lg);max-width:1200px;margin:0 auto 120px}
+  .hero-phone{top:90px;width:414px;margin-left:-207px}
+  .how{padding-top:120px}
+  .how-head{flex-direction:row;justify-content:space-between;align-items:flex-end}
+  .how .sub{font-size:17px}
+  .steps{overflow:visible;scroll-snap-type:none;justify-content:space-between;align-items:flex-end;margin:0;padding:72px 0 0}
+  .step{flex:0 0 414px;gap:28px}
+  .step-text{padding:0 8px}
+  .crop{border-radius:0}
+  .step:nth-child(1) .crop{height:620px}
+  .step:nth-child(2) .crop{height:680px}
+  .step:nth-child(3) .crop{height:740px}
+  .dots{display:none}
+  .ranges{padding:140px 0}
+  .ranges .wrap{flex-direction:row;align-items:center;gap:64px}
+  .ranges-copy{flex:0 0 360px;gap:24px}
+  .ranges h2{font-size:40px}
+  .ranges .support{font-size:18px}
+  .ranges .aside{font-size:15px}
+  .card{flex:1;padding:28px}
+  .row{grid-template-columns:88px 64px 1fr 64px;grid-template-areas:"m l t h";column-gap:16px;padding:14px 8px}
+  .row .d{display:none}
+  .row .h{text-align:right}
+  .axis{padding:8px 8px 0 192px;padding-right:88px}
+  .proof{padding-top:120px}
+  .proof .wrap{flex-direction:row;justify-content:space-between;gap:60px}
+  .proof-copy{flex:0 0 440px;padding-bottom:120px}
+  .proof .support{font-size:17px}
+  .vs div{flex-direction:row;justify-content:space-between;align-items:center}
+  .stats{gap:28px}
+  .proof-stage{flex:0 0 700px;height:800px;margin:0;justify-content:flex-start}
+  .proof-stage img{width:414px;margin:40px 0 0 160px}
+  .close{padding:120px 0 80px}
+  .close-block{border-radius:var(--r-lg);margin:0;min-height:640px;justify-content:center;padding:0 80px;gap:24px}
+  .close .support{font-size:17px}
+  footer .wrap{flex-direction:row;justify-content:space-between}
+}
+@media (min-width:1280px){ :root{--gutter:0px} .wrap{padding:0} }
+
+@media (prefers-reduced-motion:reduce){
+  .hero-phone{animation:fade .6s both}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .range,.dots i{transition:none}
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="ck" viewBox="0 0 286 181">
+    <path fill="currentColor" d="M90.789 0.169c7.366-0.306 77.117 0 77.117 0l-37.274 43.352c-8.834 0.329-38.471-0.233-44.174 0.806-8.894 1.671-17.174 5.707-23.97 11.685-9.731 8.654-15.563 20.867-16.176 33.877-0.777 11.954 3.284 23.718 11.27 32.645 6.555 7.3 17.118 13.401 26.858 14.456l46.275 0.7 37.191 43.317c0 0-77.882 0.303-83.466 0-19.941-1.055-40.364-7.831-55.28-21.1-37.019-32.932-38.841-91.036-5.18-127.078 17.227-18.445 41.453-31.386 66.809-32.66l0 0z"/>
+    <path fill="currentColor" transform="translate(139 0)" d="M147.108 0.741c0 0-82.355 87.312-86.712 91.812 4.304 4.447 66.331 67.639 86.192 88.587l-63.671-0.027c0 0-80.89-85.443-82.917-88.615 1.652-2.607 83.259-91.929 83.259-91.929l63.849 0.172z"/>
+  </symbol>
+</svg>
+
+<header class="wrap nav">
+  <a class="logo" href="#top" aria-label="CashKit home"><svg viewBox="0 0 286 181" aria-hidden="true"><use href="#ck"/></svg>CashKit</a>
+  <a class="btn-ghost" href="#join">Get the app first</a>
+</header>
+
+<main id="top">
+<!-- 01 HERO -->
+<section class="hero">
+  <div class="wrap hero-copy">
+    <span class="pill"><i></i>PRE-LAUNCH · iPHONE &amp; ANDROID</span>
+    <h1>The weather is a guess.<br>Your cash doesn't have to be.</h1>
+    <p class="support">Say your plans like a text: a gym membership from October, a raise in April. CashKit turns them into line items and works out your balance for every day ahead. The AI understands the plan. It never does the math.</p>
+    <div class="actions">
+      <div class="actions-row">
+        <form class="signup" novalidate>
+          <label class="sr" for="e1">Email</label>
+          <input id="e1" type="email" name="email" placeholder="you@email.com" autocomplete="email" required>
+          <button type="submit">Get early access</button>
+          <p class="signup-done" role="status">You're in. One email when it launches.</p>
+        </form>
+        <a class="btn-demo" href="#how"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M10 8l6 4-6 4z"/></svg>Watch the 10-second demo</a>
+      </div>
+      <p class="micro">Email only. One email when it launches, nothing else.</p>
+    </div>
+  </div>
+  <div class="stage" id="stage">
+    <canvas id="aurora" aria-hidden="true"></canvas>
+    <div class="hero-phone"><img id="heroPhone" src="v5/phone-home.webp" width="828" height="1736" alt="CashKit Home screen: €12,240 in the bank today, lowest point ahead €7,690 on Thu 1 Oct, €18,420 on 31 Dec."></div>
+  </div>
+</section>
+
+<!-- 02 HOW -->
+<section class="how" id="how">
+  <div class="wrap">
+    <div class="how-head">
+      <div>
+        <p class="eyebrow">How it works · three taps</p>
+        <h2 style="margin-top:14px">Say the plan. See the balance.</h2>
+      </div>
+      <p class="sub">You tell CashKit the plan. It drafts the lines, you confirm them, and the engine does every sum.</p>
+    </div>
+    <div class="steps" id="steps">
+      <article class="step">
+        <div class="step-text">
+          <p class="step-tag"><b>01</b>SAY IT</p>
+          <h3>Type the plan like a text.</h3>
+          <p>“Add a gym membership, €90 a month starting October.” CashKit drafts the line item and shows what it would change. Nothing moves yet.</p>
+        </div>
+        <div class="crop"><img src="v5/phone-say.webp" width="828" height="1736" loading="lazy" alt="Ask screen: CashKit drafts a €90 monthly gym membership from October and asks you to check three guesses."></div>
+      </article>
+      <article class="step">
+        <div class="step-text">
+          <p class="step-tag"><b>02</b>CONFIRM IT</p>
+          <h3>Nothing gets in without your OK.</h3>
+          <p>One tap on Add to book and it’s in; Undo takes it back. The engine recomputes to the cent.</p>
+        </div>
+        <div class="crop"><img src="v5/phone-confirm.webp" width="828" height="1736" loading="lazy" alt="Gym membership added: balance on 31 Dec goes from €18,420 to €18,150; lowest point stays €7,690."></div>
+      </article>
+      <article class="step">
+        <div class="step-text">
+          <p class="step-tag"><b>03</b>SEE IT</p>
+          <h3>Every day of the next months.</h3>
+          <p>The lowest point, the day it lands, and what moves the line: €7,690 on Thu 1 Oct, still €5,690 above your alert.</p>
+        </div>
+        <div class="crop"><img src="v5/phone-see.webp" width="828" height="1736" loading="lazy" alt="Forecast screen: daily balance chart, lowest point €7,690 on Thu 1 Oct."></div>
+      </article>
+    </div>
+    <div class="dots" id="dots" aria-hidden="true"><i class="on"></i><i></i><i></i></div>
+  </div>
+</section>
+
+<!-- 03 RANGES -->
+<section class="ranges">
+  <div class="wrap">
+    <div class="ranges-copy">
+      <p class="eyebrow">Low and high, every month</p>
+      <h2>Like a weather app. Except the math is never wrong.</h2>
+      <p class="support">Each bar is the lowest and the highest your balance reaches inside that month. CashKit works out every single day from your plan. Same plan, same numbers, every time.</p>
+      <p class="aside">A forecast says 70% chance of rain. CashKit says €7,690 on Thu 1 Oct.</p>
+    </div>
+    <div class="card" id="rangeCard" role="table" aria-label="Lowest and highest balance per month">
+      <div class="card-head"><span>NEXT 4 MONTHS · LOW → HIGH</span><span><i class="dot"></i>TODAY</span></div>
+      <div id="rows"></div>
+      <div class="axis" aria-hidden="true"><span>€0</span><span>€12,500</span><span>€25,000</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 04 PROOF -->
+<section class="proof on-dark">
+  <div class="wrap">
+    <div class="proof-copy">
+      <p class="eyebrow">Why exact</p>
+      <h2>Tap any number.<br>Get its receipt.</h2>
+      <p class="support">€18,420 on 31 Dec? Tap it and see every line behind it, to the cent. The AI drafts your plan; an exact engine does every sum in whole cents, so nothing drifts.</p>
+      <dl class="vs">
+        <div><dt>TOMORROW</dt><dd>70% chance of rain</dd></div>
+        <div class="cash"><dt>THU 1 OCT 2026</dt><dd>€7,690 lowest balance. Exactly.</dd></div>
+      </dl>
+      <div class="stats">
+        <p><b>0</b><span>floats in any money calculation.</span></p>
+        <p><b>1</b><span>receipt behind every number.</span></p>
+        <p><b>100%</b><span>works offline, on your phone.</span></p>
+      </div>
+    </div>
+    <div class="proof-stage" id="proofStage">
+      <img id="proofPhone" src="v5/phone-receipt.webp" width="828" height="1736" loading="lazy" alt="Why this number screen: €18,420 on 31 Dec, with the opening balance and every move that leads to it.">
+    </div>
+  </div>
+</section>
+
+<!-- 05 CLOSE -->
+<section class="close on-dark" id="join">
+  <div class="wrap">
+    <div class="close-block">
+      <p class="eyebrow">Today's forecast for this page: 100% exact</p>
+      <h2>Know the tight day before it arrives. Get CashKit first.</h2>
+      <p class="support">Set a floor once. CashKit tells you the day your balance would dip under it, with the lines that cause it, weeks ahead.</p>
+      <form class="signup" novalidate>
+        <label class="sr" for="e2">Email</label>
+        <input id="e2" type="email" name="email" placeholder="you@email.com" autocomplete="email" required>
+        <button type="submit">Get early access</button>
+        <p class="signup-done" role="status">You're in. One email when it launches.</p>
+      </form>
+      <p class="micro">Email only. One email when it launches, nothing else.</p>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="logo" href="#top"><svg viewBox="0 0 286 181" aria-hidden="true"><use href="#ck"/></svg>CashKit</a>
+    <nav><a href="mailto:hello@cashkit.app">Contact</a><a href="#">Privacy</a><a href="#">Imprint</a></nav>
+  </div>
+</footer>
+
+<script id="aurora-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform float u_speed;
+uniform vec3 u_color1;
+uniform vec3 u_color2;
+uniform vec3 u_color3;
+uniform vec3 u_color4;
+uniform float u_gradientAngle;
+uniform float u_turbulence;
+uniform float u_detail;
+const float GRAIN_AMOUNT = 0.04;
+float hash(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}
+float octave(vec2 p,float t){float v=sin(p.x*3.0+t);v+=sin(p.y*3.7-t*0.8);v+=sin((p.x+p.y)*2.3+t*0.6);v+=sin(length(p-0.5)*6.0-t);return v*0.25;}
+float fbm(vec2 p,float t){float v=0.0;float amp=0.65;for(int i=0;i<3;i++){v+=octave(p,t)*amp;p*=2.0;t*=1.2;amp*=0.5;}return v;}
+float flowField(vec2 p,float t,out float warp){vec2 q=vec2(fbm(p,t),fbm(p+vec2(5.2,1.3),t));vec2 r=vec2(fbm(p+1.8*q+vec2(1.7,9.2),t*0.6),fbm(p+1.8*q+vec2(8.3,2.8),t*0.6));warp=length(r);return fbm(p+2.0*r,t);}
+float ease(float x){return x*x*x*(x*(x*6.0-15.0)+10.0);}
+vec3 paletteColor(float t){float seg=fract(t)*4.0;float f=ease(fract(seg));if(seg<1.0)return mix(u_color1,u_color2,f);if(seg<2.0)return mix(u_color2,u_color3,f);if(seg<3.0)return mix(u_color3,u_color4,f);return mix(u_color4,u_color1,f);}
+void main(){
+  vec2 uv=gl_FragCoord.xy/u_resolution;
+  float angle=radians(u_gradientAngle);
+  vec2 dir=vec2(cos(angle),sin(angle));
+  float gradient=dot(uv-0.5,dir)+0.5;
+  float t=u_time*u_speed;
+  vec2 drift=dir*0.5*t;
+  float warp;
+  float flow=flowField(uv*u_detail+drift+u_gradientAngle,t,warp)*u_turbulence;
+  vec3 color=paletteColor(gradient*0.3+t+flow);
+  color+=smoothstep(0.5,1.4,warp)*0.18*vec3(0.9,0.95,1.0);
+  color*=0.78+0.22*smoothstep(1.3,0.0,warp);
+  color+=(hash(gl_FragCoord.xy)-0.5)*GRAIN_AMOUNT;
+  gl_FragColor=vec4(color,1.0);
+}
+</script>
+
+<script>
+const FORM_ENDPOINT="https://sibforms.com/serve/PLACEHOLDER";
+const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;
+const desktop=matchMedia("(min-width: 900px)");
+const clamp=(v,a=0,b=1)=>Math.min(b,Math.max(a,v));
+
+/* aurora shader (same file and uniforms as the pen design) */
+(()=>{
+  const c=document.getElementById("aurora"), gl=c.getContext("webgl",{antialias:false,alpha:false});
+  if(!gl) return; // CSS gradient behind stays as fallback
+  const sh=(t,s)=>{const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);return o};
+  const p=gl.createProgram();
+  gl.attachShader(p,sh(gl.VERTEX_SHADER,"attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}"));
+  gl.attachShader(p,sh(gl.FRAGMENT_SHADER,document.getElementById("aurora-fs").textContent));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)) return;
+  gl.useProgram(p);
+  gl.bindBuffer(gl.ARRAY_BUFFER,gl.createBuffer());
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+  const U=n=>gl.getUniformLocation(p,n), hex=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)/255);
+  gl.uniform1f(U("u_speed"),.15);gl.uniform1f(U("u_gradientAngle"),160);gl.uniform1f(U("u_turbulence"),.6);gl.uniform1f(U("u_detail"),.5);
+  ["#14062B","#4B0082","#90EE90","#3E8E6A"].forEach((h,i)=>gl.uniform3fv(U("u_color"+(i+1)),hex(h)));
+  const uRes=U("u_resolution"), uT=U("u_time");
+  const size=()=>{const d=Math.min(devicePixelRatio,1.5);c.width=c.clientWidth*d;c.height=c.clientHeight*d;gl.viewport(0,0,c.width,c.height);gl.uniform2f(uRes,c.width,c.height)};
+  size();addEventListener("resize",size);
+  let on=true, t0=performance.now();
+  new IntersectionObserver(([e])=>{on=e.isIntersecting;if(on&&!reduced)requestAnimationFrame(draw)}).observe(c);
+  function draw(now){gl.uniform1f(uT,(now-t0)/1000+4);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);if(on&&!reduced)requestAnimationFrame(draw)}
+  requestAnimationFrame(draw);
+})();
+
+/* month ranges: data from the demo book, scale €0–€25,000 */
+(()=>{
+  const MAX=25000, TODAY=12240;
+  const rows=[["Sep 2026",9090,13940,true],["Oct 2026",7690,17630],["Nov 2026",12400,19940],["Dec 2026",14710,22250]];
+  const lowest=Math.min(...rows.map(r=>r[1]));
+  const eur=v=>"€"+v.toLocaleString("en-US");
+  const pct=v=>(v/MAX*100)+"%";
+  document.getElementById("rows").innerHTML=rows.map(([m,lo,hi,today])=>{
+    const t=clamp((TODAY-lo)/(hi-lo)); // bar grows out from where today sits
+    const from=`inset(0 ${(1-t)*100}% 0 ${t*100}%)`;
+    return `<div class="row${lo===lowest?" low":""}" role="row">
+      <span class="m" role="rowheader">${m}</span>
+      <span class="l" role="cell" aria-label="lowest">${eur(lo)}</span><span class="d" aria-hidden="true">–</span>
+      <span class="track" aria-hidden="true"><i class="range" style="left:${pct(lo)};width:${pct(hi-lo)};clip-path:${reduced?"none":from}"></i>${today?`<i class="dot" style="left:${pct(TODAY)}"></i>`:""}</span>
+      <span class="h" role="cell" aria-label="highest">${eur(hi)}</span></div>`}).join("");
+  if(reduced) return;
+  new IntersectionObserver(([e],o)=>{ if(!e.isIntersecting) return; o.disconnect();
+    document.querySelectorAll("#rows .range").forEach((r,i)=>setTimeout(()=>r.style.clipPath="inset(0 0% 0 0%)",250+i*160));
+  },{threshold:.4}).observe(document.getElementById("rangeCard"));
+})();
+
+/* 3D motion */
+(()=>{
+  if(reduced) return;
+  const vh=()=>innerHeight;
+  const stage=document.getElementById("stage"), hero=document.getElementById("heroPhone");
+  const steps=[...document.querySelectorAll("#steps .crop img")], track=document.getElementById("steps"), dots=[...document.querySelectorAll("#dots i")];
+  const proofStage=document.getElementById("proofStage"), proof=document.getElementById("proofPhone");
+  const hover=matchMedia("(hover: hover)").matches;
+  let px=0,py=0,cx=0,cy=0;
+  if(hover) addEventListener("pointermove",e=>{px=e.clientX/innerWidth*2-1;py=e.clientY/innerHeight*2-1},{passive:true});
+
+  function frame(){
+    cx+=(px-cx)*.07; cy+=(py-cy)*.07;
+    // hero: rest tilt -6°, follows pointer, folds flat and lifts as the stage scrolls away
+    const r=stage.getBoundingClientRect();
+    if(r.bottom>0&&r.top<vh()){
+      const s=clamp((vh()*.45-r.top)/r.height);
+      const k=1-s;
+      hero.style.transform=`translateY(${-s*120}px) rotateZ(${-6*k}deg) rotateY(${cx*8*k}deg) rotateX(${-cy*5*k+s*14}deg)`;
+    }
+    if(desktop.matches){
+      // steps turn in from rotateY -35° as they reach the viewport centre
+      for(const img of steps){
+        const b=img.parentElement.getBoundingClientRect();
+        const d=(b.top+Math.min(b.height,vh())/2-vh()/2)/(vh()/2);
+        const p=clamp(1-d);
+        img.style.transform=`rotateY(${-35*(1-p)}deg) translateZ(${-60*(1-p)}px)`;
+        img.style.opacity=.35+.65*p;
+      }
+    }
+    // receipt phone turns from rotateY 30° to its 4° rest tilt
+    const q=proofStage.getBoundingClientRect();
+    if(q.bottom>0&&q.top<vh()){
+      const p=clamp((vh()-q.top)/(vh()*.7));
+      proof.style.transform=`rotate(${4*p}deg) rotateY(${30*(1-p)}deg) translateY(${40*(1-p)}px)`;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // mobile swipe: cards turn in from rotateY -20° as they snap to centre; dots follow
+  function swipe(){
+    if(desktop.matches) return;
+    const mid=track.scrollLeft+track.clientWidth/2;
+    let best=0,bd=1e9;
+    steps.forEach((img,i)=>{
+      const card=img.closest(".step"), c=card.offsetLeft+card.offsetWidth/2-track.offsetLeft;
+      const off=clamp((c-mid)/card.offsetWidth,-1,1);
+      // pivot on the edge nearest the centre, so the peeking 18px stays visible
+      img.style.transformOrigin=off>0?"0% 40%":"100% 40%";
+      img.style.transform=`rotateY(${off*-20}deg)`; img.style.opacity=1-Math.abs(off)*.35;
+      if(Math.abs(c-mid)<bd){bd=Math.abs(c-mid);best=i}
+    });
+    dots.forEach((d,i)=>d.classList.toggle("on",i===best));
+  }
+  track.addEventListener("scroll",()=>requestAnimationFrame(swipe),{passive:true});
+  desktop.addEventListener("change",()=>{steps.forEach(i=>{i.style.transform="";i.style.opacity="";i.style.transformOrigin=""});swipe()});
+  swipe();
+})();
+
+/* dots also work with reduced motion */
+if(reduced){const t=document.getElementById("steps"),d=[...document.querySelectorAll("#dots i")];t.addEventListener("scroll",()=>{const i=Math.round(t.scrollLeft/(t.scrollWidth/3));d.forEach((x,j)=>x.classList.toggle("on",j===i))},{passive:true})}
+
+/* signup (same flow as site/index.html) */
+document.querySelectorAll(".signup").forEach(f=>f.addEventListener("submit",async e=>{
+  e.preventDefault();
+  const email=f.querySelector("input[type=email]");
+  if(!email.checkValidity()){email.reportValidity();return}
+  const btn=f.querySelector("button");btn.disabled=true;btn.textContent="Adding you…";
+  try{const data=new FormData();data.append("EMAIL",email.value);await fetch(FORM_ENDPOINT,{method:"POST",mode:"no-cors",body:data})}catch(_){}
+  f.classList.add("done");
+}));
+</script>
+</body>
+</html>
