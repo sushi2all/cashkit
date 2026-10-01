@@ -212,7 +212,7 @@ def test_twenty_scenario_sweep_is_within_budget() -> None:
     def once() -> float:
         started = time.perf_counter()
         for scenario_id in ids:
-            book = kit.resolve(scenario_id)
+            book = kit.resolve(scenario_id).book
             engine.delta({"gen_000": book.items["gen_000"]})
         return (time.perf_counter() - started) * 1000
 
