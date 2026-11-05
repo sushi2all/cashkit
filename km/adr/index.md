@@ -40,3 +40,4 @@ Numbered, append-only. Status: accepted unless noted.
 | [0034](0034-reads-live-on-what-they-read.md) | Reads live on what they read; `validate()` is the run; `resolve()` carries its diagnostics | 2026-09-05 |
 | [0035](0035-trace-reads-the-engines-records.md) | `trace()` reads the engine's own occurrence records, never a re-derivation | 2026-09-05 |
 | [0036](0036-desktop-swiss-ledger-desk.md) | The desktop app is Swiss Ledger Desk over one generated demo book | 2026-09-26 |
+| [0037](0037-sdk-call-accuracy-eval.md) | SDK-call accuracy is measured by an outcome-graded eval suite under `evals/` | 2026-11-05 |

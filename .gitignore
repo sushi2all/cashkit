@@ -32,3 +32,6 @@ apps/client/test-results/
 apps/client/e2e/.artifacts/
 ops/.env.local
 design/web/config.local.js
+
+# SDK-call eval run output (results can be large; keep summaries you want in km/notes/)
+evals/runs/
