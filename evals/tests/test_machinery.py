@@ -321,3 +321,11 @@ def test_command_model_reads_token_envelope(tmp_path):
     out = CommandModel(f"python3 {script}").complete("s", [{"role": "user", "content": "x"}],
                                                     task=instance("monthly_expense", 0), sample=0, turn=0)
     assert (out.text, out.input_tokens, out.output_tokens) == ("hi", 7, 3)
+
+
+def test_project_readme_lists_every_family():
+    """The root README's "All cases tested" list must match the suite."""
+    readme = (Path(__file__).resolve().parents[2] / "README.md").read_text()
+    section = readme.split("### All cases tested", 1)[1]
+    listed = set(re.findall(r"^\| `([a-z_]+)` \| \d \|", section, re.M))
+    assert listed == set(FAMILIES), sorted(set(FAMILIES) ^ listed)
