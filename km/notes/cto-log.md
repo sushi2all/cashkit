@@ -8,6 +8,89 @@ Running log of considerations, decisions and tasks. Newest entry on top. Append,
 
 ---
 
+## 2026-11-15 — Reframe considered: internal first (Progress Lab, then some of its clients)
+
+**Status: proposed by the founder as a question, not confirmed.** Nothing in the 14 Nov entry is replaced until it is. If confirmed, the `CTO-D` changes below take effect, ADR-0027 needs an amending ADR, and the roadmap in the assessment gets rewritten.
+
+### What I checked
+
+- No file under `apps/service/cashkit_service` mentions VAT or withholding. The app cannot express either; the engine can (`cashkit/engine/vat.py`, `tax.py`).
+- `books.user_id` is unique: one book per login, one login per book.
+- No bank-file import in the service. The SDK has `import_events`, idempotent on `(source, ext_id)`, and the eval suite exercises it.
+
+### Considerations
+
+**It changes which product is being tested, more than how fast.** Progress Lab is a business. Its cash plan needs VAT settlement, invoices on 30/60-day terms, payroll and tax dates, and actuals from the bank. The consumer app was specified without all of those (SPEC §1). The engine has them. So dogfooding points away from the consumer mobile app and toward the persona in `ERP-pilot-guide.md` and the desktop design. CTO-Q-07 (which wedge) and CTO-Q-06 (is there a real pilot) mostly answer themselves: business first, and the pilot is us.
+
+**The fastest honest start skips the app.** Build the Progress Lab book with the SDK, driven by an agent using the eval-proven reference document. Import bank actuals. Then do what the pilot guide says to do first: reproduce the last six months and compare with the bank statement. Every figure the engine has produced so far came from synthetic books. This is the first test against reality and it needs no deployment, no email provider and no UI work.
+
+**The app comes second, as the daily surface, and its gaps become the backlog.** Deploy it privately, use it for questions and what-ifs, and let real use decide which exclusions to lift (VAT and payment terms in the intent grammar first, I expect). That is a better way to prioritise than the S6 backlog.
+
+**What relaxes.**
+
+- The public compliance gate, for Progress Lab's own data: no outside data subject, no public privacy policy or terms, lawyer hour deferred.
+- Email provider: company mail or an allow-list is enough for a handful of users.
+- The outside security pass and the login-cookie change: deferrable **only while the service is on a private network**. That condition is the whole basis for deferring.
+- Landing page, analytics, waitlist, pricing, native mobile builds, the restyle.
+- Cohort metrics: with three users they mean nothing. Replace with a friction log and forecast-versus-actual drift.
+
+**What does not relax, or tightens.**
+
+- Phase 1 (honest CI, pull requests) is unchanged.
+- The `ENGINE_VERSION` guard (CTO-T-08) becomes urgent: real books are saved from day one, and "what did we forecast in November" must stay answerable.
+- Backups and the restore drill: it is real company data.
+- Model routing: Progress Lab's finances will pass through the router and the model. The founder can accept that risk for his own company. He cannot accept it on a client's behalf.
+
+**Clients are not "internal".** The moment a client's figures go in, Progress Lab is processing someone else's financial data: the DPA, the subprocessor list and the zero-retention confirmation all come back. Two ways to keep that light. (a) Progress Lab operates the tool for the client as part of an existing engagement, and the client never logs in; check what the engagement contract already covers. (b) Run it on the client's own machine, which is ADR-0017 configuration A and keeps ADR-0026 rule 3 true. I prefer (a) to start: it needs the least polish, it suits a consultancy (sell the weekly forecast, not the software), and a wrong number is caught by us before the client sees it. Not legal advice.
+
+**The one-book-per-login limit will bite.** Several books (Progress Lab plus each client) and more than one person per book (founder, admin, accountant) are both outside ADR-0027. Do not build multi-user now. Use one login per book, note every time it hurts, and let that evidence size the work.
+
+**Risks this path adds.**
+
+- The builder is the user. A founder using his own tool proves little and forgives everything. The real test is a second person at Progress Lab who did not build it doing the weekly update unaided.
+- "Until it's polished enough" has no end. Exit criteria and a review date have to be set now, or internal use becomes a place to stay.
+- A wrong forecast shown to a client costs the main business, not just this one.
+- Market risk is postponed, not reduced. Internal use tests whether the product works, not whether strangers want it. If natural-language authoring is an open window (ADR-0025), each quarter spent inside spends some of it.
+- Real use will produce a stream of wishes. One person cannot follow them all; cap it weekly.
+
+### How the decisions would change
+
+| # | Change |
+|---|---|
+| CTO-D-01 | Objective becomes: **Progress Lab runs its own cash planning on CashKit every week and has retired the spreadsheet; one client book is operated by Progress Lab; then decide in February.** |
+| CTO-D-03 | Desktop stays unbuilt, but Progress Lab is now its design partner; the frames get judged against our own weekly routine. |
+| CTO-D-06 | Engine freeze loosens: a change that a real book needs is allowed (candidates: issue #1 directed rounding, SR-1 terms from a param, SR-2 tax-payment day anchor), **after** the version guard exists. |
+| CTO-D-11 | Security pass moves to "before any login from outside Progress Lab's network, or any client self-service". Until then the service is not reachable from the internet. |
+| new | Business features (VAT, payment terms, split payments) enter the app's intent grammar when weekly use shows the need. Needs an ADR; it reverses a SPEC §1 exclusion. |
+| new | Client books are operated by Progress Lab under a signed data-processing addendum. No client login this quarter. |
+| unchanged | D-02 (web first), D-04, D-05, D-07, D-08, D-09, D-10. |
+
+### Tasks, if confirmed
+
+- **Dropped or parked:** CTO-T-09 (landing; but the "early access, autumn 2026" line should come down), T-11 as scoped, T-14, T-16, T-18, T-20, T-24, T-27, T-28, T-31. T-13 and T-15 move behind real-use friction.
+- **Kept as is:** T-01 to T-08, T-12 (private deployment), T-17, T-19, T-22, T-23, T-25, T-26 (controllers become our own clients), T-30, T-32.
+- **New:**
+
+| # | Task | Owner |
+|---|---|---|
+| CTO-T-33 | Build the Progress Lab book through the SDK: items, VAT regime, terms, payroll, tax dates. Kept in a private repository, not this one. | F + C |
+| CTO-T-34 | Import six months of bank actuals (ADR-0026 route: file export or own bank API key) and reproduce them; write up every gap between book and bank. | F + C |
+| CTO-T-35 | Private deployment with backups and one restore drill; logins for the founder and one non-builder colleague. | C |
+| CTO-T-36 | Weekly cash review held on CashKit, with a friction log; forecast-versus-actual drift recorded each week. | F |
+| CTO-T-37 | From the friction log, decide which SPEC §1 exclusions to lift first; ADR. | C |
+| CTO-T-38 | First client book, operated by us: check the engagement contract, sign the addendum, confirm zero-retention routing in writing first. | F |
+| CTO-T-39 | Write the exit criteria for "ready for the public" and agree them. Draft: eight straight weeks without falling back to the spreadsheet; a non-builder runs the weekly update unaided; two or three client books run a full month with no correction incident; then the deferred public gate (security pass, compliance checklist, email) is the release checklist. | C + F |
+
+### Questions this adds or removes
+
+- **Removed:** CTO-Q-01 (email provider), Q-02, Q-09, Q-10; Q-05 loses urgency; Q-06 and Q-07 are answered by the reframe.
+- **CTO-Q-12** Who at Progress Lab, other than you, would run the weekly update?
+- **CTO-Q-13** Which client first, and does the current engagement contract cover handling their financial data?
+- **CTO-Q-14** Are you comfortable with Progress Lab's own finances passing through the model router before the written zero-retention confirmation arrives?
+- **CTO-Q-15** Where do Progress Lab's bank actuals come from today, and in what form can they be exported?
+
+---
+
 ## 2026-11-14 — First assessment
 
 Report: [`2026-11-14-cto-assessment.md`](2026-11-14-cto-assessment.md). This entry is the working behind it.
