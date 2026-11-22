@@ -26,6 +26,13 @@ const ruleTester = new RuleTester({
     parserOptions: {
       project: path.join(fixtures, "tsconfig.json"),
       tsconfigRootDir: fixtures,
+      // These cases are strings, not files. With `CI=true` the parser assumes
+      // a one-off CLI run and types each file from what is on disk, so the
+      // in-memory code gets no types and the type-dependent cases report
+      // nothing. That kept this step red on every CI run while it passed on
+      // every laptop. Opt out of the inference; the app's own lint is
+      // unaffected, because there the files are the files.
+      disallowAutomaticSingleRunInference: true,
     },
   },
 });

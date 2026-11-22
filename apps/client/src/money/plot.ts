@@ -171,6 +171,18 @@ export function axisTicks(scale: PlotScale): AxisTick[] {
   return kept.sort((a, b) => b.ratio - a.ratio);
 }
 
+/**
+ * How wide the label gutter must be, in pixels, from the length of each label
+ * in characters. It takes character counts and returns a width: no figure goes
+ * in and none comes out. It lives here because the lint rule bans `Math.*`
+ * in every other file, so a width worked out in a component cannot pass.
+ */
+export function gutterWidth(labelLengths: readonly number[], fontSize: number, floor: number): number {
+  const longest = Math.max(0, ...labelLengths);
+  // ponytail: mono glyphs are ~0.6em wide; measure with onLayout if a font change breaks this.
+  return Math.max(floor, Math.ceil(longest * fontSize * 0.6) + 6);
+}
+
 const round = (n: number): string => n.toFixed(2);
 
 /** An SVG polyline through the plotted points. Coordinates only — no money. */
