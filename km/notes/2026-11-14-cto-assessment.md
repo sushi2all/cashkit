@@ -2,6 +2,8 @@
 
 **Date** 2026-11-14 · **Covers** the quarter 16 Nov 2026 – 14 Feb 2027 · **Working log** [`cto-log.md`](cto-log.md) (evidence, decisions, backlog, open questions)
 
+> **Superseded in part, 2026-11-22.** The founder chose to keep CashKit internal for now ([ADR-0038](../adr/0038-internal-first.md)). The state table and the SWOT below still describe the repository as it was on 14 Nov. The roadmap, the proposed targets and most of the founder decisions do not apply; the current plan is [`2026-11-22-internal-first-plan.md`](2026-11-22-internal-first-plan.md).
+
 ## Bottom line
 
 CashKit is further along technically than "an SDK and some designs", and further behind commercially than that label suggests.

@@ -8,6 +8,113 @@ Running log of considerations, decisions and tasks. Newest entry on top. Append,
 
 ---
 
+## 2026-11-22 — Internal first is confirmed; first fixes made
+
+The founder's words: *"it was born for an internal need. If it stays there and works, fine for me. Let's just go with internal for now."* Recorded as [ADR-0038](../adr/0038-internal-first.md). Plan: [`2026-11-22-internal-first-plan.md`](2026-11-22-internal-first-plan.md). The roadmap in the 14 Nov assessment is marked superseded.
+
+### What changed from the 15 Nov proposal
+
+Two things, both because of how the founder put it.
+
+- **"If it stays there and works, fine."** A public release is no longer a goal with a date, so the risk I named on 15 Nov ("polished enough has no end") stops being a risk: there is no end being waited for. The exit-criteria task for going public (CTO-T-39) is dropped. What replaces it is a plain definition of "it works for Progress Lab" (CTO-T-40).
+- **"Internal for now."** The 15 Nov proposal carried one client book, operated by us, as a quarter goal. That is out. No client data this quarter; it reopens only through a new ADR (ADR-0038 decision 5).
+
+Market risk is accepted by the founder, not answered. I am not carrying it as an open worry; it is written into ADR-0038 so it is not forgotten.
+
+### Decisions
+
+| # | Decision | Replaces |
+|---|---|---|
+| CTO-D-13 | **Objective: Progress Lab plans its cash on CashKit every week and has retired the spreadsheet.** No public release date. | CTO-D-01 |
+| CTO-D-14 | Desktop stays unbuilt and parked. If it is ever built, Progress Lab's weekly routine is its reference user. | CTO-D-03 |
+| CTO-D-15 | An engine change is allowed when the real book needs it, and only after the version guard (CTO-T-08) exists. | CTO-D-06 |
+| CTO-D-16 | The outside security pass and the login-cookie change wait **while the service is off the public internet and nobody outside Progress Lab has a login**. Either condition failing puts them first. | CTO-D-11 |
+| CTO-D-17 | SDK first, app second. An exclusion in the app (VAT, terms, split payments) is lifted only from recorded friction in weekly use, one ADR each. | new |
+| CTO-D-18 | No client data this quarter. | new |
+| CTO-D-19 | Progress Lab's book lives in a separate private repository. Nothing derived from it is committed here; a fixture that a real case inspires is rebuilt with invented figures. | new |
+| CTO-D-20 | I now change code. Work goes on the session branch and reaches main through a pull request, which I open when the founder asks. | CTO-D-12 |
+
+Still standing from 14 Nov: D-02 (web first, now meaning the private deployment), D-04, D-05, D-07, D-08, D-10. D-09 (one visual direction) is moot while the restyle is parked.
+
+### Work done today
+
+All on branch `claude/modest-cray-wby51g`, not yet on main.
+
+**CTO-T-02 — why the client pipeline has been red since August. Found and fixed.**
+The lint-rule tests feed code to the linter as strings. When the environment has `CI=true`, the TypeScript parser assumes a one-off command-line run and reads each file's types from disk (`inferSingleRun` in `@typescript-eslint/typescript-estree` 8.67). The in-memory code then has no type information, the type-dependent cases report nothing, and the test fails with "Should have 1 error but had 0". It passes on any machine where `CI` is unset, which is why every local run was green and every CI run was red. Reproduced locally with `CI=true npm run test:lint-rules`. Fix: `disallowAutomaticSingleRunInference: true` in the test's parser options (`tooling/eslint-plugin-cashkit/test/money.test.js`). The app's own lint was never affected, because there the files are real files.
+
+Because that step failed first, CI never reached TypeScript, ESLint or the unit tests. So the gate has not run in CI since it was written.
+
+**CTO-T-03 — the three ESLint errors in `ChartAxis.tsx`. Fixed.**
+The rule was right and I was wrong to call it a near false positive on 14 Nov: outside `src/money/plot.ts` it bans every `Math.*` call on purpose (D-MLP-42), so that no file but one does arithmetic at all. The gutter-width sum now lives in `plot.ts` as `gutterWidth(labelLengths, fontSize, floor)`, with a unit test; `ChartAxis.tsx` only measures label lengths and calls it. The `allowIn` list was not widened.
+
+**CTO-T-01 — engine pipeline. Written.**
+`.github/workflows/engine.yml`: the engine suite with the coverage gate, and the eval suite's self-tests, on every change under `cashkit/`, `tests/`, `evals/`, `pyproject.toml`, `uv.lock`. The performance budgets run on demand only: they are wall-clock assertions (one is 4.5 ms against 5 ms) and would flicker on a shared runner.
+
+**CTO-T-07 — README status. Done.** The table now says what exists and adds a short map.
+
+Verified locally:
+
+| Check | Result |
+|---|---|
+| `CI=true npm run verify` (drift, typecheck, lint-rule tests, ESLint, unit tests) | exit 0 |
+| `npx vitest run` in `apps/client` | 33 passed (one new) |
+| `uv run pytest -m "not benchmark" --cov`, as the new workflow runs it | exit 0, 96.63% |
+| `uv run pytest evals/tests` | 248 passed |
+
+Not verified: none of this has run in GitHub Actions. The workflows trigger on main and on pull requests, and there is no pull request yet. **Until one is opened, "fixed" means "fixed on the branch".**
+
+### Task status
+
+| # | Task | Status |
+|---|---|---|
+| CTO-T-01 | Engine CI workflow | done on branch; unproven in CI |
+| CTO-T-02 | Client CI: lint-rule step | done on branch; unproven in CI |
+| CTO-T-03 | ESLint errors in `ChartAxis.tsx` | done on branch |
+| CTO-T-04 | Nightly: key or pause; diagnose the restore drill on the hosted runner | open — needs CTO-Q-11 |
+| CTO-T-05 | Branch protection, pull requests | open — needs the founder |
+| CTO-T-06 | Commit the cited-but-missing files | open — founder |
+| CTO-T-07 | README status | done on branch |
+| CTO-T-08 | `ENGINE_VERSION` guard, with a short ADR | **open — next** |
+| CTO-T-12 | Deployment — now private network only | open, step 3 |
+| CTO-T-17 | Written zero-retention confirmation | open — founder |
+| CTO-T-19 | Full gate set on a machine with Docker and a key | open, before step 3 |
+| CTO-T-22 | Restore drill on the real book | open, step 3 |
+| CTO-T-23 | Fallback model | open, low priority |
+| CTO-T-25 | Service fixes that delete client workarounds | open, step 4 |
+| CTO-T-30 | February review | open, step 5 |
+| CTO-T-32 | Plan for the following quarter | open, step 5 |
+| CTO-T-33 | Build the Progress Lab book through the SDK, in a private repository | open, step 2 |
+| CTO-T-34 | Import six months of bank movements and reproduce them; write up every gap | open, step 2 |
+| CTO-T-35 | Private deployment, backups, logins for two people | open, step 3 |
+| CTO-T-36 | Weekly cash review on CashKit, with a friction log | open, step 3 |
+| CTO-T-37 | Decide which app exclusions to lift, from the friction log; ADR each | open, step 4 |
+| CTO-T-40 | Agree the definition of "it works for Progress Lab" (draft in the plan) | open — founder + me |
+| CTO-T-41 | Take down the "early access · autumn 2026" line on the landing page | open — founder |
+| CTO-T-09, 10, 11, 13, 14, 15, 16, 18, 20, 21, 24, 26, 27, 28, 29, 31, 38, 39 | Public-beta work, client book, public exit criteria | dropped or parked by ADR-0038 |
+
+### Questions for the founder, current list
+
+Answered or removed by the decision: CTO-Q-01, 02, 05, 06, 07, 08, 09, 10, 13, 14 (Q-14 is accepted in ADR-0038; the written confirmation is still CTO-T-17).
+
+| # | Question | Blocks |
+|---|---|---|
+| CTO-Q-15 | Where do Progress Lab's bank movements come from, and may I read them? This workspace has a connection to a business-banking provider; if that is Progress Lab's bank, six months of movements can be read directly once you say so. | Step 2 |
+| CTO-Q-12 | Who else at Progress Lab would run the weekly update? | Step 3 |
+| CTO-Q-16 | Shall I open a pull request for today's fixes? And may main be protected so nothing lands unchecked? | Proving T-01 to T-03 |
+| CTO-Q-11 | Nightly model check: add the key (about $9 a month) or pause it? | CTO-T-04 |
+| CTO-Q-17 | Where does the private repository for the book live, and which private machine or network hosts the app? | Steps 2 and 3 |
+| CTO-Q-03 | Can the missing files be committed (`design-purple.pen`, `QUICKSTART.md`, the launch brief, the privacy note)? No longer urgent; still wanted. | CTO-T-06 |
+| CTO-Q-04 | Hours per week you can give this. The plan assumes a few hours in step 1 and a standing weekly slot from step 3. | Pace |
+
+### Next time
+
+- Start with CTO-T-08. It is the one piece of engineering that must exist before the real book does.
+- If a pull request has been opened, read its checks before anything else. The engine and client workflows have never been seen green; expect at least one surprise.
+- Step 2 cannot start without CTO-Q-15 and CTO-Q-17.
+
+---
+
 ## 2026-11-15 — Reframe considered: internal first (Progress Lab, then some of its clients)
 
 **Status: proposed by the founder as a question, not confirmed.** Nothing in the 14 Nov entry is replaced until it is. If confirmed, the `CTO-D` changes below take effect, ADR-0027 needs an amending ADR, and the roadmap in the assessment gets rewritten.
