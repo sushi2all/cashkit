@@ -28,5 +28,8 @@
     "react-native": "0.86.2",
     "react": "19.2.3",
     "react-dom": "19.2.3"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "4.62.5"
   }
 }
