@@ -1,0 +1,84 @@
+# The engine's own gate.
+#
+# Until this file existed no workflow ran `tests/`. `mlp-service.yml` triggers
+# on `cashkit/**` and says in its header that engine tests are not its
+# business, so a change to the engine could reach main with the app suites
+# green and the engine suite never run. The engine is the component where a
+# silent wrong number is the worst outcome the project names (CLAUDE.md), so it
+# is the last one that should be unguarded (CTO-D-04, CTO-T-01).
+#
+# What runs per change is the correctness suite with the coverage gate: the
+# threshold and the covered packages live in `pyproject.toml`, and
+# `tests/test_coverage_gate.py` fails if either is quietly lowered.
+#
+# What does not run per change is the PRD §5.2 performance budgets. They are
+# wall-clock assertions (one of them 4.5 ms against a 5 ms budget) and a shared
+# runner is not the machine they were measured on; a budget that fails one run
+# in ten teaches everyone to ignore red. They run on demand instead.
+name: Engine
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cashkit/**"
+      - "tests/**"
+      - "evals/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/engine.yml"
+  pull_request:
+    paths:
+      - "cashkit/**"
+      - "tests/**"
+      - "evals/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/engine.yml"
+  workflow_dispatch:
+
+jobs:
+  suite:
+    name: engine suite and coverage gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --group dev
+
+      # Fails below 90% on `cashkit/engine` + `cashkit/model`.
+      - name: Engine suite, with the coverage gate
+        run: uv run pytest -m "not benchmark" --cov
+
+  evals:
+    # The eval suite's self-tests run every reference solution against the real
+    # SDK and execute every code block in the reference shown to models, so an
+    # SDK change that breaks the documented surface fails here.
+    name: SDK reference and eval self-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --group dev
+      - name: Eval suite self-tests
+        run: uv run pytest evals/tests
+
+  budgets:
+    name: PRD §5.2 performance budgets (on demand)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --group dev
+      - name: Performance budgets
+        run: uv run pytest -m benchmark

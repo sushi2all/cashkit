@@ -162,6 +162,13 @@ describe("the quarantined plot module", () => {
     });
   });
 
+  it("sizes the label gutter from the longest label, and never below the floor", () => {
+    // 11 characters at 8px mono: ceil(11 × 8 × 0.6) + 6 = 59.
+    expect(plot.gutterWidth([4, 11, 7], 8, 28)).toBe(59);
+    expect(plot.gutterWidth([4], 8, 28)).toBe(28);
+    expect(plot.gutterWidth([], 8, 28)).toBe(28);
+  });
+
   it("exports nothing that returns a money-shaped object", () => {
     for (const [name, value] of Object.entries(plot)) {
       if (typeof value !== "function") continue;

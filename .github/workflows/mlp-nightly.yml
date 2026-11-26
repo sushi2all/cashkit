@@ -18,11 +18,19 @@
 # turn into a red build on a commit that changed nothing.
 name: MLP nightly
 
+# **Schedule stopped 2026-11-26** (founder's decision; CTO-T-04). There is no
+# model key in this repository, so every scheduled run since August failed at
+# "There is a key, or say so plainly" and the gate never ran. CashKit is
+# internal for now (ADR-0038) and nothing in production calls the model yet.
+# The workflow stays runnable by hand. To restore the schedule, add the
+# OPENROUTER_API_KEY secret and put back:
+#
+#   schedule:
+#     - cron: "0 3 * * *"   # 03:00 UTC, clear of the 03:15 backup window
+#
+# The drills job shares this trigger and stops with it; its restore drill was
+# also failing on the hosted runner (CTO-T-04, undiagnosed).
 on:
-  schedule:
-    # 03:00 UTC, before the working day in Italy, and clear of the deployment's
-    # own backup window (03:15) so the two are never competing for a box.
-    - cron: "0 3 * * *"
   workflow_dispatch:
     inputs:
       reason:

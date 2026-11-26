@@ -18,7 +18,7 @@ import { Line, Text as SvgText } from "react-native-svg";
 import type { Money } from "@cashkit/api-types";
 
 import { formatMoney } from "../../money/money";
-import { axisTicks, toY, type Box, type PlotScale } from "../../money/plot";
+import { axisTicks, gutterWidth, toY, type Box, type PlotScale } from "../../money/plot";
 import { color, font } from "../../ui/tokens";
 
 /** The narrowest gutter, used when a chart has no labels to print. */
@@ -30,14 +30,10 @@ export const AXIS_GUTTER = 28;
  * sparkline or lets `−€12 345.67` run into the curve.
  */
 export function axisGutter(scale: PlotScale, figures: readonly (Money | null)[], fontSize = 8): number {
-  const longest = Math.max(
-    0,
-    ...axisTicks(scale).map((tick) =>
-      tick.kind === "zero" ? 4 : formatMoney(tick.index === null ? null : figures[tick.index]).length,
-    ),
+  const lengths = axisTicks(scale).map((tick) =>
+    tick.kind === "zero" ? 4 : formatMoney(tick.index === null ? null : figures[tick.index]).length,
   );
-  // ponytail: mono glyphs are ~0.6em wide; measure with onLayout if a font change breaks this.
-  return Math.max(AXIS_GUTTER, Math.ceil(longest * fontSize * 0.6) + 6);
+  return gutterWidth(lengths, fontSize, AXIS_GUTTER);
 }
 
 export function ChartAxis({

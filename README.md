@@ -17,18 +17,30 @@ Three properties spreadsheets do not have:
 
 ## Status
 
-Under construction, phase by phase. See `PROMPT-fable5-implementation.md` for
-the phase plan and `PRD-cashkit.md` for the full specification.
+As of 2026-11-22. The engine is complete to v1 (phases 1–10 of
+`PROMPT-fable5-implementation.md`; phase 11 moved to the app layer by
+ADR-0021). The apps are built and tested and have never been deployed.
+CashKit is internal to Progress Lab for now (ADR-0038); the current plan is
+`km/notes/2026-11-22-internal-first-plan.md`.
 
-| Layer | Status |
-|---|---|
-| `cashkit/model` — Pydantic models, canonical YAML serialization | Phase 1, done |
-| `cashkit/reference` — naive Decimal oracle | Phase 2 |
-| `cashkit/engine` — vectorized int64 engine | Phases 3–4 |
-| `cashkit/stores` — YAML+git config, SQLite ledger, DuckDB frames | Phases 5–9 |
-| `cashkit/sdk` — public API | Phases 5–10 |
-| `cashkit/cli` | Phase 10 |
-| `evals/` — LLM SDK-call accuracy suite (outside the package) | ADR-0037, see below |
+| Part | What it is | State |
+|---|---|---|
+| `cashkit/model` | Pydantic models, canonical YAML serialization | done |
+| `cashkit/reference` | naive Decimal oracle the engine must match | done |
+| `cashkit/engine` | vectorized int64 engine, formulas, VAT and tax regimes | done |
+| `cashkit/stores` | YAML+git config, SQLite ledger, DuckDB frames | done |
+| `cashkit/sdk`, `cashkit/cli` | the public API and the shell front end | done |
+| `tests/` | engine suite: 1,131 tests, coverage gate at 90% | green |
+| `evals/` | LLM SDK-call accuracy suite, outside the package (ADR-0037) | see below |
+| `apps/service` | FastAPI service over the SDK, with the agent layer | built, not deployed |
+| `apps/client` | one Expo codebase for web and mobile | web tested end to end; no device build yet |
+| `ops/`, `compliance/` | deployment stack, backups, alarms; privacy and terms | written and drilled locally |
+| `design/desktop`, `*.pen` | desktop design for controllers; mobile design files | design only |
+| `site/` | landing page | parked (ADR-0038) |
+| `proto/` | the August prototype the app replaced | historical |
+
+Where to read first: `CLAUDE.md` for the rules, `km/adr/index.md` for the
+decisions, `km/notes/cto-log.md` for what is being worked on and why.
 
 ## Development
 

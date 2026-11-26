@@ -9,6 +9,8 @@ Deterministic cash-flow modelling engine, SDK-only surface, built for LLM agents
 - `ERP-pilot-guide.md` — pilot context, not a spec.
 - `km/adr/` — architecture decision records; `km/adr/index.md` is the index. Every judgement call made under ambiguity gets an ADR (or a `DECISIONS.md` entry once implementation starts).
 - `km/notes/` — working notes, reviews, meeting output.
+- **Direction (ADR-0038, 2026-11-22):** internal first. Progress Lab is the only user; the service stays off the public internet; no client data; Progress Lab's own book never enters this repository. Current plan: `km/notes/2026-11-22-internal-first-plan.md`.
+- `km/notes/cto-log.md` — the CTO's running log: considerations, `CTO-D` decisions, `CTO-T` tasks, open questions for the founder. Read its top entry before planning work; append, never rewrite.
 
 ## Non-negotiables (full list in PROMPT §Non-negotiable constraints)
 

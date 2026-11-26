@@ -30,7 +30,7 @@ Numbered, append-only. Status: accepted unless noted.
 | [0024](0024-whatif-state-separation.md) | Hypothetical figures stamped; book state separate until Apply | 2026-08-19 |
 | [0025](0025-positioning-nl-authoring.md) | Positioning: natural-language authoring on deterministic math | 2026-08-21 |
 | [0026](0026-pilot-ingestion-no-aggregator.md) | Pilot ingestion avoids aggregators; pure-vendor GDPR posture | 2026-08-21 |
-| [0027](0027-consumer-first-validation.md) | Consumer web app first, B2B tiers later; single user per book | 2026-08-22 |
+| [0027](0027-consumer-first-validation.md) | Consumer web app first, B2B tiers later; single user per book — *decision 1 suspended by 0038* | 2026-08-22 |
 | [0028](0028-flash-class-model-no-preroute.md) | Agent surface runs flash-class; no pre-interpretation routing | 2026-08-22 |
 | [0029](0029-question-turns-never-write.md) | Question turns never write; hosts confirm mutations | 2026-08-22 |
 | [0030](0030-staged-agent-harness.md) | The agent harness is staged over the intent grammar | 2026-08-22 |
@@ -41,3 +41,4 @@ Numbered, append-only. Status: accepted unless noted.
 | [0035](0035-trace-reads-the-engines-records.md) | `trace()` reads the engine's own occurrence records, never a re-derivation | 2026-09-05 |
 | [0036](0036-desktop-swiss-ledger-desk.md) | The desktop app is Swiss Ledger Desk over one generated demo book | 2026-09-26 |
 | [0037](0037-sdk-call-accuracy-eval.md) | SDK-call accuracy is measured by an outcome-graded eval suite under `evals/` | 2026-11-05 |
+| [0038](0038-internal-first.md) | Internal first: CashKit serves Progress Lab before anyone else; public release has no date — *amends 0027* | 2026-11-22 |
