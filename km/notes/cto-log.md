@@ -14,9 +14,9 @@ The founder's instructions, verbatim: *"Merge. Stop the model check. Get bank mo
 
 ### What I found that I did not know
 
-- **A book already existed in Drive.** Folder "Progress Lab – Cassa fine 2026 (libro CashKit)". A zip built on 22/11 from data as of 14/11 (horizon to 31/01, 6 scenarios, 20 movements), with a README and a report written by an earlier session. Its conventions were sound and I kept them: events on container items, single-date items for whatever a scenario changes, net + VAT only where the split is documented, no VAT regime, a `certezza` tag.
+- **A book already existed in Drive.** Folder "Progress Lab – Cassa fine 2026 (libro CashKit)". A zip built on 22/11 from data as of 14/11 (shorter horizon, 6 scenarios, 20 movements), with a README and a report written by an earlier session. Its conventions were sound and I kept them: events on container items, single-date items for whatever a scenario changes, net + VAT only where the split is documented, no VAT regime, a `certezza` tag.
 - **Wise is linked inside Qonto** as an external account, so one connection reads both banks. There is no separate Wise connector, and none is needed.
-- **Both bank balances match the notes:** Qonto −823,84, Wise +32,95. The last movement, Leaderhouse −284,21 on 25/11, is already in the opening balance. Nothing has settled since, so there were no actuals to import into the plan's horizon.
+- **Both bank balances match the opening balance in the notes.** Everything settled up to 25/11 is already in it, and nothing has settled since, so there were no actuals to import into the plan's horizon.
 
 ### Decisions
 
@@ -25,22 +25,24 @@ The founder's instructions, verbatim: *"Merge. Stop the model check. Get bank mo
 | CTO-D-21 | **The book lives in that Google Drive folder**, as a `.tar.xz` of the whole book directory, plus `build_book.py`, a README and a report as Google Docs, and the bank export as a Google Sheet. Replaces CTO-D-19's "separate private repository". | Founder's instruction. Drive keeps file versions; the archive keeps the book's own git history inside it. |
 | CTO-D-22 | **Rebuilt rather than edited in place.** The 22/11 book was moved, untouched, to "archivio (superato)", so its forecast stays reproducible from its own archive. | The notes change the horizon, the opening date and balance, most movements and every scenario. Editing in place would have meant voiding nearly every event. It would also have meant moving a larger history archive through this session, where every byte is copied by hand. |
 | CTO-D-23 | **Dates exactly as in the notes**, with no weekend shift (the 22/11 book shifted F24s to Monday). | The notes are the founder's source. Month-end figures are unaffected; the report says so. |
-| CTO-D-24 | **Where the notes give a lever without a date or duration, pick the obvious one and say so in the report and the README:** Quadra "a gennaio" = 15/01, Luca's pay "can move again" = one month, Essegi "slips to January" = 31/01. | Each is one line to change. Asking would have blocked the whole update on three what-ifs. |
+| CTO-D-24 | **Where the notes give a lever without a date or duration, pick the obvious one and say so in the report and the README.** "Moves to January" becomes the same day of the month a month later; "can move again" becomes one month. The three cases are listed in the Drive README. | Each is one line to change. Asking would have blocked the whole update on three what-ifs. |
 
 ### Evidence
 
-- **The book reproduces the notes.** All eight month-end balances match to the euro (e.g. Dec −2.226,44, Jun +2.556,26). The low from 1/12 is −6.579,60 on 30/12. The total to Luca is 12.355,30. `validate()` is clean; one commit, `dd985bc`.
-- **The archive reopens:** unpacked, `CashKit.open` gives the same closing balance and a clean status. Archive sha256 `cdd4b729…72d7`.
-- **The bank export reconciles.** 241 movements from 2/5 to 25/11/2026 (Qonto 136, Wise 105), totals in Decimal. Qonto's running balance has 0 breaks and ends exactly on −823,84. Wise has no running balance in the API, so only the count and total are checked.
-- **The loan in the notes is the bank's.** Three older Qonto loans ended in September–October. The remaining one is 199,27 a month, and instalment 7 of 12 was paid on 10/11, so 8 of 12 on 10/12 matches.
+Figures are in the Drive report ("Report – Piano di cassa (al 26-11)"), not here (ADR-0038 decision 6).
+
+- **The book reproduces the notes.** Every month-end balance, the year-end balance, the low point and its date, the final balance and the total owed to the founder match the notes. `validate()` is clean; one commit.
+- **The archive reopens:** unpacked, `CashKit.open` gives the same closing balance and a clean status. Its sha256 is in the Drive file's description.
+- **The bank export reconciles.** Six-plus months of movements for both accounts, totals in Decimal. Qonto's running balance has no breaks and ends exactly on the current balance. Wise has no running balance in the API, so only the count and total are checked.
+- **The loan in the notes is the bank's.** The instalment amount and numbering in the notes continue the sequence the bank shows.
 
 ### Findings to put to the founder
 
-1. **The notes understate how long the balance is negative.** They say mid-December to the end of March. Day by day, base is negative 16/12–14/03, positive only on 15/03 (Cyient), then negative again 16/03–29/04, back above zero only with Essegi on 30/04.
-2. **With ACx, the end-of-December hole (−2.919,60) is not the only one.** Month-ends are all positive, but the balance dips below zero mid-January (to −2.184) and twice in February (to −1.293 and −1.176).
-3. **INPS gestione separata for November's pay is on 16/01 (Certo), but that pay is made on 14 and 28/02.** The 22/11 README said INPS follows the payment. Kept as in the notes; the pay-deferral scenario does not move INPS. A question for Focus Lavoro.
+1. **The notes understate how long the balance is negative.** They say mid-December to the end of March. Day by day, the base scenario is positive for a single day in mid-March and then negative again until the end of April.
+2. **In one lever scenario the notes name one hole at the end of December; there are three more** inside January and February. Month-ends are all positive, so the month-end view hides them.
+3. **One social-security payment is dated before the pay it is computed on is paid**, which contradicts the rule stated in the 22/11 README. Kept as in the notes; a question for the payroll consultant.
 
-These are the first value the engine has added over the sheet: they come from looking at every day rather than every month-end.
+These are the first value the engine has added over the sheet: they come from looking at every day rather than every month-end. Details and dates are in the Drive report.
 
 ### Repository
 
