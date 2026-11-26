@@ -8,6 +8,61 @@ Running log of considerations, decisions and tasks. Newest entry on top. Append,
 
 ---
 
+## 2026-11-26 — Merge, nightly stopped, bank movements, the book updated in Drive
+
+The founder's instructions, verbatim: *"Merge. Stop the model check. Get bank movements from Qonto and Wise. Keep the book in GDrive. Update it according to the following notes."* The notes are "CashKit – Progress Lab S.r.l. – Piano di cassa nov 2026 → giu 2027", updated 26/11, from the "Libro cassa" sheet, revision 58. They are not copied here: Progress Lab's figures stay out of this repository (ADR-0038 decision 6).
+
+### What I found that I did not know
+
+- **A book already existed in Drive.** Folder "Progress Lab – Cassa fine 2026 (libro CashKit)". A zip built on 22/11 from data as of 14/11 (horizon to 31/01, 6 scenarios, 20 movements), with a README and a report written by an earlier session. Its conventions were sound and I kept them: events on container items, single-date items for whatever a scenario changes, net + VAT only where the split is documented, no VAT regime, a `certezza` tag.
+- **Wise is linked inside Qonto** as an external account, so one connection reads both banks. There is no separate Wise connector, and none is needed.
+- **Both bank balances match the notes:** Qonto −823,84, Wise +32,95. The last movement, Leaderhouse −284,21 on 25/11, is already in the opening balance. Nothing has settled since, so there were no actuals to import into the plan's horizon.
+
+### Decisions
+
+| # | Decision | Why |
+|---|---|---|
+| CTO-D-21 | **The book lives in that Google Drive folder**, as a `.tar.xz` of the whole book directory, plus `build_book.py`, a README and a report as Google Docs, and the bank export as a Google Sheet. Replaces CTO-D-19's "separate private repository". | Founder's instruction. Drive keeps file versions; the archive keeps the book's own git history inside it. |
+| CTO-D-22 | **Rebuilt rather than edited in place.** The 22/11 book was moved, untouched, to "archivio (superato)", so its forecast stays reproducible from its own archive. | The notes change the horizon, the opening date and balance, most movements and every scenario. Editing in place would have meant voiding nearly every event. It would also have meant moving a larger history archive through this session, where every byte is copied by hand. |
+| CTO-D-23 | **Dates exactly as in the notes**, with no weekend shift (the 22/11 book shifted F24s to Monday). | The notes are the founder's source. Month-end figures are unaffected; the report says so. |
+| CTO-D-24 | **Where the notes give a lever without a date or duration, pick the obvious one and say so in the report and the README:** Quadra "a gennaio" = 15/01, Luca's pay "can move again" = one month, Essegi "slips to January" = 31/01. | Each is one line to change. Asking would have blocked the whole update on three what-ifs. |
+
+### Evidence
+
+- **The book reproduces the notes.** All eight month-end balances match to the euro (e.g. Dec −2.226,44, Jun +2.556,26). The low from 1/12 is −6.579,60 on 30/12. The total to Luca is 12.355,30. `validate()` is clean; one commit, `dd985bc`.
+- **The archive reopens:** unpacked, `CashKit.open` gives the same closing balance and a clean status. Archive sha256 `cdd4b729…72d7`.
+- **The bank export reconciles.** 241 movements from 2/5 to 25/11/2026 (Qonto 136, Wise 105), totals in Decimal. Qonto's running balance has 0 breaks and ends exactly on −823,84. Wise has no running balance in the API, so only the count and total are checked.
+- **The loan in the notes is the bank's.** Three older Qonto loans ended in September–October. The remaining one is 199,27 a month, and instalment 7 of 12 was paid on 10/11, so 8 of 12 on 10/12 matches.
+
+### Findings to put to the founder
+
+1. **The notes understate how long the balance is negative.** They say mid-December to the end of March. Day by day, base is negative 16/12–14/03, positive only on 15/03 (Cyient), then negative again 16/03–29/04, back above zero only with Essegi on 30/04.
+2. **With ACx, the end-of-December hole (−2.919,60) is not the only one.** Month-ends are all positive, but the balance dips below zero mid-January (to −2.184) and twice in February (to −1.293 and −1.176).
+3. **INPS gestione separata for November's pay is on 16/01 (Certo), but that pay is made on 14 and 28/02.** The 22/11 README said INPS follows the payment. Kept as in the notes; the pay-deferral scenario does not move INPS. A question for Focus Lavoro.
+
+These are the first value the engine has added over the sheet: they come from looking at every day rather than every month-end.
+
+### Repository
+
+- PR #2 opened. On its first CI run the engine suite, the eval self-tests and the web E2E were green.
+- The client checks job then got past the lint-rule step (CTO-T-02 fix confirmed in CI), TypeScript and ESLint, and failed at unit tests. Cause: the lockfile was generated on macOS and lists only rollup's darwin binary (the npm optional-dependency bug), so vitest could not load on Linux. Fixed by declaring `@rollup/rollup-linux-x64-gnu` 4.62.5 as an optional dependency (`af299af`). Verified with `rm -rf node_modules && npm ci && CI=true npm run verify`.
+- Nightly schedule removed (`25d170e`). Manual runs still work; restore instructions are in the workflow header. The drills shared the trigger and stopped too.
+
+### Task status changes
+
+| # | Task | Status |
+|---|---|---|
+| CTO-T-01, 02, 03 | Engine CI, client CI, ChartAxis lint | done; proven in CI on PR #2 (client unit tests after `af299af`) |
+| CTO-T-04 | Nightly model check | done: schedule stopped (founder). The restore drill failure on the hosted runner stays undiagnosed. |
+| CTO-T-33 | Build the Progress Lab book | done: from the 26/11 notes, in Drive |
+| CTO-T-34 | Reproduce six months against the bank | **open, next.** The export is in Drive. The book's horizon starts 25/11, so the reproduction needs a second book (or a history horizon) from May. |
+| CTO-T-42 | Answer findings 1–3 with the founder; update the notes or the book | open |
+| CTO-T-43 | Make the book update a routine: each week, read new Qonto movements, import them as actuals with `ext_id` = transaction id, move the cutover, re-run, re-upload | open, from step 3 |
+
+Questions: CTO-Q-15 (bank data) and CTO-Q-17 (where the book lives) are answered. CTO-Q-16 is answered (merge). CTO-Q-11 is answered (stop).
+
+---
+
 ## 2026-11-22 — Internal first is confirmed; first fixes made
 
 The founder's words: *"it was born for an internal need. If it stays there and works, fine for me. Let's just go with internal for now."* Recorded as [ADR-0038](../adr/0038-internal-first.md). Plan: [`2026-11-22-internal-first-plan.md`](2026-11-22-internal-first-plan.md). The roadmap in the 14 Nov assessment is marked superseded.
